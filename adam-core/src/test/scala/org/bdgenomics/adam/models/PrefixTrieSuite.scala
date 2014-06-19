@@ -31,6 +31,14 @@ class PrefixTrieSuite extends FunSuite {
     assert(trie.find("**").size === 3)
   }
 
+  test("performing a 'find' with the wrong length argument should throw an IllegalArgumentException") {
+    intercept[IllegalArgumentException] {
+      val trie = PrefixTrie(Map("AA" -> 1, "TT" -> 2, "CC" -> 3))
+      assert(trie.size === 3)
+      assert(trie.find("***").size === 3)
+    }
+  }
+
   test("building a trie with illegal characters generates an IllegalArgumentException") {
     intercept[IllegalArgumentException] {
       PrefixTrie(Map("ATMGC" -> 0))
