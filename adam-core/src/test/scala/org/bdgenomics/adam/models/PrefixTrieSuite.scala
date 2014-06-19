@@ -19,6 +19,24 @@ import org.scalatest.FunSuite
 
 class PrefixTrieSuite extends FunSuite {
 
+  test("it should be possible to create an empty prefix trie, but nothing is ever a member of it") {
+    val trie = PrefixTrie(Map())
+    assert(trie.size === 0)
+    assert(!trie.contains(""))
+  }
+
+  test("can retrieve all values with a completely-wildcard query") {
+    val trie = PrefixTrie(Map("AA" -> 1, "TT" -> 2, "CC" -> 3))
+    assert(trie.size === 3)
+    assert(trie.find("**").size === 3)
+  }
+
+  test("building a trie with illegal characters generates an IllegalArgumentException") {
+    intercept[IllegalArgumentException] {
+      PrefixTrie(Map("ATMGC" -> 0))
+    }
+  }
+
   test("kmers with ambiguous bases don't get added to the trie") {
     val trie = PrefixTrie(Map("ANCT" -> 0.5,
       "ACTN" -> 1.0))
