@@ -24,6 +24,118 @@ import org.bdgenomics.adam.rdd.ADAMContext._
 import org.bdgenomics.adam.rich.RichADAMRecord
 import scala.math.{ min, max }
 
+object ReferenceRegionWithOrientation {
+
+  /**
+   * Builds an oriented reference region from a given reference region
+   * and an orientation parameter.
+   *
+   * @param region Unstranded reference region.
+   * @param negativeStrand True if this region should be placed on the negative
+   * strand, else it will be on the positive strand.
+   * @return Returns an oriented reference region.
+   */
+  def apply(region: ReferenceRegion,
+            negativeStrand: Boolean): ReferenceRegionWithOrientation = {
+    if (negativeStrand) {
+      ReferenceRegionWithOrientation(region.referenceName,
+        region.end - 1, // need subtraction to compensate for open end on ref region
+        region.start - 1)
+    } else {
+      ReferenceRegionWithOrientation(region.referenceName,
+        region.start,
+        region.end)
+    }
+  }
+}
+
+/**
+ * Represents a contiguous region of the reference genome with strand information.
+ *
+ * @param referenceName The name of the sequence (chromosome) in the reference genome
+ * @param start The 0-based residue-coordinate for the start of the region
+ * @param end The 0-based residue-coordinate for the first residue <i>after</i> the start
+ *            which is <i>not</i> in the region -- i.e. [start, end) define a 0-based
+ *            half-open interval.
+ */
+case class ReferenceRegionWithOrientation(referenceName: String,
+                                          start: Long,
+                                          end: Long) extends Ordered[ReferenceRegionWithOrientation] {
+
+  assert(end >= 0)
+  assert(start >= 0)
+  val negativeStrand = start >= end
+
+  def width: Long = if (negativeStrand) {
+    start - end
+  } else {
+    end - start
+  }
+
+  def contains(other: ReferencePositionWithOrientation): Boolean = {
+    if (other.refPos.isEmpty) {
+      false
+    } else {
+      val ctgAndStrand = (referenceName == other.refPos.get.referenceName &&
+        negativeStrand == other.negativeStrand)
+      val posMatch = if (negativeStrand) {
+        start > other.refPos.get.pos && end <= other.refPos.get.pos
+      } else {
+        start <= other.refPos.get.pos && end > other.refPos.get.pos
+      }
+      ctgAndStrand && posMatch
+    }
+  }
+
+  def contains(other: ReferenceRegionWithOrientation): Boolean = {
+    val ctgAndStrand = referenceName == other.referenceName && negativeStrand == other.negativeStrand
+    val pos = if (negativeStrand) {
+      start >= other.start && end <= other.end
+    } else {
+      start <= other.start && end >= other.end
+    }
+    ctgAndStrand && pos
+  }
+
+  def overlaps(other: ReferenceRegionWithOrientation): Boolean = {
+    val ctgAndStrand = referenceName == other.referenceName && negativeStrand == other.negativeStrand
+    val pos = if (negativeStrand) {
+      (start <= other.start && start >= other.end) || (end <= other.start && end >= other.end)
+    } else {
+      (start >= other.start && start <= other.end) || (end >= other.start && end <= other.end)
+    }
+    ctgAndStrand && pos
+  }
+
+  def compare(that: ReferenceRegionWithOrientation): Int =
+    if (referenceName != that.referenceName) {
+      referenceName.compareTo(that.referenceName)
+    } else if (negativeStrand != that.negativeStrand) {
+      negativeStrand.compareTo(that.negativeStrand)
+    } else {
+      if (negativeStrand) {
+        // invert comparison if on negative strand
+        if (start != that.start)
+          -start.compareTo(that.start)
+        else
+          -end.compareTo(that.end)
+      } else {
+        if (start != that.start)
+          start.compareTo(that.start)
+        else
+          end.compareTo(that.end)
+      }
+    }
+
+  def toReferenceRegion: ReferenceRegion = {
+    if (negativeStrand) {
+      ReferenceRegion(referenceName, end + 1, start + 1)
+    } else {
+      ReferenceRegion(referenceName, start, end)
+    }
+  }
+}
+
 object ReferenceRegion {
 
   /**

@@ -230,4 +230,72 @@ class ReferenceRegionSuite extends FunSuite {
 
   def point(refName: String, pos: Long): ReferencePosition =
     ReferencePosition(refName, pos)
+
+  test("build oriented reference region from non-oriented") {
+    val rrf = ReferenceRegionWithOrientation(ReferenceRegion("chr1", 10L, 20L), false)
+    assert(rrf.referenceName === "chr1")
+    assert(rrf.start === 10L)
+    assert(rrf.end === 20L)
+    assert(!rrf.negativeStrand)
+
+    val rrr = ReferenceRegionWithOrientation(ReferenceRegion("chr1", 10L, 20L), true)
+    assert(rrr.referenceName === "chr1")
+    assert(rrr.start === 19L)
+    assert(rrr.end === 9L)
+    assert(rrr.negativeStrand)
+  }
+
+  test("comparison tests for oriented reference region") {
+    assert(ReferenceRegionWithOrientation("chr1", 10L, 20L)
+      .contains(ReferenceRegionWithOrientation("chr1", 10L, 20L)))
+    assert(ReferenceRegionWithOrientation("chr1", 20L, 10L)
+      .contains(ReferenceRegionWithOrientation("chr1", 17L, 15L)))
+
+    val rrf = ReferenceRegionWithOrientation(ReferenceRegion("chr1", 10L, 20L), false)
+    val rrr = ReferenceRegionWithOrientation(ReferenceRegion("chr1", 10L, 20L), true)
+    assert(!rrf.contains(rrr))
+
+    assert(!ReferenceRegionWithOrientation("chr1", 10L, 20L)
+      .contains(ReferenceRegionWithOrientation("chr2", 10L, 20L)))
+    assert(!ReferenceRegionWithOrientation("chr1", 50L, 20L)
+      .contains(ReferenceRegionWithOrientation("chr1", 100L, 50L)))
+  }
+
+  test("comparison tests for oriented reference region vs position") {
+    assert(ReferenceRegionWithOrientation("chr1", 10L, 20L)
+      .contains(ReferencePositionWithOrientation(Some(ReferencePosition("chr1", 10L)), false)))
+    assert(ReferenceRegionWithOrientation("chr1", 20L, 10L)
+      .contains(ReferencePositionWithOrientation(Some(ReferencePosition("chr1", 17L)), true)))
+
+    assert(!ReferenceRegionWithOrientation(ReferenceRegion("chr1", 10L, 20L), false)
+      .contains(ReferencePositionWithOrientation(Some(ReferencePosition("chr1", 17L)), true)))
+    assert(!ReferenceRegionWithOrientation(ReferenceRegion("chr1", 10L, 20L), true)
+      .contains(ReferencePositionWithOrientation(Some(ReferencePosition("chr1", 10L)), false)))
+
+    assert(!ReferenceRegionWithOrientation(ReferenceRegion("chr1", 10L, 20L), false)
+      .contains(ReferencePositionWithOrientation(None.asInstanceOf[Option[ReferencePosition]], true)))
+    assert(!ReferenceRegionWithOrientation(ReferenceRegion("chr1", 10L, 20L), true)
+      .contains(ReferencePositionWithOrientation(None.asInstanceOf[Option[ReferencePosition]], false)))
+
+    assert(!ReferenceRegionWithOrientation("chr1", 10L, 20L)
+      .contains(ReferencePositionWithOrientation(Some(ReferencePosition("chr2", 10L)), false)))
+    assert(!ReferenceRegionWithOrientation("chr1", 50L, 20L)
+      .contains(ReferencePositionWithOrientation(Some(ReferencePosition("chr1", 100L)), true)))
+  }
+
+  test("overlap tests for oriented reference region") {
+    assert(ReferenceRegionWithOrientation("chr1", 10L, 20L)
+      .overlaps(ReferenceRegionWithOrientation("chr1", 15L, 25L)))
+    assert(ReferenceRegionWithOrientation("chr1", 20L, 10L)
+      .overlaps(ReferenceRegionWithOrientation("chr1", 15L, 5L)))
+
+    val rrf = ReferenceRegionWithOrientation(ReferenceRegion("chr1", 12L, 22L), false)
+    val rrr = ReferenceRegionWithOrientation(ReferenceRegion("chr1", 8L, 8L), true)
+    assert(!rrf.overlaps(rrr))
+
+    assert(!ReferenceRegionWithOrientation("chr1", 10L, 20L)
+      .overlaps(ReferenceRegionWithOrientation("chr2", 10L, 20L)))
+    assert(!ReferenceRegionWithOrientation("chr1", 50L, 20L)
+      .overlaps(ReferenceRegionWithOrientation("chr1", 100L, 51L)))
+  }
 }
