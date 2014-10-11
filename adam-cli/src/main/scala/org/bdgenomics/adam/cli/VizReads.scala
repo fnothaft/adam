@@ -42,6 +42,7 @@ object VizReads extends ADAMCommandCompanion {
   var inputPath = ""
   var reads: RDD[AlignmentRecord] = null //renamed from ADAMRecord when moved it
   //E
+
   var variants: RDD[Genotype] = null
 
   val trackHeight = 5
@@ -215,4 +216,8 @@ class VizReads(protected val args: VizReadsArgs) extends ADAMSparkCommand[VizRea
 
 }
 
+<<<<<<< HEAD
 //na12878
+=======
+//na12878
+>>>>>>> fiddling around
