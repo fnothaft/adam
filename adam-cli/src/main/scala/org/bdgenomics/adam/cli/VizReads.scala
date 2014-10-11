@@ -39,7 +39,9 @@ object VizReads extends ADAMCommandCompanion {
 
   var refName = ""
   var inputPath = ""
-  var reads: RDD[AlignmentRecord] = null
+  var reads: RDD[AlignmentRecord] = null //renamed from ADAMRecord when moved it
+  //E
+  var variants: RDD[VariantContext] = null
 
   val trackHeight = 5
   val width = 1200
@@ -109,9 +111,9 @@ class VizReadsArgs extends Args4jBase with ParquetArgs {
   var port: Int = 8080
 }
 
-class VizServlet extends ScalatraServlet with JacksonJsonSupport {
+class VizServlet extends ScalatraServlet with JacksonJsonSupport { 		//look into this
   protected implicit val jsonFormats: Formats = DefaultFormats
-  var regInfo = ReferenceRegion(VizReads.refName, 0, 100)
+  var regInfo = ReferenceRegion(VizReads.refName, 0, 100) 		//what is reference region
   var filteredLayout: OrderedTrackedLayout[AlignmentRecord] = null
   var filteredArray: Array[AlignmentRecord] = null
 
@@ -122,7 +124,7 @@ class VizServlet extends ScalatraServlet with JacksonJsonSupport {
   get("/reads/?") {
     contentType = "text/html"
 
-    filteredLayout = new OrderedTrackedLayout(VizReads.reads.filterByOverlappingRegion(regInfo).collect())
+    filteredLayout = new OrderedTrackedLayout(VizReads.reads.filterByOverlappingRegion(regInfo).collect()) //collect gets data in an array, not in an RDD
     val templateEngine = new TemplateEngine
     templateEngine.layout("adam-cli/src/main/webapp/WEB-INF/layouts/reads.ssp",
       Map("regInfo" -> (regInfo.referenceName, regInfo.start.toString, regInfo.end.toString),
@@ -159,6 +161,20 @@ class VizServlet extends ScalatraServlet with JacksonJsonSupport {
     filteredArray = VizReads.reads.filterByOverlappingRegion(regInfo).collect()
     VizReads.printJsonFreq(filteredArray, regInfo)
   }
+  //E
+  get("/variants/?") {
+    contentType = "text/html"
+
+    filteredLayout = new OrderedTrackedLayout(VizReads.reads.filterByOverlappingRegion(regInfo).collect())
+    val templateEngine = new TemplateEngine
+    templateEngine.layout("adam-cli/src/main/webapp/WEB-INF/layouts/reads.ssp",
+      Map("regInfo" -> (regInfo.referenceName, regInfo.start.toString, regInfo.end.toString),
+        "width" -> VizReads.width.toString,
+        "base" -> VizReads.base.toString,
+        "numTracks" -> filteredLayout.numTracks.toString,
+        "trackHeight" -> VizReads.trackHeight.toString))
+  }
+
 }
 
 class VizReads(protected val args: VizReadsArgs) extends ADAMSparkCommand[VizReadsArgs] {
@@ -168,9 +184,11 @@ class VizReads(protected val args: VizReadsArgs) extends ADAMSparkCommand[VizRea
     VizReads.refName = args.refName
 
     val proj = Projection(contig, readMapped, readName, start, end)
-    VizReads.reads = sc.loadAlignments(args.inputPath, projection = Some(proj))
+    VizReads.variants = sc.adamVCFLoad(args.inputPath, projection = Some(proj))
 
     val server = new org.eclipse.jetty.server.Server(args.port)
+
+    //convert vcf to adam?
     val handlers = new org.eclipse.jetty.server.handler.ContextHandlerCollection()
     server.setHandler(handlers)
     handlers.addHandler(new org.eclipse.jetty.webapp.WebAppContext("adam-cli/src/main/webapp", "/"))
@@ -178,7 +196,11 @@ class VizReads(protected val args: VizReadsArgs) extends ADAMSparkCommand[VizRea
     println("View the visualization at: " + args.port)
     println("Frequency visualization at: /freq")
     println("Overlapping reads visualization at: /reads")
+    //E
+    println("Variant visualization at: /variants")
     server.join()
   }
 
 }
+
+//na12878

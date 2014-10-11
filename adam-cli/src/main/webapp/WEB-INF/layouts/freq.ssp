@@ -149,6 +149,7 @@
           .append("span")
           .text(start + "-" + end);
 
+        //E this needs fixing
         d3.json(jsonLocation, function(error, data) {
             data.forEach(function(d) {
                 d.base = +d.base;
