@@ -25,7 +25,9 @@ import org.bdgenomics.adam.models.{ OrderedTrackedLayout, ReferenceRegion }
 import org.bdgenomics.adam.projections.AlignmentRecordField._
 import org.bdgenomics.adam.projections.Projection
 import org.bdgenomics.adam.rdd.ADAMContext._
-import org.bdgenomics.adam.rdd.read.AlignmentRecordContext._
+import org.bdgenomics.adam.rdd.read.ADAMAlignmentRecordContext._
+import org.bdgenomics.adam.rdd.variation.ADAMVariationContext._ //to do the filtering by
+
 import org.bdgenomics.adam.rich.ReferenceMappingContext.AlignmentRecordReferenceMapping
 import org.bdgenomics.formats.avro.{ AlignmentRecord, Genotype }
 import org.fusesource.scalate.TemplateEngine
@@ -42,7 +44,6 @@ object VizReads extends ADAMCommandCompanion {
   var inputPath = ""
   var reads: RDD[AlignmentRecord] = null //renamed from ADAMRecord when moved it
   //E
-
   var variants: RDD[Genotype] = null
 
   val trackHeight = 5
@@ -187,6 +188,7 @@ class VizReads(protected val args: VizReadsArgs) extends ADAMSparkCommand[VizRea
     VizReads.refName = args.refName
 
     val proj = Projection(contig, readMapped, readName, start, end)
+
     VizReads.reads = sc.adamLoad(args.inputPath, projection = Some(proj))
 
     //TODO: this is causing an error:
@@ -216,8 +218,5 @@ class VizReads(protected val args: VizReadsArgs) extends ADAMSparkCommand[VizRea
 
 }
 
-<<<<<<< HEAD
 //na12878
-=======
-//na12878
->>>>>>> fiddling around
+

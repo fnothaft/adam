@@ -103,6 +103,7 @@ class GenotypeRDDFunctions(rdd: RDD[Genotype]) extends Serializable with Logging
     bySample
   }
 
+  //ERIC
   def filterByOverlappingRegion(query: ReferenceRegion): RDD[Genotype] = {
     def overlapsQuery(rec: Genotype): Boolean =
       rec.getVariant.getContig.getContigName.toString == query.referenceName &&

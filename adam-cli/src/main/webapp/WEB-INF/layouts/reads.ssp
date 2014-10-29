@@ -161,7 +161,7 @@
         var height = (numTracks+1) * trackHeight;
         var jsonLocation = "/reads/" + refName + "?start=" + start + "&end=" + end;
 
-        var svgContainer = d3.select("body") 
+        var svgContainer = d3.select("body") //???
                              .append("svg")
                              .attr("height", (height+base))
                              .attr("width", width);
@@ -289,11 +289,24 @@
             jsonLocation = ("/reads/" + refName + "?start=" + start + "&end=" + end);
             var numTracks = 0;
 
+            // var startOverlap = start
+            // var endOverlap = end  
+            // if ( (start > startSeen) && (start < endSeen) {
+            //     startOverlap = start
+            // }
+            // if ( (end < endSeen)) {
+            //     endOverlap = end 
+            // } else {
+            //     endOverlap = endSeen
+            // }
+            
             d3.json(jsonLocation, function(error, data) {
                 data.forEach(function(d) {
                     d.readName = d.readName;
                     d.start = +d.start;
+                    // d.start = +d.startOverlap
                     d.end = +d.end;
+                    // d.end = +d.endOverlap
                     if (d.track > numTracks) { numTracks = d.track; }
                 });
 
