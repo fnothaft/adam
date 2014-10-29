@@ -19,6 +19,7 @@ package org.bdgenomics.adam.cli
 
 import org.apache.hadoop.mapreduce.Job
 import org.apache.spark.SparkContext
+import org.bdgenomics.adam.models.VariantContext
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.{ OrderedTrackedLayout, ReferenceRegion }
 import org.bdgenomics.adam.projections.AlignmentRecordField._
@@ -26,7 +27,7 @@ import org.bdgenomics.adam.projections.Projection
 import org.bdgenomics.adam.rdd.ADAMContext._
 import org.bdgenomics.adam.rdd.read.AlignmentRecordContext._
 import org.bdgenomics.adam.rich.ReferenceMappingContext.AlignmentRecordReferenceMapping
-import org.bdgenomics.formats.avro.AlignmentRecord
+import org.bdgenomics.formats.avro.{ AlignmentRecord, Genotype }
 import org.fusesource.scalate.TemplateEngine
 import org.json4s._
 import org.kohsuke.args4j.{ Argument, Option => Args4jOption }
@@ -41,7 +42,7 @@ object VizReads extends ADAMCommandCompanion {
   var inputPath = ""
   var reads: RDD[AlignmentRecord] = null //renamed from ADAMRecord when moved it
   //E
-  var variants: RDD[VariantContext] = null
+  var variants: RDD[Genotype] = null
 
   val trackHeight = 5
   val width = 1200
@@ -111,9 +112,9 @@ class VizReadsArgs extends Args4jBase with ParquetArgs {
   var port: Int = 8080
 }
 
-class VizServlet extends ScalatraServlet with JacksonJsonSupport { 		//look into this
+class VizServlet extends ScalatraServlet with JacksonJsonSupport { //look into this
   protected implicit val jsonFormats: Formats = DefaultFormats
-  var regInfo = ReferenceRegion(VizReads.refName, 0, 100) 		//what is reference region
+  var regInfo = ReferenceRegion(VizReads.refName, 0, 200) //what is reference region
   var filteredLayout: OrderedTrackedLayout[AlignmentRecord] = null
   var filteredArray: Array[AlignmentRecord] = null
 
@@ -124,7 +125,7 @@ class VizServlet extends ScalatraServlet with JacksonJsonSupport { 		//look into
   get("/reads/?") {
     contentType = "text/html"
 
-    filteredLayout = new OrderedTrackedLayout(VizReads.reads.filterByOverlappingRegion(regInfo).collect()) //collect gets data in an array, not in an RDD
+    filteredLayout = new OrderedTrackedLayout(VizReads.reads.filterByOverlappingRegion(regInfo).collect()) //collect gets data in an array, not in an RDD, this is for tracks
     val templateEngine = new TemplateEngine
     templateEngine.layout("adam-cli/src/main/webapp/WEB-INF/layouts/reads.ssp",
       Map("regInfo" -> (regInfo.referenceName, regInfo.start.toString, regInfo.end.toString),
@@ -134,7 +135,7 @@ class VizServlet extends ScalatraServlet with JacksonJsonSupport { 		//look into
         "trackHeight" -> VizReads.trackHeight.toString))
   }
 
-  get("/reads/:ref") {
+  get("/reads/:ref") { //needed to display stuff
     contentType = formats("json")
 
     regInfo = ReferenceRegion(params("ref"), params("start").toLong, params("end").toLong)
@@ -164,15 +165,16 @@ class VizServlet extends ScalatraServlet with JacksonJsonSupport { 		//look into
   //E
   get("/variants/?") {
     contentType = "text/html"
-
-    filteredLayout = new OrderedTrackedLayout(VizReads.reads.filterByOverlappingRegion(regInfo).collect())
+    val input = VizReads.variants.filterByOverlappingRegion(regInfo).collect()
+    // val filteredGenotypeTrack = new OrderedTrackedLayout(input) //where is the implicit mapping?
+    var filteredGenotypeArray = VizReads.variants.filterByOverlappingRegion(regInfo).collect()
     val templateEngine = new TemplateEngine
-    templateEngine.layout("adam-cli/src/main/webapp/WEB-INF/layouts/reads.ssp",
+    templateEngine.layout("adam-cli/src/main/webapp/WEB-INF/layouts/variants.ssp",
       Map("regInfo" -> (regInfo.referenceName, regInfo.start.toString, regInfo.end.toString),
         "width" -> VizReads.width.toString,
         "base" -> VizReads.base.toString,
         "numTracks" -> filteredLayout.numTracks.toString,
-        "trackHeight" -> VizReads.trackHeight.toString))
+        "trackHeight" -> VizReads.trackHeight.toString)) //putting this here allows acces in ssp file
   }
 
 }
@@ -184,7 +186,9 @@ class VizReads(protected val args: VizReadsArgs) extends ADAMSparkCommand[VizRea
     VizReads.refName = args.refName
 
     val proj = Projection(contig, readMapped, readName, start, end)
-    VizReads.variants = sc.adamVCFLoad(args.inputPath, projection = Some(proj))
+
+    // VizReads.reads = sc.adamLoad(args.inputPath, projection = Some(proj))
+    VizReads.variants = sc.adamVCFLoad(args.inputPath).flatMap(_.genotypes)
 
     val server = new org.eclipse.jetty.server.Server(args.port)
 
