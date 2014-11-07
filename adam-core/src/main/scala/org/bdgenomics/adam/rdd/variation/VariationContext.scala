@@ -63,8 +63,15 @@ class VariationContext(@transient val sc: SparkContext) extends Serializable wit
       filePath,
       classOf[VCFInputFormat], classOf[LongWritable], classOf[VariantContextWritable],
       ContextUtil.getConfiguration(job))
-    log.info("Converted %d records".format(records.count()))
-    records.map(p => vcc.convertToAnnotation(p._2.get))
+      .cache()
+    log.info("Loaded %d VCF lines".format(records.count()))
+
+    val convertedRecords = records.map(p => vcc.convertToAnnotation(p._2.get))
+      .persist()
+
+    log.info("After conversion, have " + convertedRecords.count() + " cells.")
+
+    convertedRecords
   }
 
   def adamVCFSave(filePath: String, variants: RDD[VariantContext], dict: Option[SequenceDictionary] = None) = {
