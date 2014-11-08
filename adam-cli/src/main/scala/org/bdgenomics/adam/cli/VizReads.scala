@@ -186,9 +186,17 @@ class VizReads(protected val args: VizReadsArgs) extends ADAMSparkCommand[VizRea
     VizReads.refName = args.refName
 
     val proj = Projection(contig, readMapped, readName, start, end)
+    VizReads.reads = sc.adamLoad(args.inputPath, projection = Some(proj))
 
-    // VizReads.reads = sc.adamLoad(args.inputPath, projection = Some(proj))
-    VizReads.variants = sc.adamVCFLoad(args.inputPath).flatMap(_.genotypes)
+    //TODO: this is causing an error:
+    println("inputPath is: " + args.inputPath)
+    // if (inputPath)
+    println("refName is: " + args.refName)
+    // VizReads.variants = sc.adamVCFLoad(args.inputPath).flatMap(_.genotypes)
+    // Exception in thread "main" htsjdk.tribble.TribbleException: 
+    // Input stream does not contain a BCF encoded file; BCF magic header info not found, at record 0 with position 0:
+
+    // VizReads.variants = sc.adamVCFLoad(args.inputPath) //variant context or genotype? 	//doesn't work
 
     val server = new org.eclipse.jetty.server.Server(args.port)
 
