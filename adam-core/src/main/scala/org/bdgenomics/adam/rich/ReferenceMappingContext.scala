@@ -20,7 +20,6 @@ package org.bdgenomics.adam.rich
 import org.bdgenomics.adam.models.{ ReferenceRegion, ReferenceMapping }
 import org.bdgenomics.formats.avro.{ AlignmentRecord, Feature, FlatGenotype, Genotype }
 
-
 /**
  * A common location in which to drop some ReferenceMapping implementations.
  */
