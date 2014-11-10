@@ -27,7 +27,7 @@ import org.bdgenomics.adam.projections.Projection
 import org.bdgenomics.adam.rdd.ADAMContext._
 import org.bdgenomics.adam.rdd.read.AlignmentRecordContext._
 import org.bdgenomics.adam.rdd.variation.VariationContext._ //to do the filtering by
-import org.bdgenomics.adam.rich.ReferenceMappingContext.AlignmentRecordReferenceMapping
+import org.bdgenomics.adam.rich.ReferenceMappingContext._
 import org.bdgenomics.formats.avro.{ AlignmentRecord, Genotype }
 import org.fusesource.scalate.TemplateEngine
 import org.json4s._
@@ -61,6 +61,18 @@ object VizReads extends ADAMCommandCompanion {
     for ((rec, track) <- layout.trackAssignments) {
       val aRec = rec.asInstanceOf[AlignmentRecord]
       tracks += new TrackJson(aRec.getReadName, aRec.getStart, aRec.getEnd, track)
+    }
+    tracks.toList
+  }
+
+  //E
+  def printTrackJsonVariant(layout: OrderedTrackedLayout[Genotype]): List[TrackJson] = { //is this right?
+    var tracks = new scala.collection.mutable.ListBuffer[TrackJson]
+
+    // draws a box for each read, in the appropriate track
+    for ((rec, track) <- layout.trackAssignments) {
+      val aRec = rec.asInstanceOf[Genotype]
+      tracks += new TrackJson(aRec.getVariant.getContig.getContigName, aRec.getVariant.getStart, aRec.getVariant.getEnd, track)
     }
     tracks.toList
   }
@@ -115,7 +127,7 @@ class VizReadsArgs extends Args4jBase with ParquetArgs {
 
 class VizServlet extends ScalatraServlet with JacksonJsonSupport { //look into this
   protected implicit val jsonFormats: Formats = DefaultFormats
-  var regInfo = ReferenceRegion(VizReads.refName, 0, 200) //what is reference region
+  var regInfo = ReferenceRegion(VizReads.refName, 0, 200) 		//specify that it's 200
   var filteredLayout: OrderedTrackedLayout[AlignmentRecord] = null
   var filteredArray: Array[AlignmentRecord] = null
 
@@ -167,8 +179,7 @@ class VizServlet extends ScalatraServlet with JacksonJsonSupport { //look into t
   get("/variants/?") {
     contentType = "text/html"
     val input = VizReads.variants.filterByOverlappingRegion(regInfo).collect()
-    val filteredGenotypeTrack = new OrderedTrackedLayout(input) //where is the implicit mapping?
-    // var filteredGenotypeArray = VizReads.variants.filterByOverlappingRegion(regInfo).collect()
+    val filteredGenotypeTrack = new OrderedTrackedLayout(input) //ERROR: where is the implicit mapping?
     val templateEngine = new TemplateEngine
     templateEngine.layout("adam-cli/src/main/webapp/WEB-INF/layouts/variants.ssp",
       Map("regInfo" -> (regInfo.referenceName, regInfo.start.toString, regInfo.end.toString),
@@ -176,6 +187,15 @@ class VizServlet extends ScalatraServlet with JacksonJsonSupport { //look into t
         "base" -> VizReads.base.toString,
         "numTracks" -> filteredGenotypeTrack.numTracks.toString,
         "trackHeight" -> VizReads.trackHeight.toString)) //putting this here allows acces in ssp file
+  }
+  //E
+  get("/variants/:ref") {
+    contentType = formats("json")
+
+    regInfo = ReferenceRegion(params("ref"), params("start").toLong, params("end").toLong)
+    val input = VizReads.variants.filterByOverlappingRegion(regInfo).collect()
+    val filteredGenotypeTrack = new OrderedTrackedLayout(input) //ERROR: where is the implicit mapping?
+    VizReads.printTrackJsonVariant(filteredGenotypeTrack) //TODO: analog for variants?
   }
 
   // get("/reads/?") {
@@ -214,7 +234,7 @@ class VizReads(protected val args: VizReadsArgs) extends ADAMSparkCommand[VizRea
     println("inputPath is: " + args.inputPath)
     // if (inputPath)
     println("refName is: " + args.refName)
-    VizReads.variants = sc.adamVCFLoad(args.inputPath).flatMap(_.genotypes)
+    // VizReads.variants = sc.adamVCFLoad(args.inputPath).flatMap(_.genotypes)
     // Exception in thread "main" htsjdk.tribble.TribbleException: 
     // Input stream does not contain a BCF encoded file; BCF magic header info not found, at record 0 with position 0:
     // VizReads.variants = sc.adamVCFLoad(args.inputPath) //variant context or genotype? 	//doesn't work
