@@ -127,7 +127,7 @@ class VizReadsArgs extends Args4jBase with ParquetArgs {
 
 class VizServlet extends ScalatraServlet with JacksonJsonSupport { //look into this
   protected implicit val jsonFormats: Formats = DefaultFormats
-  var regInfo = ReferenceRegion(VizReads.refName, 0, 200) 		//specify that it's 200
+  var regInfo = ReferenceRegion(VizReads.refName, 0, 200) //specify that it's 200
   var filteredLayout: OrderedTrackedLayout[AlignmentRecord] = null
   var filteredArray: Array[AlignmentRecord] = null
 
@@ -198,27 +198,6 @@ class VizServlet extends ScalatraServlet with JacksonJsonSupport { //look into t
     VizReads.printTrackJsonVariant(filteredGenotypeTrack) //TODO: analog for variants?
   }
 
-  // get("/reads/?") {
-  //   contentType = "text/html"
-
-  //   filteredLayout = new OrderedTrackedLayout(VizReads.reads.filterByOverlappingRegion(regInfo).collect()) //collect gets data in an array, not in an RDD, this is for tracks
-  //   val templateEngine = new TemplateEngine
-  //   templateEngine.layout("adam-cli/src/main/webapp/WEB-INF/layouts/reads.ssp",
-  //     Map("regInfo" -> (regInfo.referenceName, regInfo.start.toString, regInfo.end.toString),
-  //       "width" -> VizReads.width.toString,
-  //       "base" -> VizReads.base.toString,
-  //       "numTracks" -> filteredLayout.numTracks.toString,
-  //       "trackHeight" -> VizReads.trackHeight.toString))
-  // }
-
-  // get("/reads/:ref") { //needed to display stuff
-  //   contentType = formats("json")
-
-  //   regInfo = ReferenceRegion(params("ref"), params("start").toLong, params("end").toLong)
-  //   filteredLayout = new OrderedTrackedLayout(VizReads.reads.filterByOverlappingRegion(regInfo).collect())
-  //   VizReads.printTrackJson(filteredLayout)
-  // }
-
 }
 
 class VizReads(protected val args: VizReadsArgs) extends ADAMSparkCommand[VizReadsArgs] {
@@ -234,7 +213,7 @@ class VizReads(protected val args: VizReadsArgs) extends ADAMSparkCommand[VizRea
     println("inputPath is: " + args.inputPath)
     // if (inputPath)
     println("refName is: " + args.refName)
-    // VizReads.variants = sc.adamVCFLoad(args.inputPath).flatMap(_.genotypes)
+    VizReads.variants = sc.adamVCFLoad(args.inputPath).flatMap(_.genotypes)
     // Exception in thread "main" htsjdk.tribble.TribbleException: 
     // Input stream does not contain a BCF encoded file; BCF magic header info not found, at record 0 with position 0:
     // VizReads.variants = sc.adamVCFLoad(args.inputPath) //variant context or genotype? 	//doesn't work
