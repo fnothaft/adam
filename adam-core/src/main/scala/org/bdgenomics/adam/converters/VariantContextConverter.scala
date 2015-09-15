@@ -256,6 +256,10 @@ class VariantContextConverter(dict: Option[SequenceDictionary] = None) extends S
           .setAlleles(g.getAlleles.map(VariantContextConverter.convertAllele(vc, _)))
           .setIsPhased(g.isPhased)
 
+        if (vc.hasID) {
+          genotype.setInDbSnp(true)
+          genotype.setDbSnpId(vc.getID)
+        }
         if (g.hasGQ) genotype.setGenotypeQuality(g.getGQ)
         if (g.hasDP) genotype.setReadDepth(g.getDP)
 
