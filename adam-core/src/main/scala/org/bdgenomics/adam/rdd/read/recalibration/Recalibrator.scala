@@ -32,10 +32,21 @@ class Recalibrator(val table: RecalibrationTable, val minAcceptableQuality: Qual
     r._1.fold(r._2.get)(read => {
       val record: AlignmentRecord = read.record
       if (record.getQual != null) {
-        AlignmentRecord.newBuilder(record)
-          .setQual(QualityScore.toString(computeQual(read)))
-          .setOrigQual(record.getQual)
-          .build()
+        try {
+          AlignmentRecord.newBuilder(record)
+            .setQual(QualityScore.toString(computeQual(read)))
+            .setOrigQual(record.getQual)
+            .build()
+        } catch {
+          case cce: ClassCastException => {
+            // reformat and rethrow
+            throw new ClassCastException("Caught class cast exception when building record in recalibrator: %s\nOriginal record: %s\nOriginal record schema: %s\nNew record schema: %s".format(
+              cce.getMessage,
+              record.toString,
+              record.getSchema.toString,
+              AlignmentRecord.getClassSchema.toString))
+          }
+        }
       } else {
         record
       }
