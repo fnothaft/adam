@@ -38,10 +38,10 @@ class Recalibrator(val table: RecalibrationTable, val minAcceptableQuality: Qual
             .setOrigQual(record.getQual)
             .build()
         } catch {
-          case cce: ClassCastException => {
+          case e: Throwable => {
             // reformat and rethrow
-            throw new ClassCastException("Caught class cast exception when building record in recalibrator: %s\nOriginal record: %s\nOriginal record schema: %s\nNew record schema: %s".format(
-              cce.getMessage,
+            throw new ClassCastException("Caught exception when building record in recalibrator: %s\nOriginal record: %s\nOriginal record schema: %s\nNew record schema: %s".format(
+              e.getMessage,
               record.toString,
               record.getSchema.toString,
               AlignmentRecord.getClassSchema.toString))
