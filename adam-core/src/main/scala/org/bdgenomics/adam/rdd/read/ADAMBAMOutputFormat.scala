@@ -52,6 +52,13 @@ object ADAMBAMOutputFormat extends Serializable {
   }
 
   /**
+   * @return Do we have a header?
+   */
+  private[read] def headerExists: Boolean = {
+    header.isDefined
+  }
+
+  /**
    * Returns the current header.
    *
    * @return Current SAM header.
@@ -65,7 +72,12 @@ object ADAMBAMOutputFormat extends Serializable {
 class ADAMBAMOutputFormat[K]
     extends KeyIgnoringBAMOutputFormat[K] with Serializable {
 
-  setSAMHeader(ADAMBAMOutputFormat.getHeader)
+  if (ADAMBAMOutputFormat.headerExists) {
+    setWriteHeader(true)
+    setSAMHeader(ADAMBAMOutputFormat.getHeader)
+  } else {
+    setWriteHeader(false)
+  }
 }
 
 class InstrumentedADAMBAMOutputFormat[K] extends InstrumentedOutputFormat[K, org.seqdoop.hadoop_bam.SAMRecordWritable] {

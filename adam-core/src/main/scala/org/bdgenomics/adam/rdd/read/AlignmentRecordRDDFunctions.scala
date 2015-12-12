@@ -18,7 +18,13 @@
 package org.bdgenomics.adam.rdd.read
 
 import java.io.StringWriter
-import htsjdk.samtools.{ SAMFileHeader, SAMTextHeaderCodec, SAMTextWriter, ValidationStringency }
+import htsjdk.samtools.{
+  SAMFileHeader,
+  SAMFileWriterFactory,
+  SAMTextHeaderCodec,
+  SAMTextWriter,
+  ValidationStringency
+}
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{ FileSystem, Path }
 import org.apache.hadoop.io.LongWritable
@@ -132,49 +138,47 @@ class AlignmentRecordRDDFunctions(rdd: RDD[AlignmentRecord])
     val (convertRecords: RDD[SAMRecordWritable], header: SAMFileHeader) = rdd.adamConvertToSAM(isSorted)
 
     // add keys to our records
-    val withKey =
-      if (asSingleFile) convertRecords.keyBy(v => new LongWritable(v.get.getAlignmentStart)).coalesce(1)
-      else convertRecords.keyBy(v => new LongWritable(v.get.getAlignmentStart))
+    val withKey = convertRecords.keyBy(v => new LongWritable(v.get.getAlignmentStart))
 
-    val bcastHeader = rdd.context.broadcast(header)
-    val mp = rdd.mapPartitionsWithIndex((idx, iter) => {
-      log.info(s"Setting ${if (asSam) "SAM" else "BAM"} header for partition $idx")
-      val header = bcastHeader.value
-      synchronized {
-        // perform map partition call to ensure that the SAM/BAM header is set on all
-        // nodes in the cluster; see:
-        // https://github.com/bigdatagenomics/adam/issues/353,
-        // https://github.com/bigdatagenomics/adam/issues/676
+    if (!asSingleFile) {
+      val bcastHeader = rdd.context.broadcast(header)
+      val mp = rdd.mapPartitionsWithIndex((idx, iter) => {
+        log.info(s"Setting ${if (asSam) "SAM" else "BAM"} header for partition $idx")
+        val header = bcastHeader.value
+        synchronized {
+          // perform map partition call to ensure that the SAM/BAM header is set on all
+          // nodes in the cluster; see:
+          // https://github.com/bigdatagenomics/adam/issues/353,
+          // https://github.com/bigdatagenomics/adam/issues/676
 
-        asSam match {
-          case true =>
+          if (asSam) {
             ADAMSAMOutputFormat.clearHeader()
             ADAMSAMOutputFormat.addHeader(header)
             log.info(s"Set SAM header for partition $idx")
-          case false =>
+          } else {
             ADAMBAMOutputFormat.clearHeader()
             ADAMBAMOutputFormat.addHeader(header)
             log.info(s"Set BAM header for partition $idx")
+          }
         }
+        Iterator[Int]()
+      }).count()
+
+      // force value check, ensure that computation happens
+      if (mp != 0) {
+        log.error("Had more than 0 elements after map partitions call to set VCF header across cluster.")
       }
-      Iterator[Int]()
-    }).count()
 
-    // force value check, ensure that computation happens
-    if (mp != 0) {
-      log.error("Had more than 0 elements after map partitions call to set VCF header across cluster.")
-    }
-
-    // attach header to output format
-    asSam match {
-      case true =>
+      // attach header to output format
+      if (asSam) {
         ADAMSAMOutputFormat.clearHeader()
         ADAMSAMOutputFormat.addHeader(header)
         log.info(s"Set SAM header on driver")
-      case false =>
+      } else {
         ADAMBAMOutputFormat.clearHeader()
         ADAMBAMOutputFormat.addHeader(header)
         log.info(s"Set BAM header on driver")
+      }
     }
 
     // write file to disk
@@ -197,15 +201,38 @@ class AlignmentRecordRDDFunctions(rdd: RDD[AlignmentRecord])
           conf
         )
     }
+
     if (asSingleFile) {
       log.info(s"Writing single ${if (asSam) "SAM" else "BAM"} file (not Hadoop-style directory)")
+
+      // get file system and output path
       val conf = new Configuration()
       val fs = FileSystem.get(conf)
       val ouputParentDir = filePath.substring(0, filePath.lastIndexOf("/") + 1)
+      val op = new Path(filePath)
+
+      // temporarily move our output directory
       val tmpPath = ouputParentDir + "tmp" + System.currentTimeMillis().toString
-      fs.rename(new Path(filePath + "/part-r-00000"), new Path(tmpPath))
-      fs.delete(new Path(filePath), true)
-      fs.rename(new Path(tmpPath), new Path(filePath))
+      val tp = new Path(tmpPath)
+      fs.rename(op, tp)
+
+      // create a new file to write the header to
+      val os = fs.create(op)
+
+      // get sam file writer and write header
+      val sfw = if (asSam) {
+        new SAMFileWriterFactory().makeSAMWriter(header, isSorted, os)
+      } else {
+        new SAMFileWriterFactory().makeBAMWriter(header, isSorted, os)
+      }
+      sfw.close()
+      os.close()
+
+      // get temp files
+      val globPath = fs.globStatus(new Path("%s/part-r-[0-9][0-9][0-9][0-9][0-9]*".format(tmpPath)))
+        .map(_.getPath)
+
+      fs.concat(op, globPath)
     }
   }
 
