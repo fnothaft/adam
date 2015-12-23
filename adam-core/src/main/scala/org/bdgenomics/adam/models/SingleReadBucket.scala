@@ -25,8 +25,7 @@ import org.bdgenomics.adam.rdd.ADAMContext._
 import org.bdgenomics.adam.serialization.AvroSerializer
 import org.bdgenomics.formats.avro.{
   AlignmentRecord,
-  Fragment,
-  Sequence
+  Fragment
 }
 import scala.collection.JavaConversions._
 
@@ -71,10 +70,6 @@ case class SingleReadBucket(primaryMapped: Iterable[AlignmentRecord] = Seq.empty
           builder.setFragmentSize(is.toInt)
         })
       })
-
-    // set platform unit, if known
-    Option(unionReads.head.getRecordGroupPlatformUnit)
-      .foreach(p => builder.setInstrument(p))
 
     // set record group name, if known
     Option(unionReads.head.getRecordGroupName)

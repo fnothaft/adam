@@ -19,6 +19,7 @@ package org.bdgenomics.adam.apis.java
 
 import org.apache.spark.SparkContext
 import org.apache.spark.api.java.JavaSparkContext
+import org.bdgenomics.adam.models.{ RecordGroupDictionary, SequenceDictionary }
 import org.bdgenomics.adam.rdd.ADAMContext
 import org.bdgenomics.adam.rdd.ADAMContext._
 import org.bdgenomics.formats.avro._
@@ -60,7 +61,10 @@ class JavaADAMContext(val ac: ADAMContext) extends Serializable {
    * @param filePath Path to load the file from.
    * @return Returns a read RDD.
    */
-  def adamRecordLoad(filePath: java.lang.String): JavaAlignmentRecordRDD = {
-    new JavaAlignmentRecordRDD(ac.loadAlignments(filePath).toJavaRDD())
+  def adamRecordLoad(filePath: java.lang.String): (JavaAlignmentRecordRDD, SequenceDictionary, RecordGroupDictionary) = {
+    val (rdd, sd, rgd) = ac.loadAlignments(filePath)
+    (new JavaAlignmentRecordRDD(rdd.toJavaRDD()),
+      sd,
+      rgd)
   }
 }

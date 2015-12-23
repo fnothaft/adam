@@ -64,7 +64,7 @@ class FlagStat(protected val args: FlagStatArgs) extends BDGSparkCommand[FlagSta
       AlignmentRecordField.mapq,
       AlignmentRecordField.failedVendorQualityChecks)
 
-    val adamFile: RDD[AlignmentRecord] = sc.loadAlignments(args.inputPath, projection = Some(projection))
+    val adamFile: RDD[AlignmentRecord] = sc.loadAlignments(args.inputPath, projection = Some(projection))._1
 
     val (failedVendorQuality, passedVendorQuality) = adamFile.adamFlagStat()
 

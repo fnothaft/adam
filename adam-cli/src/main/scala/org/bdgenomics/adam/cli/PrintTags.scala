@@ -61,7 +61,7 @@ class PrintTags(protected val args: PrintTagsArgs) extends BDGSparkCommand[Print
     val toCount = if (args.count != null) args.count.split(",").toSet else Set()
 
     val proj = Projection(attributes, primaryAlignment, readMapped, readPaired, failedVendorQualityChecks)
-    val rdd: RDD[AlignmentRecord] = sc.loadAlignments(args.inputPath, projection = Some(proj))
+    val rdd: RDD[AlignmentRecord] = sc.loadAlignments(args.inputPath, projection = Some(proj))._1
     val filtered = rdd.filter(rec => !rec.getFailedVendorQualityChecks)
 
     if (args.list != null) {

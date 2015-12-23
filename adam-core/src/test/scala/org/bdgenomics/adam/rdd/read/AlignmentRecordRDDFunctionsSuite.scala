@@ -20,6 +20,7 @@ package org.bdgenomics.adam.rdd.read
 import java.nio.file.Files
 import htsjdk.samtools.ValidationStringency
 import org.apache.spark.rdd.RDD
+import org.bdgenomics.adam.models.{ RecordGroupDictionary, SequenceDictionary }
 import org.bdgenomics.adam.rdd.ADAMContext._
 import org.bdgenomics.adam.util.ADAMFunSuite
 import org.bdgenomics.formats.avro._
@@ -111,7 +112,7 @@ class AlignmentRecordRDDFunctionsSuite extends ADAMFunSuite {
 
   sparkTest("characterizeTags counts tags in a SAM file correctly") {
     val filePath = getClass.getClassLoader.getResource("reads12.sam").getFile
-    val sam: RDD[AlignmentRecord] = sc.loadAlignments(filePath)
+    val sam: RDD[AlignmentRecord] = sc.loadAlignments(filePath)._1
 
     val mapCounts: Map[String, Long] = Map(sam.adamCharacterizeTags().collect(): _*)
     assert(mapCounts("NM") === 200)
@@ -121,12 +122,15 @@ class AlignmentRecordRDDFunctionsSuite extends ADAMFunSuite {
 
   sparkTest("round trip from ADAM to SAM and back to ADAM produces equivalent Read values") {
     val reads12Path = Thread.currentThread().getContextClassLoader.getResource("reads12.sam").getFile
-    val rdd12A: RDD[AlignmentRecord] = sc.loadAlignments(reads12Path)
+    val (rdd12A, sd, rgd) = sc.loadBam(reads12Path)
 
     val tempFile = Files.createTempDirectory("reads12")
-    rdd12A.adamSAMSave(tempFile.toAbsolutePath.toString + "/reads12.sam", asSam = true)
+    rdd12A.adamSAMSave(tempFile.toAbsolutePath.toString + "/reads12.sam",
+      sd,
+      rgd,
+      asSam = true)
 
-    val rdd12B: RDD[AlignmentRecord] = sc.loadBam(tempFile.toAbsolutePath.toString + "/reads12.sam/part-r-00000")
+    val (rdd12B, _, _) = sc.loadBam(tempFile.toAbsolutePath.toString + "/reads12.sam/part-r-00000")
 
     assert(rdd12B.count() === rdd12A.count())
 
@@ -144,7 +148,7 @@ class AlignmentRecordRDDFunctionsSuite extends ADAMFunSuite {
 
   sparkTest("SAM conversion sets read mapped flag properly") {
     val filePath = getClass.getClassLoader.getResource("reads12.sam").getFile
-    val sam: RDD[AlignmentRecord] = sc.loadAlignments(filePath)
+    val sam: RDD[AlignmentRecord] = sc.loadAlignments(filePath)._1
 
     sam.collect().foreach(r => assert(r.getReadMapped))
   }
@@ -157,10 +161,12 @@ class AlignmentRecordRDDFunctionsSuite extends ADAMFunSuite {
     val rddA: RDD[AlignmentRecord] = sc.loadFastq(noqualPath, None, None, ValidationStringency.LENIENT)
 
     //write SAM (fixed and now well-formed)
-    rddA.adamSAMSave(tempBase + "/noqualA.sam")
+    rddA.adamSAMSave(tempBase + "/noqualA.sam",
+      SequenceDictionary.empty,
+      RecordGroupDictionary.empty)
 
     //read SAM
-    val rddB: RDD[AlignmentRecord] = sc.loadAlignments(tempBase + "/noqualA.sam")
+    val rddB: RDD[AlignmentRecord] = sc.loadAlignments(tempBase + "/noqualA.sam")._1
 
     //write FASTQ (well-formed)
     rddB.adamSaveAsFastq(tempBase + "/noqualB.fastq")
@@ -183,12 +189,12 @@ class AlignmentRecordRDDFunctionsSuite extends ADAMFunSuite {
 
   sparkTest("round trip from ADAM to FASTQ and back to ADAM produces equivalent Read values") {
     val reads12Path = Thread.currentThread().getContextClassLoader.getResource("fastq_sample1.fq").getFile
-    val rdd12A: RDD[AlignmentRecord] = sc.loadAlignments(reads12Path)
+    val rdd12A: RDD[AlignmentRecord] = sc.loadAlignments(reads12Path)._1
 
     val tempFile = Files.createTempDirectory("reads12")
     rdd12A.adamSaveAsFastq(tempFile.toAbsolutePath.toString + "/reads12.fq")
 
-    val rdd12B: RDD[AlignmentRecord] = sc.loadAlignments(tempFile.toAbsolutePath.toString + "/reads12.fq")
+    val rdd12B: RDD[AlignmentRecord] = sc.loadAlignments(tempFile.toAbsolutePath.toString + "/reads12.fq")._1
 
     assert(rdd12B.count() === rdd12A.count())
 
@@ -207,7 +213,7 @@ class AlignmentRecordRDDFunctionsSuite extends ADAMFunSuite {
   sparkTest("round trip from ADAM to paired-FASTQ and back to ADAM produces equivalent Read values") {
     val path1 = resourcePath("proper_pairs_1.fq")
     val path2 = resourcePath("proper_pairs_2.fq")
-    val rddA = sc.loadAlignments(path1).adamRePairReads(sc.loadAlignments(path2),
+    val rddA = sc.loadAlignments(path1)._1.adamRePairReads(sc.loadAlignments(path2)._1,
       validationStringency = ValidationStringency.STRICT)
 
     assert(rddA.count() == 6)
@@ -218,7 +224,7 @@ class AlignmentRecordRDDFunctionsSuite extends ADAMFunSuite {
 
     rddA.adamSaveAsPairedFastq(tempPath1, tempPath2, validationStringency = ValidationStringency.STRICT)
 
-    val rddB: RDD[AlignmentRecord] = sc.loadAlignments(tempPath1).adamRePairReads(sc.loadAlignments(tempPath2),
+    val rddB: RDD[AlignmentRecord] = sc.loadAlignments(tempPath1)._1.adamRePairReads(sc.loadAlignments(tempPath2)._1,
       validationStringency = ValidationStringency.STRICT)
 
     assert(rddB.count() === rddA.count())
@@ -237,30 +243,44 @@ class AlignmentRecordRDDFunctionsSuite extends ADAMFunSuite {
 
   sparkTest("writing a small sorted file as SAM should produce the expected result") {
     val unsortedPath = resourcePath("unsorted.sam")
-    val reads = sc.loadBam(unsortedPath)
+    val (reads, sd, rgd) = sc.loadBam(unsortedPath)
 
     val actualSortedPath = tmpFile("sorted.sam")
-    reads.adamSortReadsByReferencePosition().adamSAMSave(actualSortedPath, isSorted = true, asSingleFile = true)
+    reads.adamSortReadsByReferencePosition()
+      .adamSAMSave(actualSortedPath,
+        sd.stripIndices,
+        rgd,
+        isSorted = true,
+        asSingleFile = true)
 
     checkFiles(resourcePath("sorted.sam"), actualSortedPath)
   }
 
   sparkTest("writing unordered sam from unordered sam") {
     val unsortedPath = resourcePath("unordered.sam")
-    val reads = sc.loadBam(unsortedPath)
+    val (reads, sd, rgd) = sc.loadBam(unsortedPath)
 
     val actualUnorderedPath = tmpFile("unordered.sam")
-    reads.adamSAMSave(actualUnorderedPath, isSorted = false, asSingleFile = true)
+    reads.adamSAMSave(actualUnorderedPath,
+      sd,
+      rgd,
+      isSorted = false,
+      asSingleFile = true)
 
     checkFiles(unsortedPath, actualUnorderedPath)
   }
 
   sparkTest("writing ordered sam from unordered sam") {
     val unsortedPath = resourcePath("unordered.sam")
-    val reads = sc.loadBam(unsortedPath).adamSortReadsByReferencePosition
+    val (usReads, sd, rgd) = sc.loadBam(unsortedPath)
+    val reads = usReads.adamSortReadsByReferencePosition
 
     val actualSortedPath = tmpFile("ordered.sam")
-    reads.adamSAMSave(actualSortedPath, isSorted = true, asSingleFile = true)
+    reads.adamSAMSave(actualSortedPath,
+      sd.stripIndices,
+      rgd,
+      isSorted = true,
+      asSingleFile = true)
 
     checkFiles(resourcePath("ordered.sam"), actualSortedPath)
   }
