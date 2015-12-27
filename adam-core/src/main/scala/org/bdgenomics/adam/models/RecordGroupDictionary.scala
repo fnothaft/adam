@@ -131,6 +131,16 @@ object RecordGroup {
       Option(samRGR.getPlatformUnit).map(_.toString))
   }
 
+  /**
+   * Converts the Avro RecordGroupMetadata record into a RecordGroup.
+   *
+   * Although the RecordGroup class is serializable, when saving the record to
+   * disk, we want to save it as Avro. This method allows us to go from the
+   * Avro format which we use on disk into the class we use in memory.
+   *
+   * @param rgm RecordGroupMetadata record loaded from disk.
+   * @return Avro record converted into RecordGroup representation.
+   */
   def fromAvro(rgm: RecordGroupMetadata): RecordGroup = {
     require(rgm.getName != null, "Record group name is null in %s.".format(rgm))
     require(rgm.getSample != null, "Record group sample is null in %s.".format(rgm))
