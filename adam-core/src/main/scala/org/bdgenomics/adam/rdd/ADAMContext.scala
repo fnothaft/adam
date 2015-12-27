@@ -17,14 +17,13 @@
  */
 package org.bdgenomics.adam.rdd
 
-import java.io.File
-import java.io.FileNotFoundException
+import java.io.{ File, FileNotFoundException, InputStream }
 import java.util.regex.Pattern
 import htsjdk.samtools.{ IndexedBamInputFormat, SAMFileHeader, ValidationStringency }
-import htsjdk.samtools.{ ValidationStringency, SAMFileHeader, IndexedBamInputFormat }
 import org.apache.avro.Schema
+import org.apache.avro.file.DataFileStream
 import org.apache.avro.generic.IndexedRecord
-import org.apache.avro.specific.SpecificRecord
+import org.apache.avro.specific.{ SpecificDatumReader, SpecificRecord, SpecificRecordBase }
 import org.apache.hadoop.fs.{ FileStatus, FileSystem, Path }
 import org.apache.hadoop.io.{ LongWritable, Text }
 import org.apache.hadoop.mapreduce.lib.input.TextInputFormat
@@ -55,6 +54,7 @@ import org.seqdoop.hadoop_bam._
 import org.seqdoop.hadoop_bam.util.SAMHeaderReader
 import scala.collection.JavaConversions._
 import scala.collection.Map
+import scala.reflect.ClassTag
 
 object ADAMContext {
   // Add ADAM Spark context methods
@@ -348,11 +348,84 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
     records.map(p => samRecordConverter.convert(p._2.get, seqDict, readGroups))
   }
 
+  private def loadAvro[T <: SpecificRecordBase](filename: String,
+                                                schema: Schema)(
+                                                  implicit tTag: ClassTag[T]): Seq[T] = {
+
+    // get our current file system
+    val fs = FileSystem.get(sc.hadoopConfiguration)
+
+    // get an input stream
+    val is = fs.open(new Path(filename))
+      .asInstanceOf[InputStream]
+
+    // set up avro for reading
+    val dr = new SpecificDatumReader[T](schema)
+    val fr = new DataFileStream[T](is, dr)
+
+    // get iterator and create an empty list
+    val iter = fr.iterator
+    var list = List.empty[T]
+
+    // !!!!!
+    // important implementation note:
+    // !!!!!
+    //
+    // in theory, we should be able to call iter.toSeq to get a Seq of the
+    // specific records we are reading. this would allow us to avoid needing
+    // to manually pop things into a list.
+    //
+    // however! this causes odd problems that seem to be related to some sort of
+    // lazy execution inside of scala. specifically, if you go
+    // iter.toSeq.map(fn) in scala, this seems to be compiled into a lazy data
+    // structure where the map call is only executed when the Seq itself is
+    // actually accessed (e.g., via seq.apply(i), seq.head, etc.). typically,
+    // this would be OK, but if the Seq[T] goes into a spark closure, the closure
+    // cleaner will fail with a NotSerializableException, since SpecificRecord's
+    // are not java serializable. specifically, we see this happen when using
+    // this function to load RecordGroupMetadata when creating a
+    // RecordGroupDictionary.
+    //
+    // good news is, you can work around this by explicitly walking the iterator
+    // and building a collection, which is what we do here. this would not be
+    // efficient if we were loading a large amount of avro data (since we're
+    // loading all the data into memory), but currently, we are just using this
+    // code for building sequence/record group dictionaries, which are fairly
+    // small (seq dict is O(30) entries, rgd is O(20n) entries, where n is the
+    // number of samples).
+    while (iter.hasNext) {
+      list = iter.next :: list
+    }
+
+    // close file
+    fr.close()
+    is.close()
+
+    // reverse list and return as seq
+    list.reverse
+      .toSeq
+  }
+
   def loadParquetAlignments(
     filePath: String,
     predicate: Option[FilterPredicate] = None,
-    projection: Option[Schema] = None): RDD[AlignmentRecord] = {
-    loadParquet[AlignmentRecord](filePath, predicate, projection)
+    projection: Option[Schema] = None): (RDD[AlignmentRecord], SequenceDictionary, RecordGroupDictionary) = {
+
+    // load from disk
+    val rdd = loadParquet[AlignmentRecord](filePath, predicate, projection)
+    val avroSd = loadAvro[Contig]("%s.seqdict".format(filePath),
+      Contig.SCHEMA$)
+    val avroRgd = loadAvro[RecordGroupMetadata]("%s.rgdict".format(filePath),
+      RecordGroupMetadata.SCHEMA$)
+
+    // convert avro to sequence dictionary
+    val sd = new SequenceDictionary(avroSd.map(SequenceRecord.fromADAMContig)
+      .toVector)
+
+    // convert avro to record group dictionary
+    val rgd = new RecordGroupDictionary(avroRgd.map(RecordGroup.fromAvro))
+
+    (rdd, sd, rgd)
   }
 
   def loadInterleavedFastq(
@@ -688,27 +761,31 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
     projection: Option[Schema] = None,
     filePath2Opt: Option[String] = None,
     recordGroupOpt: Option[String] = None,
-    stringency: ValidationStringency = ValidationStringency.STRICT): RDD[AlignmentRecord] = LoadAlignmentRecords.time {
+    stringency: ValidationStringency = ValidationStringency.STRICT): (RDD[AlignmentRecord], SequenceDictionary, RecordGroupDictionary) = LoadAlignmentRecords.time {
+
+    def emptyDicts(rdd: RDD[AlignmentRecord]): (RDD[AlignmentRecord], SequenceDictionary, RecordGroupDictionary) = {
+      (rdd, SequenceDictionary.empty, RecordGroupDictionary.empty)
+    }
 
     if (filePath.endsWith(".sam") ||
       filePath.endsWith(".bam")) {
       log.info("Loading " + filePath + " as SAM/BAM and converting to AlignmentRecords. Projection is ignored.")
-      loadBam(filePath)._1
+      loadBam(filePath)
     } else if (filePath.endsWith(".ifq")) {
       log.info("Loading " + filePath + " as interleaved FASTQ and converting to AlignmentRecords. Projection is ignored.")
-      loadInterleavedFastq(filePath)
+      emptyDicts(loadInterleavedFastq(filePath))
     } else if (filePath.endsWith(".fq") ||
       filePath.endsWith(".fastq")) {
       log.info("Loading " + filePath + " as unpaired FASTQ and converting to AlignmentRecords. Projection is ignored.")
-      loadFastq(filePath, filePath2Opt, recordGroupOpt, stringency)
+      emptyDicts(loadFastq(filePath, filePath2Opt, recordGroupOpt, stringency))
     } else if (filePath.endsWith(".fa") ||
       filePath.endsWith(".fasta")) {
       log.info("Loading " + filePath + " as FASTA and converting to AlignmentRecords. Projection is ignored.")
       import ADAMContext._
-      loadFasta(filePath, fragmentLength = 10000).toReads
+      emptyDicts(loadFasta(filePath, fragmentLength = 10000).toReads)
     } else if (filePath.endsWith("contig.adam")) {
       log.info("Loading " + filePath + " as Parquet of NucleotideContigFragment and converting to AlignmentRecords. Projection is ignored.")
-      loadParquet[NucleotideContigFragment](filePath).toReads
+      emptyDicts(loadParquet[NucleotideContigFragment](filePath).toReads)
     } else {
       log.info("Loading " + filePath + " as Parquet of AlignmentRecords.")
       loadParquetAlignments(filePath, None, projection)
@@ -722,7 +799,7 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
       loadBam(filePath)._1.toFragments
     } else if (filePath.endsWith(".reads.adam")) {
       log.info("Loading " + filePath + " as ADAM AlignmentRecords and converting to Fragments.")
-      loadAlignments(filePath).toFragments
+      loadAlignments(filePath)._1.toFragments
     } else if (filePath.endsWith(".ifq")) {
       log.info("Loading interleaved FASTQ " + filePath + " and converting to Fragments.")
       loadInterleavedFastqAsFragments(filePath)
@@ -739,8 +816,15 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
    * @param paths The locations of the parquet files to load
    * @return a single RDD[Read] that contains the union of the AlignmentRecords in the argument paths.
    */
-  def loadAlignmentsFromPaths(paths: Seq[Path]): RDD[AlignmentRecord] = {
-    sc.union(paths.map(p => loadAlignments(p.toString)))
+  def loadAlignmentsFromPaths(paths: Seq[Path]): (RDD[AlignmentRecord], SequenceDictionary, RecordGroupDictionary) = {
+
+    val alignmentData = paths.map(p => loadAlignments(p.toString))
+
+    val rdd = sc.union(alignmentData.map(_._1))
+    val sd = alignmentData.map(_._2).reduce(_ ++ _)
+    val rgd = alignmentData.map(_._3).reduce(_ ++ _)
+
+    (rdd, sd, rgd)
   }
 
   /**

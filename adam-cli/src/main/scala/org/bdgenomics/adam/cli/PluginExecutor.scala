@@ -107,7 +107,7 @@ class PluginExecutor(protected val args: PluginExecutorArgs) extends BDGSparkCom
       }
     }
 
-    val firstRdd: RDD[AlignmentRecord] = sc.loadAlignments(args.input, projection = plugin.projection)
+    val firstRdd: RDD[AlignmentRecord] = sc.loadAlignments(args.input, projection = plugin.projection)._1
 
     val input = filter match {
       case None             => firstRdd
