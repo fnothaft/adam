@@ -17,11 +17,15 @@
  */
 package org.bdgenomics.adam.rdd.read
 
-import java.io.StringWriter
+import java.io.{ OutputStream, StringWriter }
 import htsjdk.samtools.{ SAMFileHeader, SAMTextHeaderCodec, SAMTextWriter, ValidationStringency }
+import org.apache.avro.Schema
+import org.apache.avro.file.DataFileWriter
+import org.apache.avro.specific.{ SpecificDatumWriter, SpecificRecordBase }
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{ FileSystem, Path }
 import org.apache.hadoop.io.LongWritable
+import org.apache.spark.SparkContext
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.rdd.MetricsContext._
 import org.apache.spark.rdd.RDD
@@ -38,6 +42,7 @@ import org.bdgenomics.adam.rich.RichAlignmentRecord
 import org.bdgenomics.adam.util.MapTools
 import org.bdgenomics.formats.avro._
 import org.seqdoop.hadoop_bam.SAMRecordWritable
+import scala.reflect.ClassTag
 
 class AlignmentRecordRDDFunctions(rdd: RDD[AlignmentRecord])
     extends ADAMSequenceDictionaryRDDAggregator[AlignmentRecord](rdd) {
@@ -98,10 +103,59 @@ class AlignmentRecordRDDFunctions(rdd: RDD[AlignmentRecord])
       false
   }
 
+  private def saveAvro[T <: SpecificRecordBase](filename: String,
+                                                sc: SparkContext,
+                                                schema: Schema,
+                                                avro: Seq[T])(implicit tTag: ClassTag[T]) {
+
+    // get our current file system
+    val fs = FileSystem.get(sc.hadoopConfiguration)
+
+    // get an output stream
+    val os = fs.create(new Path(filename))
+      .asInstanceOf[OutputStream]
+
+    // set up avro for writing
+    val dw = new SpecificDatumWriter[T](schema)
+    val fw = new DataFileWriter[T](dw)
+    fw.create(schema, os)
+
+    // write all our records
+    avro.foreach(r => fw.append(r))
+
+    // close the file
+    fw.close()
+    os.close()
+  }
+
+  def saveAsParquet(args: ADAMSaveAnyArgs,
+                    sd: SequenceDictionary,
+                    rgd: RecordGroupDictionary) = {
+    // convert sequence dictionary and record group dictionaries to avro form
+    val contigs = sd.records
+      .map(SequenceRecord.toADAMContig)
+      .toSeq
+    val rgMetadata = rgd.recordGroups
+      .map(_.toMetadata)
+
+    // write the sequence dictionary and record group dictionary to disk
+    saveAvro("%s.seqdict".format(args.outputPath),
+      rdd.context,
+      Contig.SCHEMA$,
+      contigs)
+    saveAvro("%s.rgdict".format(args.outputPath),
+      rdd.context,
+      RecordGroupMetadata.SCHEMA$,
+      rgMetadata)
+
+    // save rdd itself as parquet
+    rdd.adamParquetSave(args)
+  }
+
   def adamAlignedRecordSave(args: ADAMSaveAnyArgs,
                             sd: SequenceDictionary,
                             rgd: RecordGroupDictionary): Boolean = {
-    maybeSaveBam(args, sd, rgd) || { rdd.adamParquetSave(args); true }
+    maybeSaveBam(args, sd, rgd) || { saveAsParquet(args, sd, rgd); true }
   }
 
   def adamSave(args: ADAMSaveAnyArgs,
@@ -110,7 +164,7 @@ class AlignmentRecordRDDFunctions(rdd: RDD[AlignmentRecord])
                isSorted: Boolean = false): Boolean = {
     (maybeSaveBam(args, sd, rgd, isSorted) ||
       maybeSaveFastq(args) ||
-      { rdd.adamParquetSave(args); true })
+      { saveAsParquet(args, sd, rgd); true })
   }
 
   def adamSAMString(sd: SequenceDictionary,
@@ -138,7 +192,10 @@ class AlignmentRecordRDDFunctions(rdd: RDD[AlignmentRecord])
    * Saves an RDD of ADAM read data into the SAM/BAM format.
    *
    * @param filePath Path to save files to.
+   * @param sd A dictionary describing the contigs this file is aligned against.
+   * @param rgd A dictionary describing the read groups in this file.
    * @param asSam Selects whether to save as SAM or BAM. The default value is true (save in SAM format).
+   * @param asSingleFile If true, saves output as a single file.
    * @param isSorted If the output is sorted, this will modify the header.
    */
   def adamSAMSave(filePath: String,

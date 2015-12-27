@@ -112,7 +112,7 @@ class AlignmentRecordRDDFunctionsSuite extends ADAMFunSuite {
 
   sparkTest("characterizeTags counts tags in a SAM file correctly") {
     val filePath = getClass.getClassLoader.getResource("reads12.sam").getFile
-    val sam: RDD[AlignmentRecord] = sc.loadAlignments(filePath)
+    val sam: RDD[AlignmentRecord] = sc.loadAlignments(filePath)._1
 
     val mapCounts: Map[String, Long] = Map(sam.adamCharacterizeTags().collect(): _*)
     assert(mapCounts("NM") === 200)
@@ -148,7 +148,7 @@ class AlignmentRecordRDDFunctionsSuite extends ADAMFunSuite {
 
   sparkTest("SAM conversion sets read mapped flag properly") {
     val filePath = getClass.getClassLoader.getResource("reads12.sam").getFile
-    val sam: RDD[AlignmentRecord] = sc.loadAlignments(filePath)
+    val sam: RDD[AlignmentRecord] = sc.loadAlignments(filePath)._1
 
     sam.collect().foreach(r => assert(r.getReadMapped))
   }
@@ -166,7 +166,7 @@ class AlignmentRecordRDDFunctionsSuite extends ADAMFunSuite {
       RecordGroupDictionary.empty)
 
     //read SAM
-    val rddB: RDD[AlignmentRecord] = sc.loadAlignments(tempBase + "/noqualA.sam")
+    val rddB: RDD[AlignmentRecord] = sc.loadAlignments(tempBase + "/noqualA.sam")._1
 
     //write FASTQ (well-formed)
     rddB.adamSaveAsFastq(tempBase + "/noqualB.fastq")
@@ -189,12 +189,12 @@ class AlignmentRecordRDDFunctionsSuite extends ADAMFunSuite {
 
   sparkTest("round trip from ADAM to FASTQ and back to ADAM produces equivalent Read values") {
     val reads12Path = Thread.currentThread().getContextClassLoader.getResource("fastq_sample1.fq").getFile
-    val rdd12A: RDD[AlignmentRecord] = sc.loadAlignments(reads12Path)
+    val rdd12A: RDD[AlignmentRecord] = sc.loadAlignments(reads12Path)._1
 
     val tempFile = Files.createTempDirectory("reads12")
     rdd12A.adamSaveAsFastq(tempFile.toAbsolutePath.toString + "/reads12.fq")
 
-    val rdd12B: RDD[AlignmentRecord] = sc.loadAlignments(tempFile.toAbsolutePath.toString + "/reads12.fq")
+    val rdd12B: RDD[AlignmentRecord] = sc.loadAlignments(tempFile.toAbsolutePath.toString + "/reads12.fq")._1
 
     assert(rdd12B.count() === rdd12A.count())
 
@@ -213,7 +213,7 @@ class AlignmentRecordRDDFunctionsSuite extends ADAMFunSuite {
   sparkTest("round trip from ADAM to paired-FASTQ and back to ADAM produces equivalent Read values") {
     val path1 = resourcePath("proper_pairs_1.fq")
     val path2 = resourcePath("proper_pairs_2.fq")
-    val rddA = sc.loadAlignments(path1).adamRePairReads(sc.loadAlignments(path2),
+    val rddA = sc.loadAlignments(path1)._1.adamRePairReads(sc.loadAlignments(path2)._1,
       validationStringency = ValidationStringency.STRICT)
 
     assert(rddA.count() == 6)
@@ -224,7 +224,7 @@ class AlignmentRecordRDDFunctionsSuite extends ADAMFunSuite {
 
     rddA.adamSaveAsPairedFastq(tempPath1, tempPath2, validationStringency = ValidationStringency.STRICT)
 
-    val rddB: RDD[AlignmentRecord] = sc.loadAlignments(tempPath1).adamRePairReads(sc.loadAlignments(tempPath2),
+    val rddB: RDD[AlignmentRecord] = sc.loadAlignments(tempPath1)._1.adamRePairReads(sc.loadAlignments(tempPath2)._1,
       validationStringency = ValidationStringency.STRICT)
 
     assert(rddB.count() === rddA.count())
