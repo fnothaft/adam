@@ -22,13 +22,29 @@ import java.util.UUID
 import com.google.common.io.Files
 import org.apache.hadoop.fs.Path
 import org.apache.spark.rdd.RDD
-import org.bdgenomics.adam.models.VariantContext
+import org.bdgenomics.adam.models.{
+  RecordGroupDictionary,
+  SequenceDictionary,
+  SequenceRecord,
+  VariantContext
+}
 import org.bdgenomics.adam.rdd.ADAMContext._
 import org.bdgenomics.adam.util.PhredUtils._
 import org.bdgenomics.adam.util.ADAMFunSuite
 import org.bdgenomics.formats.avro._
 import org.apache.parquet.filter2.dsl.Dsl._
 import org.apache.parquet.filter2.predicate.FilterPredicate
+import org.apache.parquet.hadoop.metadata.CompressionCodecName
+
+case class TestSaveArgs(var outputPath: String) extends ADAMSaveAnyArgs {
+  var sortFastqOutput = false
+  var asSingleFile = false
+  var blockSize = 128 * 1024 * 1024
+  var pageSize = 1 * 1024 * 1024
+  var compressionCodec = CompressionCodecName.GZIP
+  var logLevel = "SEVERE"
+  var disableDictionaryEncoding = false
+}
 
 class ADAMContextSuite extends ADAMFunSuite {
 
@@ -36,7 +52,7 @@ class ADAMContextSuite extends ADAMFunSuite {
     val readsFilepath = resourcePath("unmapped.sam")
 
     // Convert the reads12.sam file into a parquet file
-    val bamReads: RDD[AlignmentRecord] = sc.loadAlignments(readsFilepath)
+    val bamReads: RDD[AlignmentRecord] = sc.loadAlignments(readsFilepath)._1
     assert(bamReads.count === 200)
   }
 
@@ -45,7 +61,7 @@ class ADAMContextSuite extends ADAMFunSuite {
     //This way we are not dependent on the ADAM format (as we would if we used a pre-made ADAM file)
     //but we are dependent on the unmapped.sam file existing, maybe I should make a new one
     val readsFilepath = resourcePath("unmapped.sam")
-    val bamReads: RDD[AlignmentRecord] = sc.loadAlignments(readsFilepath)
+    val bamReads: RDD[AlignmentRecord] = sc.loadAlignments(readsFilepath)._1
     //save it as an Adam file so we can test the Adam loader
     val bamReadsAdamFile = new File(Files.createTempDir(), "bamReads.adam")
     bamReads.adamParquetSave(bamReadsAdamFile.getAbsolutePath)
@@ -59,19 +75,19 @@ class ADAMContextSuite extends ADAMFunSuite {
 
   sparkTest("can read a small .SAM file") {
     val path = resourcePath("small.sam")
-    val reads: RDD[AlignmentRecord] = sc.loadAlignments(path)
+    val reads: RDD[AlignmentRecord] = sc.loadAlignments(path)._1
     assert(reads.count() === 20)
   }
 
   sparkTest("can read a small .SAM with all attribute tag types") {
     val path = resourcePath("tags.sam")
-    val reads: RDD[AlignmentRecord] = sc.loadAlignments(path)
+    val reads: RDD[AlignmentRecord] = sc.loadAlignments(path)._1
     assert(reads.count() === 7)
   }
 
   sparkTest("can filter a .SAM file based on quality") {
     val path = resourcePath("small.sam")
-    val reads: RDD[AlignmentRecord] = sc.loadAlignments(path)
+    val reads: RDD[AlignmentRecord] = sc.loadAlignments(path)._1
       .filter(a => (a.getReadMapped && a.getMapq > 30))
     assert(reads.count() === 18)
   }
@@ -164,9 +180,11 @@ class ADAMContextSuite extends ADAMFunSuite {
     val loc = tempLocation()
     val path = new Path(loc)
 
-    saved.adamParquetSave(loc)
+    saved.saveAsParquet(TestSaveArgs(loc),
+      new SequenceDictionary(Vector(SequenceRecord.fromADAMContig(contig))),
+      RecordGroupDictionary.empty)
     try {
-      val loaded = sc.loadAlignmentsFromPaths(Seq(path))
+      val loaded = sc.loadAlignmentsFromPaths(Seq(path))._1
 
       assert(loaded.count() === saved.count())
     } catch {
@@ -269,17 +287,17 @@ class ADAMContextSuite extends ADAMFunSuite {
 
     sparkTest("import records from interleaved FASTQ: %d".format(testNumber)) {
 
-      val reads = sc.loadAlignments(path)
+      val reads = sc.loadAlignments(path)._1
       if (testNumber == 1) {
         assert(reads.count === 6)
         assert(reads.filter(_.getReadPaired).count === 6)
-        assert(reads.filter(_.getReadNum == 0).count === 3)
-        assert(reads.filter(_.getReadNum == 1).count === 3)
+        assert(reads.filter(_.getReadInFragment == 0).count === 3)
+        assert(reads.filter(_.getReadInFragment == 1).count === 3)
       } else {
         assert(reads.count === 4)
         assert(reads.filter(_.getReadPaired).count === 4)
-        assert(reads.filter(_.getReadNum == 0).count === 2)
-        assert(reads.filter(_.getReadNum == 1).count === 2)
+        assert(reads.filter(_.getReadInFragment == 0).count === 2)
+        assert(reads.filter(_.getReadInFragment == 1).count === 2)
       }
 
       assert(reads.collect.forall(_.getSequence.toString.length === 250))
@@ -293,7 +311,7 @@ class ADAMContextSuite extends ADAMFunSuite {
 
     sparkTest("import records from single ended FASTQ: %d".format(testNumber)) {
 
-      val reads = sc.loadAlignments(path)
+      val reads = sc.loadAlignments(path)._1
       if (testNumber == 1) {
         assert(reads.count === 6)
         assert(reads.filter(_.getReadPaired).count === 0)

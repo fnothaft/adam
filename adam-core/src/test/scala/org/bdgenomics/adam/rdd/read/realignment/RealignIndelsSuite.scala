@@ -28,13 +28,13 @@ class RealignIndelsSuite extends ADAMFunSuite {
 
   def mason_reads: RDD[AlignmentRecord] = {
     val path = resourcePath("small_realignment_targets.sam")
-    val reads: RDD[AlignmentRecord] = sc.loadAlignments(path)
+    val reads: RDD[AlignmentRecord] = sc.loadAlignments(path)._1
     reads
   }
 
   def artificial_reads: RDD[AlignmentRecord] = {
     val path = resourcePath("artificial.sam")
-    val reads: RDD[AlignmentRecord] = sc.loadAlignments(path)
+    val reads: RDD[AlignmentRecord] = sc.loadAlignments(path)._1
     reads
   }
 
@@ -46,7 +46,7 @@ class RealignIndelsSuite extends ADAMFunSuite {
 
   def gatk_artificial_realigned_reads: RDD[AlignmentRecord] = {
     val path = resourcePath("artificial.realigned.sam")
-    val reads: RDD[AlignmentRecord] = sc.loadAlignments(path)
+    val reads: RDD[AlignmentRecord] = sc.loadAlignments(path)._1
     reads
   }
 

@@ -21,6 +21,7 @@ import java.io.File
 import java.util.logging.Level
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.rdd.ADAMContext._
+import org.bdgenomics.adam.rdd.TestSaveArgs
 import org.bdgenomics.adam.util.{ ParquetLogger, ADAMFunSuite }
 import org.bdgenomics.formats.avro.AlignmentRecord
 import org.scalatest.BeforeAndAfter
@@ -43,8 +44,8 @@ class FieldEnumerationSuite extends ADAMFunSuite with BeforeAndAfter {
       cleanParquet(readsParquetFile)
 
     // Convert the reads12.sam file into a parquet file
-    val bamReads: RDD[AlignmentRecord] = sc.loadAlignments(readsFilepath)
-    bamReads.adamParquetSave(readsParquetFile.getAbsolutePath)
+    val (bamReads: RDD[AlignmentRecord], sd, rgd) = sc.loadBam(readsFilepath)
+    bamReads.saveAsParquet(TestSaveArgs(readsParquetFile.getAbsolutePath), sd, rgd)
   }
 
   after {
@@ -75,7 +76,7 @@ class FieldEnumerationSuite extends ADAMFunSuite with BeforeAndAfter {
 
     val p1 = Projection(AlignmentRecordField.readName)
 
-    val reads1: RDD[AlignmentRecord] = sc.loadAlignments(readsParquetFile.getAbsolutePath, projection = Some(p1))
+    val reads1: RDD[AlignmentRecord] = sc.loadAlignments(readsParquetFile.getAbsolutePath, projection = Some(p1))._1
 
     assert(reads1.count() === 200)
 
@@ -85,7 +86,7 @@ class FieldEnumerationSuite extends ADAMFunSuite with BeforeAndAfter {
 
     val p2 = Projection(AlignmentRecordField.readName, AlignmentRecordField.readMapped)
 
-    val reads2: RDD[AlignmentRecord] = sc.loadAlignments(readsParquetFile.getAbsolutePath, projection = Some(p2))
+    val reads2: RDD[AlignmentRecord] = sc.loadAlignments(readsParquetFile.getAbsolutePath, projection = Some(p2))._1
 
     assert(reads2.count() === 200)
 

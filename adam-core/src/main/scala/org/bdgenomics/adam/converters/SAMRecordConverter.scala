@@ -150,10 +150,10 @@ class SAMRecordConverter extends Serializable with Logging {
             builder.setProperPair(true)
           }
           if (samRecord.getFirstOfPairFlag) {
-            builder.setReadNum(0)
+            builder.setReadInFragment(0)
           }
           if (samRecord.getSecondOfPairFlag) {
-            builder.setReadNum(1)
+            builder.setReadInFragment(1)
           }
         }
         if (samRecord.getDuplicateReadFlag) {
@@ -185,17 +185,7 @@ class SAMRecordConverter extends Serializable with Logging {
 
       val recordGroup: SAMReadGroupRecord = samRecord.getReadGroup
       if (recordGroup != null) {
-        Option(recordGroup.getRunDate).foreach(date => builder.setRecordGroupRunDateEpoch(date.getTime))
-
         builder.setRecordGroupName(recordGroup.getReadGroupId)
-          .setRecordGroupSequencingCenter(recordGroup.getSequencingCenter)
-          .setRecordGroupDescription(recordGroup.getDescription)
-          .setRecordGroupFlowOrder(recordGroup.getFlowOrder)
-          .setRecordGroupKeySequence(recordGroup.getKeySequence)
-          .setRecordGroupLibrary(recordGroup.getLibrary)
-          .setRecordGroupPredictedMedianInsertSize(recordGroup.getPredictedMedianInsertSize)
-          .setRecordGroupPlatform(recordGroup.getPlatform)
-          .setRecordGroupPlatformUnit(recordGroup.getPlatformUnit)
           .setRecordGroupSample(recordGroup.getSample)
       }
 

@@ -21,7 +21,7 @@ import htsjdk.samtools.{ SAMFileHeader, SAMRecord }
 import org.bdgenomics.adam.instrumentation.Timers._
 import org.bdgenomics.adam.models._
 import org.bdgenomics.adam.rich.RichAlignmentRecord
-import org.bdgenomics.formats.avro.{ AlignmentRecord, Fragment, Sequence }
+import org.bdgenomics.formats.avro.{ AlignmentRecord, Fragment }
 import scala.collection.JavaConversions._
 
 class AlignmentRecordConverter extends Serializable {
@@ -46,7 +46,7 @@ class AlignmentRecordConverter extends Serializable {
       if (maybeAddSuffix &&
         !AlignmentRecordConverter.readNameHasPairedSuffix(adamRecord) &&
         adamRecord.getReadPaired) {
-        "/%d".format(adamRecord.getReadNum + 1)
+        "/%d".format(adamRecord.getReadInFragment + 1)
       } else {
         ""
       }
@@ -92,10 +92,9 @@ class AlignmentRecordConverter extends Serializable {
    * @param header SAM file header to use.
    * @return Returns the record converted to SAMtools format. Can be used for output to SAM/BAM.
    */
-  def convert(adamRecord: AlignmentRecord, header: SAMFileHeaderWritable): SAMRecord = ConvertToSAMRecord.time {
-
-    // get read group dictionary from header
-    val rgDict = header.header.getSequenceDictionary
+  def convert(adamRecord: AlignmentRecord,
+              header: SAMFileHeaderWritable,
+              rgd: RecordGroupDictionary): SAMRecord = ConvertToSAMRecord.time {
 
     // attach header
     val builder: SAMRecord = new SAMRecord(header.header)
@@ -110,13 +109,12 @@ class AlignmentRecordConverter extends Serializable {
 
     // set read group flags
     Option(adamRecord.getRecordGroupName)
-      .map(_.toString)
-      .map(rgDict.getSequenceIndex)
-      .foreach(v => builder.setAttribute("RG", v.toString))
-    Option(adamRecord.getRecordGroupLibrary)
-      .foreach(v => builder.setAttribute("LB", v.toString))
-    Option(adamRecord.getRecordGroupPlatformUnit)
-      .foreach(v => builder.setAttribute("PU", v.toString))
+      .foreach(v => {
+        builder.setAttribute("RG", rgd.getIndex(v).toString)
+        val rg = rgd(v)
+        rg.library.foreach(v => builder.setAttribute("LB", v.toString))
+        rg.platformUnit.foreach(v => builder.setAttribute("PU", v.toString))
+      })
 
     // set the reference name, and alignment position, for mate
     Option(adamRecord.getMateContig)
@@ -142,9 +140,9 @@ class AlignmentRecordConverter extends Serializable {
           .foreach(v => builder.setMateUnmappedFlag(!v.booleanValue))
         Option(adamRecord.getProperPair)
           .foreach(v => builder.setProperPairFlag(v.booleanValue))
-        Option(adamRecord.getReadNum == 0)
+        Option(adamRecord.getReadInFragment == 0)
           .foreach(v => builder.setFirstOfPairFlag(v.booleanValue))
-        Option(adamRecord.getReadNum == 1)
+        Option(adamRecord.getReadInFragment == 1)
           .foreach(v => builder.setSecondOfPairFlag(v.booleanValue))
       }
     })
