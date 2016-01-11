@@ -57,7 +57,8 @@ class Adam2FastqSuite extends ADAMFunSuite {
     // Picard allows unmapped reads to set the negative strand flag and therefore reverse-complemented on output
     val reads: RDD[AlignmentRecord] =
       sc
-        .loadAlignments(readsFilepath)._1
+        .loadAlignments(readsFilepath)
+        .rdd
         .filter(r => r.getReadMapped != null && r.getReadMapped)
 
     reads.adamSaveAsFastq(outputFastqR1File, Some(outputFastqR2File), sort = true)

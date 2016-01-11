@@ -235,15 +235,13 @@ class Transform(protected val args: TransformArgs) extends BDGSparkCommand[Trans
       )
     }
 
-    val (rdd, sd, rgd) =
+    val aRdd =
       if (args.forceLoadBam) {
         sc.loadBam(args.inputPath)
       } else if (args.forceLoadFastq) {
-        (sc.loadFastq(args.inputPath, Option(args.pairedFastqFile), Option(args.fastqRecordGroup), stringency),
-          SequenceDictionary.empty, RecordGroupDictionary.empty)
+        sc.loadFastq(args.inputPath, Option(args.pairedFastqFile), Option(args.fastqRecordGroup), stringency)
       } else if (args.forceLoadIFastq) {
-        (sc.loadInterleavedFastq(args.inputPath),
-          SequenceDictionary.empty, RecordGroupDictionary.empty)
+        sc.loadInterleavedFastq(args.inputPath)
       } else if (args.forceLoadParquet ||
         args.useAlignedReadPredicate) {
         val pred = if (args.useAlignedReadPredicate) {
@@ -261,6 +259,9 @@ class Transform(protected val args: TransformArgs) extends BDGSparkCommand[Trans
           recordGroupOpt = Option(args.fastqRecordGroup),
           stringency = stringency)
       }
+    val rdd = aRdd.rdd
+    val sd = aRdd.sequences
+    val rgd = aRdd.recordGroups
 
     // Optionally load a second RDD and concatenate it with the first.
     // Paired-FASTQ loading is avoided here because that wouldn't make sense
@@ -270,9 +271,7 @@ class Transform(protected val args: TransformArgs) extends BDGSparkCommand[Trans
         if (args.forceLoadBam) {
           sc.loadBam(concatFilename)
         } else if (args.forceLoadIFastq) {
-          (sc.loadInterleavedFastq(concatFilename),
-            SequenceDictionary.empty,
-            RecordGroupDictionary.empty)
+          sc.loadInterleavedFastq(concatFilename)
         } else if (args.forceLoadParquet) {
           sc.loadParquetAlignments(concatFilename)
         } else {
@@ -284,8 +283,7 @@ class Transform(protected val args: TransformArgs) extends BDGSparkCommand[Trans
 
     // if we have a second rdd that we are merging in, process the merger here
     val (mergedRdd, mergedSd, mergedRgd) = concatOpt.fold((rdd, sd, rgd))(t => {
-      val (concatRdd, concatSd, concatRgd) = t
-      (rdd ++ concatRdd, sd ++ concatSd, rgd ++ concatRgd)
+      (rdd ++ t.rdd, sd ++ t.sequences, rgd ++ t.recordGroups)
     })
 
     // run our transformation

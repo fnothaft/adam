@@ -25,24 +25,21 @@ import org.bdgenomics.adam.apis.java.JavaADAMContext;
 import org.bdgenomics.adam.models.RecordGroupDictionary;
 import org.bdgenomics.adam.models.SequenceDictionary;
 import org.bdgenomics.formats.avro.AlignmentRecord;
-import scala.Tuple3;
 
 /**
  * A simple test class for the JavaADAMRDD/Context. Writes an RDD to
  * disk and reads it back.
  */
 public class JavaADAMConduit {
-    public static Tuple3<JavaAlignmentRecordRDD,
-        SequenceDictionary,
-        RecordGroupDictionary> conduit(JavaRDD<AlignmentRecord> rdd,
+    public static JavaAlignmentRecordRDD conduit(JavaRDD<AlignmentRecord> rdd,
                                        SequenceDictionary sd,
                                        RecordGroupDictionary rgd) throws IOException {
-        JavaAlignmentRecordRDD recordRdd = new JavaAlignmentRecordRDD(rdd);
+        JavaAlignmentRecordRDD recordRdd = new JavaAlignmentRecordRDD(rdd, sd, rgd);
 
         // make temp directory and save file
         Path tempDir = Files.createTempDirectory("javaAC");
         String fileName = tempDir.toString() + "/testRdd.adam";
-        recordRdd.adamSave(fileName, sd, rgd);
+        recordRdd.adamSave(fileName);
 
         // create a new adam context and load the file
         JavaADAMContext jac = new JavaADAMContext(rdd.context());

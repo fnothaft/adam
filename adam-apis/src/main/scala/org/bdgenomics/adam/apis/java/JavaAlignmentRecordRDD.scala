@@ -33,7 +33,9 @@ private class JavaSaveArgs(var outputPath: String,
   var sortFastqOutput = false
 }
 
-class JavaAlignmentRecordRDD(val jrdd: JavaRDD[AlignmentRecord]) extends Serializable {
+class JavaAlignmentRecordRDD(val jrdd: JavaRDD[AlignmentRecord],
+                             val sd: SequenceDictionary,
+                             val rgd: RecordGroupDictionary) extends Serializable {
 
   /**
    * Saves this RDD to disk as a Parquet file.
@@ -43,17 +45,13 @@ class JavaAlignmentRecordRDD(val jrdd: JavaRDD[AlignmentRecord]) extends Seriali
    * @param pageSize Size per page.
    * @param compressCodec Name of the compression codec to use.
    * @param disableDictionaryEncoding Whether or not to disable bit-packing.
-   * @param sd A dictionary describing the contigs this file is aligned against.
-   * @param rgd A dictionary describing the read groups in this file.
    */
   def adamSave(
     filePath: java.lang.String,
     blockSize: java.lang.Integer,
     pageSize: java.lang.Integer,
     compressCodec: CompressionCodecName,
-    disableDictionaryEncoding: java.lang.Boolean,
-    sd: SequenceDictionary,
-    rgd: RecordGroupDictionary) {
+    disableDictionaryEncoding: java.lang.Boolean) {
     jrdd.rdd.saveAsParquet(
       new JavaSaveArgs(filePath,
         blockSize = blockSize,
@@ -68,13 +66,9 @@ class JavaAlignmentRecordRDD(val jrdd: JavaRDD[AlignmentRecord]) extends Seriali
    * Saves this RDD to disk as a Parquet file.
    *
    * @param filePath Path to save the file at.
-   * @param sd A dictionary describing the contigs this file is aligned against.
-   * @param rgd A dictionary describing the read groups in this file.
    */
   def adamSave(
-    filePath: java.lang.String,
-    sd: SequenceDictionary,
-    rgd: RecordGroupDictionary) {
+    filePath: java.lang.String) {
     jrdd.rdd.saveAsParquet(
       new JavaSaveArgs(filePath),
       sd,
@@ -93,8 +87,6 @@ class JavaAlignmentRecordRDD(val jrdd: JavaRDD[AlignmentRecord]) extends Seriali
    */
   def adamSAMSave(
     filePath: java.lang.String,
-    sd: SequenceDictionary,
-    rgd: RecordGroupDictionary,
     asSam: java.lang.Boolean,
     asSingleFile: java.lang.Boolean,
     isSorted: java.lang.Boolean) {

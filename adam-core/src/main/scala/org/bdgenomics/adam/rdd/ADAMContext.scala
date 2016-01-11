@@ -42,7 +42,12 @@ import org.bdgenomics.adam.projections.{ AlignmentRecordField, NucleotideContigF
 import org.bdgenomics.adam.rdd.contig.NucleotideContigFragmentRDDFunctions
 import org.bdgenomics.adam.rdd.features._
 import org.bdgenomics.adam.rdd.fragment.FragmentRDDFunctions
-import org.bdgenomics.adam.rdd.read.AlignmentRecordRDDFunctions
+import org.bdgenomics.adam.rdd.read.{
+  AlignedReadRDD,
+  AlignmentRecordRDD,
+  AlignmentRecordRDDFunctions,
+  UnalignedReadRDD
+}
 import org.bdgenomics.adam.rdd.variation._
 import org.bdgenomics.adam.rich.RichAlignmentRecord
 import org.bdgenomics.adam.util.{ TwoBitFile, ReferenceContigMap, ReferenceFile }
@@ -105,6 +110,8 @@ object ADAMContext {
   implicit def iterableToJavaCollection[A](i: Iterable[A]): java.util.Collection[A] = asJavaCollection(i)
 
   implicit def setToJavaSet[A](set: Set[A]): java.util.Set[A] = setAsJavaSet(set)
+
+  implicit def genomicRDDToRDD[T](gRdd: GenomicRDD[T]): RDD[T] = gRdd.rdd
 }
 
 import org.bdgenomics.adam.rdd.ADAMContext._
@@ -254,7 +261,7 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
    *
    * @see loadAlignments
    */
-  def loadBam(filePath: String): (RDD[AlignmentRecord], SequenceDictionary, RecordGroupDictionary) = {
+  def loadBam(filePath: String): AlignmentRecordRDD = {
     val path = new Path(filePath)
     val fs =
       Option(
@@ -305,7 +312,7 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
     if (Metrics.isRecording) records.instrument() else records
     val samRecordConverter = new SAMRecordConverter
 
-    (records.map(p => samRecordConverter.convert(p._2.get, seqDict, readGroups)),
+    AlignedReadRDD(records.map(p => samRecordConverter.convert(p._2.get, seqDict, readGroups)),
       seqDict,
       readGroups)
   }
@@ -463,7 +470,7 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
   def loadParquetAlignments(
     filePath: String,
     predicate: Option[FilterPredicate] = None,
-    projection: Option[Schema] = None): (RDD[AlignmentRecord], SequenceDictionary, RecordGroupDictionary) = {
+    projection: Option[Schema] = None): AlignmentRecordRDD = {
 
     // load from disk
     val rdd = loadParquet[AlignmentRecord](filePath, predicate, projection)
@@ -479,11 +486,11 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
     // convert avro to record group dictionary
     val rgd = new RecordGroupDictionary(avroRgd.map(RecordGroup.fromAvro))
 
-    (rdd, sd, rgd)
+    AlignedReadRDD(rdd, sd, rgd)
   }
 
   def loadInterleavedFastq(
-    filePath: String): RDD[AlignmentRecord] = {
+    filePath: String): AlignmentRecordRDD = {
 
     val job = HadoopUtil.newJob(sc)
     val records = sc.newAPIHadoopFile(
@@ -497,14 +504,14 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
 
     // convert records
     val fastqRecordConverter = new FastqRecordConverter
-    records.flatMap(fastqRecordConverter.convertPair)
+    UnalignedReadRDD.fromRdd(records.flatMap(fastqRecordConverter.convertPair))
   }
 
   def loadFastq(
     filePath1: String,
     filePath2Opt: Option[String],
     recordGroupOpt: Option[String] = None,
-    stringency: ValidationStringency = ValidationStringency.STRICT): RDD[AlignmentRecord] = {
+    stringency: ValidationStringency = ValidationStringency.STRICT): AlignmentRecordRDD = {
     filePath2Opt match {
       case Some(filePath2) => loadPairedFastq(filePath1, filePath2, recordGroupOpt, stringency)
       case None            => loadUnpairedFastq(filePath1, stringency = stringency)
@@ -515,7 +522,7 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
     filePath1: String,
     filePath2: String,
     recordGroupOpt: Option[String],
-    stringency: ValidationStringency): RDD[AlignmentRecord] = {
+    stringency: ValidationStringency): AlignmentRecordRDD = {
     val reads1 = loadUnpairedFastq(filePath1, setFirstOfPair = true, stringency = stringency)
     val reads2 = loadUnpairedFastq(filePath2, setSecondOfPair = true, stringency = stringency)
 
@@ -536,7 +543,7 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
       case ValidationStringency.SILENT =>
     }
 
-    reads1 ++ reads2
+    UnalignedReadRDD.fromRdd(reads1 ++ reads2)
   }
 
   def loadUnpairedFastq(
@@ -544,7 +551,7 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
     recordGroupOpt: Option[String] = None,
     setFirstOfPair: Boolean = false,
     setSecondOfPair: Boolean = false,
-    stringency: ValidationStringency = ValidationStringency.STRICT): RDD[AlignmentRecord] = {
+    stringency: ValidationStringency = ValidationStringency.STRICT): AlignmentRecordRDD = {
 
     val job = HadoopUtil.newJob(sc)
     val records = sc.newAPIHadoopFile(
@@ -558,7 +565,7 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
 
     // convert records
     val fastqRecordConverter = new FastqRecordConverter
-    records.map(
+    UnalignedReadRDD.fromRdd(records.map(
       fastqRecordConverter.convertRead(
         _,
         recordGroupOpt.map(recordGroup =>
@@ -570,7 +577,7 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
         setSecondOfPair,
         stringency
       )
-    )
+    ))
   }
 
   def loadVcf(filePath: String, sd: Option[SequenceDictionary]): RDD[VariantContext] = {
@@ -846,11 +853,7 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
     projection: Option[Schema] = None,
     filePath2Opt: Option[String] = None,
     recordGroupOpt: Option[String] = None,
-    stringency: ValidationStringency = ValidationStringency.STRICT): (RDD[AlignmentRecord], SequenceDictionary, RecordGroupDictionary) = LoadAlignmentRecords.time {
-
-    def emptyDicts(rdd: RDD[AlignmentRecord]): (RDD[AlignmentRecord], SequenceDictionary, RecordGroupDictionary) = {
-      (rdd, SequenceDictionary.empty, RecordGroupDictionary.empty)
-    }
+    stringency: ValidationStringency = ValidationStringency.STRICT): AlignmentRecordRDD = LoadAlignmentRecords.time {
 
     if (filePath.endsWith(".sam") ||
       filePath.endsWith(".bam")) {
@@ -858,19 +861,21 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
       loadBam(filePath)
     } else if (filePath.endsWith(".ifq")) {
       log.info("Loading " + filePath + " as interleaved FASTQ and converting to AlignmentRecords. Projection is ignored.")
-      emptyDicts(loadInterleavedFastq(filePath))
+      loadInterleavedFastq(filePath)
     } else if (filePath.endsWith(".fq") ||
       filePath.endsWith(".fastq")) {
       log.info("Loading " + filePath + " as unpaired FASTQ and converting to AlignmentRecords. Projection is ignored.")
-      emptyDicts(loadFastq(filePath, filePath2Opt, recordGroupOpt, stringency))
+      loadFastq(filePath, filePath2Opt, recordGroupOpt, stringency)
     } else if (filePath.endsWith(".fa") ||
       filePath.endsWith(".fasta")) {
       log.info("Loading " + filePath + " as FASTA and converting to AlignmentRecords. Projection is ignored.")
       import ADAMContext._
-      emptyDicts(loadFasta(filePath, fragmentLength = 10000).toReads)
+      UnalignedReadRDD(loadFasta(filePath, fragmentLength = 10000).toReads,
+        RecordGroupDictionary.empty)
     } else if (filePath.endsWith("contig.adam")) {
       log.info("Loading " + filePath + " as Parquet of NucleotideContigFragment and converting to AlignmentRecords. Projection is ignored.")
-      emptyDicts(loadParquet[NucleotideContigFragment](filePath).toReads)
+      UnalignedReadRDD(loadParquet[NucleotideContigFragment](filePath).toReads,
+        RecordGroupDictionary.empty)
     } else {
       log.info("Loading " + filePath + " as Parquet of AlignmentRecords.")
       loadParquetAlignments(filePath, None, projection)
@@ -881,10 +886,10 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
     if (filePath.endsWith(".sam") ||
       filePath.endsWith(".bam")) {
       log.info("Loading " + filePath + " as SAM/BAM and converting to Fragments.")
-      loadBam(filePath)._1.toFragments
+      loadBam(filePath).rdd.toFragments
     } else if (filePath.endsWith(".reads.adam")) {
       log.info("Loading " + filePath + " as ADAM AlignmentRecords and converting to Fragments.")
-      loadAlignments(filePath)._1.toFragments
+      loadAlignments(filePath).rdd.toFragments
     } else if (filePath.endsWith(".ifq")) {
       log.info("Loading interleaved FASTQ " + filePath + " and converting to Fragments.")
       loadInterleavedFastqAsFragments(filePath)
@@ -914,15 +919,15 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
    *
    * @see loadAlignments
    */
-  def loadAlignmentsFromPaths(paths: Seq[Path]): (RDD[AlignmentRecord], SequenceDictionary, RecordGroupDictionary) = {
+  def loadAlignmentsFromPaths(paths: Seq[Path]): AlignmentRecordRDD = {
 
     val alignmentData = paths.map(p => loadAlignments(p.toString))
 
-    val rdd = sc.union(alignmentData.map(_._1))
-    val sd = alignmentData.map(_._2).reduce(_ ++ _)
-    val rgd = alignmentData.map(_._3).reduce(_ ++ _)
+    val rdd = sc.union(alignmentData.map(_.rdd))
+    val sd = alignmentData.map(_.sequences).reduce(_ ++ _)
+    val rgd = alignmentData.map(_.recordGroups).reduce(_ ++ _)
 
-    (rdd, sd, rgd)
+    AlignedReadRDD(rdd, sd, rgd)
   }
 
   /**

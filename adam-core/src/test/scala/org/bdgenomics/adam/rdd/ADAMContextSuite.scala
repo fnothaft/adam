@@ -52,7 +52,7 @@ class ADAMContextSuite extends ADAMFunSuite {
     val readsFilepath = resourcePath("unmapped.sam")
 
     // Convert the reads12.sam file into a parquet file
-    val bamReads: RDD[AlignmentRecord] = sc.loadAlignments(readsFilepath)._1
+    val bamReads: RDD[AlignmentRecord] = sc.loadAlignments(readsFilepath)
     assert(bamReads.count === 200)
   }
 
@@ -61,7 +61,7 @@ class ADAMContextSuite extends ADAMFunSuite {
     //This way we are not dependent on the ADAM format (as we would if we used a pre-made ADAM file)
     //but we are dependent on the unmapped.sam file existing, maybe I should make a new one
     val readsFilepath = resourcePath("unmapped.sam")
-    val bamReads: RDD[AlignmentRecord] = sc.loadAlignments(readsFilepath)._1
+    val bamReads: RDD[AlignmentRecord] = sc.loadAlignments(readsFilepath)
     //save it as an Adam file so we can test the Adam loader
     val bamReadsAdamFile = new File(Files.createTempDir(), "bamReads.adam")
     bamReads.adamParquetSave(bamReadsAdamFile.getAbsolutePath)
@@ -75,19 +75,19 @@ class ADAMContextSuite extends ADAMFunSuite {
 
   sparkTest("can read a small .SAM file") {
     val path = resourcePath("small.sam")
-    val reads: RDD[AlignmentRecord] = sc.loadAlignments(path)._1
+    val reads: RDD[AlignmentRecord] = sc.loadAlignments(path)
     assert(reads.count() === 20)
   }
 
   sparkTest("can read a small .SAM with all attribute tag types") {
     val path = resourcePath("tags.sam")
-    val reads: RDD[AlignmentRecord] = sc.loadAlignments(path)._1
+    val reads: RDD[AlignmentRecord] = sc.loadAlignments(path)
     assert(reads.count() === 7)
   }
 
   sparkTest("can filter a .SAM file based on quality") {
     val path = resourcePath("small.sam")
-    val reads: RDD[AlignmentRecord] = sc.loadAlignments(path)._1
+    val reads: RDD[AlignmentRecord] = sc.loadAlignments(path)
       .filter(a => (a.getReadMapped && a.getMapq > 30))
     assert(reads.count() === 18)
   }
@@ -184,7 +184,7 @@ class ADAMContextSuite extends ADAMFunSuite {
       new SequenceDictionary(Vector(SequenceRecord.fromADAMContig(contig))),
       RecordGroupDictionary.empty)
     try {
-      val loaded = sc.loadAlignmentsFromPaths(Seq(path))._1
+      val loaded = sc.loadAlignmentsFromPaths(Seq(path))
 
       assert(loaded.count() === saved.count())
     } catch {
@@ -287,7 +287,7 @@ class ADAMContextSuite extends ADAMFunSuite {
 
     sparkTest("import records from interleaved FASTQ: %d".format(testNumber)) {
 
-      val reads = sc.loadAlignments(path)._1
+      val reads = sc.loadAlignments(path)
       if (testNumber == 1) {
         assert(reads.count === 6)
         assert(reads.filter(_.getReadPaired).count === 6)
@@ -311,7 +311,7 @@ class ADAMContextSuite extends ADAMFunSuite {
 
     sparkTest("import records from single ended FASTQ: %d".format(testNumber)) {
 
-      val reads = sc.loadAlignments(path)._1
+      val reads = sc.loadAlignments(path)
       if (testNumber == 1) {
         assert(reads.count === 6)
         assert(reads.filter(_.getReadPaired).count === 0)

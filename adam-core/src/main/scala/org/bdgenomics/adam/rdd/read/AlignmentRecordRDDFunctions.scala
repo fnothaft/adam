@@ -76,7 +76,7 @@ class AlignmentRecordRDDFunctions(rdd: RDD[AlignmentRecord])
     sd: SequenceDictionary,
     rgd: RecordGroupDictionary,
     isSorted: Boolean = false): Boolean = {
-    
+
     if (args.outputPath.endsWith(".sam")) {
       log.info("Saving data in SAM format")
       rdd.adamSAMSave(args.outputPath,
@@ -298,7 +298,7 @@ class AlignmentRecordRDDFunctions(rdd: RDD[AlignmentRecord])
     asSam: Boolean = true,
     asSingleFile: Boolean = false,
     isSorted: Boolean = false) = SAMSave.time {
-      
+
     // if the file is sorted, make sure the sequence dictionary is sorted
     val sdFinal = if (isSorted) {
       sd.sorted

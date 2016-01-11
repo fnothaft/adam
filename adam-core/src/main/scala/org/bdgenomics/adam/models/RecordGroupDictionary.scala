@@ -174,17 +174,17 @@ object RecordGroup {
 }
 
 case class RecordGroup(
-  sample: String,
-  recordGroupName: String,
-  sequencingCenter: Option[String] = None,
-  description: Option[String] = None,
-  runDateEpoch: Option[Long] = None,
-  flowOrder: Option[String] = None,
-  keySequence: Option[String] = None,
-  library: Option[String] = None,
-  predictedMedianInsertSize: Option[Int] = None,
-  platform: Option[String] = None,
-  platformUnit: Option[String] = None) {
+    sample: String,
+    recordGroupName: String,
+    sequencingCenter: Option[String] = None,
+    description: Option[String] = None,
+    runDateEpoch: Option[Long] = None,
+    flowOrder: Option[String] = None,
+    keySequence: Option[String] = None,
+    library: Option[String] = None,
+    predictedMedianInsertSize: Option[Int] = None,
+    platform: Option[String] = None,
+    platformUnit: Option[String] = None) {
 
   /**
    * Compares equality to another object. Only checks equality via the sample and
