@@ -254,10 +254,10 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
    *
    * @param filePath Path to the file on disk.
    *
-   * @return Returns a Tuple3 containing (an RDD of reads, the sequence
+   * @return Returns an AlignmentRecordRDD containing an RDD of reads, the sequence
    *   dictionary representing the contigs these reads are aligned to
-   *   if the reads are aligned, the record group dictionary for the reads
-   *   if one is available).
+   *   if the reads are aligned, and the record group dictionary for the reads
+   *   if one is available.
    *
    * @see loadAlignments
    */
@@ -455,10 +455,10 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
    * @param predicate An optional predicate to push down into the file.
    * @param projection An optional schema designating the fields to project.
    *
-   * @return Returns a Tuple3 containing (an RDD of reads, the sequence
+   * @return Returns an AlignmentRecordRDD containing an RDD of reads, the sequence
    *   dictionary representing the contigs these reads are aligned to
-   *   if the reads are aligned, the record group dictionary for the reads
-   *   if one is available).
+   *   if the reads are aligned, and the record group dictionary for the reads
+   *   if one is available.
    *
    * @note The sequence dictionary is read from an avro file stored at
    *   filePath.seqdict and the record group dictionary is read from an
@@ -837,10 +837,10 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
    * @param recordGroupOpt Optional record group name to set if loading FASTQ.
    * @param stringency Validation stringency used on FASTQ import/merging.
    *
-   * @return Returns a Tuple3 containing (an RDD of reads, the sequence
+   * @return Returns an AlignmentRecordRDD containing an RDD of reads, the sequence
    *   dictionary representing the contigs these reads are aligned to
-   *   if the reads are aligned, the record group dictionary for the reads
-   *   if one is available).
+   *   if the reads are aligned, and the record group dictionary for the reads
+   *   if one is available.
    *
    * @see loadBam
    * @see loadParquetAlignments
@@ -911,10 +911,10 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
    * each dictionary.
    *
    * @param paths The locations of the files to load.
-   * @return Returns a Tuple3 containing (an RDD of reads, the sequence
+   * @return Returns an AlignmentRecordRDD containing an RDD of reads, the sequence
    *   dictionary representing the contigs these reads are aligned to
-   *   if the reads are aligned, the record group dictionary for the reads
-   *   if one is available). These are merged following the process
+   *   if the reads are aligned, and the record group dictionary for the reads
+   *   if one is available. These are merged following the process
    *   described above.
    *
    * @see loadAlignments
