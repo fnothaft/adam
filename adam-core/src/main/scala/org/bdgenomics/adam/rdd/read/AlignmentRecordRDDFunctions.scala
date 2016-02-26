@@ -17,14 +17,18 @@
  */
 package org.bdgenomics.adam.rdd.read
 
+import htsjdk.samtools._
+import htsjdk.samtools.util.{
+  BinaryCodec,
+  BlockCompressedOutputStream,
+  BlockCompressedStreamConstants
+}
 import java.io.{
   InputStream,
   OutputStream,
   StringWriter,
   Writer
 }
-import htsjdk.samtools._
-import htsjdk.samtools.util.{ BinaryCodec, BlockCompressedOutputStream }
 import java.lang.reflect.InvocationTargetException
 import org.apache.avro.Schema
 import org.apache.avro.file.DataFileWriter
@@ -48,7 +52,8 @@ import org.bdgenomics.adam.rdd.{ ADAMSaveAnyArgs, ADAMSequenceDictionaryRDDAggre
 import org.bdgenomics.adam.rich.RichAlignmentRecord
 import org.bdgenomics.adam.util.MapTools
 import org.bdgenomics.formats.avro._
-import org.seqdoop.hadoop_bam.SAMRecordWritable
+import org.seqdoop.hadoop_bam.{ SAMFormat, SAMRecordWritable }
+import org.seqdoop.hadoop_bam.util.SAMOutputPreparer
 import scala.annotation.tailrec
 import scala.language.implicitConversions
 import scala.reflect.ClassTag
@@ -430,7 +435,6 @@ class AlignmentRecordRDDFunctions(rdd: RDD[AlignmentRecord])
         compressedOut.close()
       }
 
-      // more flushing and closing
       os.flush()
       os.close()
 
@@ -535,14 +539,14 @@ class AlignmentRecordRDDFunctions(rdd: RDD[AlignmentRecord])
           // open our output file
           val os = fs.create(outputPath)
 
-          // prepend our header to the list of files to copy
-          val filesToCopy = Seq(headPath) ++ tailFiles.toSeq
+          // prepare output
+          new SAMOutputPreparer().prepareForRecords(os, SAMFormat.BAM, header);
 
           // here is a byte array for copying
           val ba = new Array[Byte](1024)
 
           @tailrec def copy(is: InputStream,
-                            os: OutputStream) {
+                            los: OutputStream) {
 
             // make a read
             val bytesRead = is.read(ba)
@@ -550,16 +554,16 @@ class AlignmentRecordRDDFunctions(rdd: RDD[AlignmentRecord])
             // did our read succeed? if so, write to output stream
             // and continue
             if (bytesRead >= 0) {
-              os.write(ba, 0, bytesRead)
+              los.write(ba, 0, bytesRead)
 
-              copy(is, os)
+              copy(is, los)
             }
           }
 
           // loop over allllll the files and copy them
-          val numFiles = filesToCopy.length
+          val numFiles = tailFiles.length
           var filesCopied = 1
-          filesToCopy.foreach(p => {
+          tailFiles.toSeq.foreach(p => {
 
             // print a bit of progress logging
             log.info("Copying file %s, file %d of %d.".format(
@@ -579,6 +583,9 @@ class AlignmentRecordRDDFunctions(rdd: RDD[AlignmentRecord])
             // increment file copy count
             filesCopied += 1
           })
+
+	  // finish the file off
+          os.write(BlockCompressedStreamConstants.EMPTY_GZIP_BLOCK);
 
           // flush and close the output stream
           os.flush()
