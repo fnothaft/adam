@@ -82,7 +82,7 @@ class InstrumentedADAMBAMOutputFormat[K] extends InstrumentedOutputFormat[K, org
 class ADAMBAMOutputFormatHeaderLess[K]
     extends KeyIgnoringBAMOutputFormat[K] with Serializable {
 
-  setWriteHeader(false)
+  //setWriteHeader(false)
 
   override def getRecordWriter(context: TaskAttemptContext): RecordWriter[K, SAMRecordWritable] = {
     val conf = ContextUtil.getConfiguration(context)

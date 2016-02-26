@@ -425,6 +425,12 @@ class AlignmentRecordRDDFunctions(rdd: RDD[AlignmentRecord])
             binaryCodec.writeInt(r.getSequenceLength())
           })
 
+        // test code
+        val recordCodec = new BAMRecordCodec(header);
+        recordCodec.setOutputStream(compressedOut);
+        withKey.toLocalIterator
+          .foreach(r => recordCodec.encode(r._2.get))
+
         // flush and close all the streams
         compressedOut.flush()
         compressedOut.close()
@@ -445,6 +451,7 @@ class AlignmentRecordRDDFunctions(rdd: RDD[AlignmentRecord])
       }
 
       // save rdd
+      withKey.cache()
       withKey.saveAsNewAPIHadoopFile(
         tailPath.toString,
         classOf[LongWritable],
@@ -585,8 +592,8 @@ class AlignmentRecordRDDFunctions(rdd: RDD[AlignmentRecord])
           os.close()
 
           // delete temp files
-          fs.delete(headPath, true)
-          fs.delete(tailPath, true)
+          //fs.delete(headPath, true)
+          //fs.delete(tailPath, true)
         }
       }
     }
