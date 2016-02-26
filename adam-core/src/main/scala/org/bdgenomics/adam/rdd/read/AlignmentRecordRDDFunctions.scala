@@ -584,7 +584,7 @@ class AlignmentRecordRDDFunctions(rdd: RDD[AlignmentRecord])
             filesCopied += 1
           })
 
-	  // finish the file off
+          // finish the file off
           os.write(BlockCompressedStreamConstants.EMPTY_GZIP_BLOCK);
 
           // flush and close the output stream
