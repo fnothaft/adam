@@ -45,6 +45,7 @@ abstract class MultisampleAvroGenomicRDD[T <% IndexedRecord: Manifest] extends A
     val samplesAsAvroRgs = samples.map(s => {
       RecordGroupMetadata.newBuilder()
         .setSample(s)
+        .setName(s)
         .build()
     })
     saveAvro("%s/_samples.avro".format(filePath),

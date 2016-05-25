@@ -148,8 +148,8 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
     SequenceDictionary.fromAvro(avroSd)
   }
 
-  private[rdd] def loadAvroSampleMetadata(filePath: String): RecordGroupDictionary = {
-    val avroRgd = loadAvro[RecordGroupMetadata]("%s/_rgdict.avro".format(filePath),
+  private[rdd] def loadAvroSampleMetadata(filePath: String, fileName: String): RecordGroupDictionary = {
+    val avroRgd = loadAvro[RecordGroupMetadata]("%s/%s".format(filePath, fileName),
       RecordGroupMetadata.SCHEMA$)
     // convert avro to record group dictionary
     new RecordGroupDictionary(avroRgd.map(RecordGroup.fromAvro))
@@ -498,7 +498,7 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
     val sd = loadAvroSequences(filePath)
 
     // convert avro to sequence dictionary
-    val rgd = loadAvroSampleMetadata(filePath)
+    val rgd = loadAvroSampleMetadata(filePath, "_rgdict.avro")
 
     AlignedReadRDD(rdd, sd, rgd)
   }
@@ -641,7 +641,7 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
     val sd = loadAvroSequences(filePath)
 
     // load avro record group dictionary and convert to samples
-    val rgd = loadAvroSampleMetadata(filePath)
+    val rgd = loadAvroSampleMetadata(filePath, "_samples.avro")
     val samples = rgd.recordGroups.map(_.sample)
 
     GenotypeRDD(rdd, sd, samples)
