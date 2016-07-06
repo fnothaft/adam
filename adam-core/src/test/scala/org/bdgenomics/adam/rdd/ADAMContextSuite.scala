@@ -22,6 +22,7 @@ import java.util.UUID
 import com.google.common.io.Files
 import org.apache.hadoop.fs.Path
 import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.Dataset
 import org.bdgenomics.adam.models._
 import org.bdgenomics.adam.rdd.ADAMContext._
 import org.bdgenomics.adam.util.PhredUtils._
@@ -410,6 +411,47 @@ class ADAMContextSuite extends ADAMFunSuite {
     val path = resourcePath("sorted.bam")
     val reads = sc.loadIndexedBam(path, refRegion)
     assert(reads.count == 1)
+  }
+
+  sparkTest("Can read a .gtf file as dataset") {
+    val path = testFile("features/Homo_sapiens.GRCh37.75.trun20.gtf")
+    val features: Dataset[Product] = sc.loadFeatures(path).toDataset
+    assert(features.count === 15)
+  }
+
+  sparkTest("Can read a .bed file as dataset") {
+    // note: this .bed doesn't actually conform to the UCSC BED spec...sigh...
+    val path = testFile("features/gencode.v7.annotation.trunc10.bed")
+    val features: Dataset[Product] = sc.loadFeatures(path).toDataset
+    assert(features.count === 10)
+  }
+
+  sparkTest("Can read a .narrowPeak file as dataset") {
+    val path = testFile("features/wgEncodeOpenChromDnaseGm19238Pk.trunc10.narrowPeak")
+    val annot: Dataset[Product] = sc.loadFeatures(path).toDataset
+    assert(annot.count === 10)
+  }
+
+  sparkTest("Can read a .interval_list file as dataset") {
+    val path = testFile("features/SeqCap_EZ_Exome_v3.hg19.interval_list")
+    val annot: Dataset[Product] = sc.loadFeatures(path).toDataset
+    assert(annot.count == 369)
+  }
+
+  sparkTest("read a gzipped fasta file as dataset") {
+    val inputPath = resourcePath("chr20.250k.fa.gz")
+    val contigFragments: Dataset[Product] = sc.loadFasta(inputPath, 10000L)
+      .sortBy(_.getFragmentNumber.toInt)
+      .toDataset
+    assert(contigFragments.count() === 26)
+  }
+
+  sparkTest("loading a dataset should not fail on unmapped reads") {
+    val readsFilepath = resourcePath("unmapped.sam")
+
+    // Convert the reads12.sam file into a parquet file
+    val bamReads: Dataset[Product] = sc.loadAlignments(readsFilepath).toDataset
+    assert(bamReads.count === 200)
   }
 }
 

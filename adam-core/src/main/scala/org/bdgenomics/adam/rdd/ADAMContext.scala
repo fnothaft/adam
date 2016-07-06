@@ -33,9 +33,9 @@ import org.apache.parquet.avro.{ AvroParquetInputFormat, AvroReadSupport }
 import org.apache.parquet.filter2.predicate.FilterPredicate
 import org.apache.parquet.hadoop.ParquetInputFormat
 import org.apache.parquet.hadoop.util.ContextUtil
+import org.apache.spark.SparkContext
 import org.apache.spark.rdd.MetricsContext._
 import org.apache.spark.rdd.RDD
-import org.apache.spark.SparkContext
 import org.bdgenomics.adam.converters._
 import org.bdgenomics.adam.instrumentation.Timers._
 import org.bdgenomics.adam.io._
@@ -76,7 +76,7 @@ object ADAMContext {
   implicit def sparkContextToADAMContext(sc: SparkContext): ADAMContext = new ADAMContext(sc)
 
   // Add generic RDD methods for all types of ADAM RDDs
-  implicit def rddToADAMRDD[T](rdd: RDD[T])(implicit ev1: T => IndexedRecord, ev2: Manifest[T]): ConcreteADAMRDDFunctions[T] = new ConcreteADAMRDDFunctions(rdd)
+  implicit def rddToADAMRDD[T](rdd: RDD[T])(implicit ev1: T => SpecificRecord, ev2: Manifest[T]): ConcreteADAMRDDFunctions[T] = new ConcreteADAMRDDFunctions(rdd)
 
   // Add methods specific to Read RDDs
   implicit def rddToADAMRecordRDD(rdd: RDD[AlignmentRecord]) = new AlignmentRecordRDDFunctions(rdd)

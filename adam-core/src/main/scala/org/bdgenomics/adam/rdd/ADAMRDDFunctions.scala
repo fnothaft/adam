@@ -22,13 +22,13 @@ import java.util.logging.Level
 import java.io.OutputStream
 import org.apache.avro.Schema
 import org.apache.avro.file.DataFileWriter
-import org.apache.avro.generic.IndexedRecord
-import org.apache.avro.specific.{ SpecificDatumWriter, SpecificRecordBase }
+import org.apache.avro.specific.{ SpecificDatumWriter, SpecificRecordBase, SpecificRecord }
 import org.apache.hadoop.fs.{ FileSystem, Path }
 import org.apache.hadoop.mapreduce.{ OutputFormat => NewOutputFormat }
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.MetricsContext._
 import org.apache.spark.rdd.{ InstrumentedOutputFormat, RDD }
+import org.apache.spark.sql.{ Dataset, SQLContext }
 import org.bdgenomics.adam.instrumentation.Timers._
 import org.bdgenomics.adam.models._
 import org.bdgenomics.adam.util.ParquetLogger
@@ -46,9 +46,16 @@ trait ADAMSaveAnyArgs extends SaveArgs {
   var asSingleFile: Boolean
 }
 
-private[rdd] abstract class ADAMRDDFunctions[T <% IndexedRecord: Manifest] extends Serializable with Logging {
+private[rdd] abstract class ADAMRDDFunctions[T <% SpecificRecord: Manifest] extends Serializable with Logging {
 
   val rdd: RDD[T]
+
+  def toDataset: Dataset[Product] = {
+    val sqlContext = new SQLContext(rdd.context)
+    import sqlContext.implicits._
+    val productRdd: RDD[Product] = rdd.map(v => new AvroProduct(v).asInstanceOf[Product])
+    sqlContext.createDataset(productRdd)
+  }
 
   /**
    * Saves Avro data to a Hadoop file system.
@@ -135,7 +142,7 @@ private[rdd] abstract class ADAMRDDFunctions[T <% IndexedRecord: Manifest] exten
 
 @deprecated("Extend ADAMRDDFunctions and mix in GenomicRDD wherever possible in new development.",
   since = "0.20.0")
-private[rdd] class ConcreteADAMRDDFunctions[T <% IndexedRecord: Manifest](val rdd: RDD[T]) extends ADAMRDDFunctions[T] {
+private[rdd] class ConcreteADAMRDDFunctions[T <% SpecificRecord: Manifest](val rdd: RDD[T]) extends ADAMRDDFunctions[T] {
 
   def saveAsParquet(args: SaveArgs): Unit = {
     saveRddAsParquet(args)
@@ -205,7 +212,6 @@ abstract class ADAMSequenceDictionaryRDDAggregator[T](rdd: RDD[T]) extends Seria
     } else
       sd
   }
-
 }
 
 /**
@@ -219,7 +225,7 @@ abstract class ADAMSequenceDictionaryRDDAggregator[T](rdd: RDD[T]) extends Seria
  * @tparam T A type defined in Avro that contains the reference identification fields.
  * @param rdd RDD over which aggregation is supported.
  */
-class ADAMSpecificRecordSequenceDictionaryRDDAggregator[T <% IndexedRecord: Manifest](rdd: RDD[T])
+class ADAMSpecificRecordSequenceDictionaryRDDAggregator[T <% SpecificRecord: Manifest](rdd: RDD[T])
     extends ADAMSequenceDictionaryRDDAggregator[T](rdd) {
 
   def getSequenceRecords(elem: T): Set[SequenceRecord] = {
@@ -227,7 +233,7 @@ class ADAMSpecificRecordSequenceDictionaryRDDAggregator[T <% IndexedRecord: Mani
   }
 }
 
-class InstrumentedADAMAvroParquetOutputFormat extends InstrumentedOutputFormat[Void, IndexedRecord] {
-  override def outputFormatClass(): Class[_ <: NewOutputFormat[Void, IndexedRecord]] = classOf[AvroParquetOutputFormat[IndexedRecord]]
+class InstrumentedADAMAvroParquetOutputFormat extends InstrumentedOutputFormat[Void, SpecificRecord] {
+  override def outputFormatClass(): Class[_ <: NewOutputFormat[Void, SpecificRecord]] = classOf[AvroParquetOutputFormat[SpecificRecord]]
   override def timerName(): String = WriteADAMRecord.timerName
 }

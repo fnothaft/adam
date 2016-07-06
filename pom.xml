@@ -21,7 +21,7 @@
     <avro.version>1.8.0</avro.version>
     <!-- informative only, used in about template substitution -->
     <scala.version>2.10</scala.version>
-    <spark.version>1.6.1</spark.version>
+    <spark.version>1.6.2</spark.version>
     <parquet.version>1.8.1</parquet.version>
     <!-- Edit the following line to configure the Hadoop (HDFS) version. -->
     <hadoop.version>2.6.0</hadoop.version>
@@ -449,6 +449,22 @@
       <dependency>
         <groupId>org.apache.spark</groupId>
         <artifactId>spark-core_2.10</artifactId>
+        <version>${spark.version}</version>
+        <scope>provided</scope>
+        <exclusions>
+          <exclusion>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-client</artifactId>
+          </exclusion>
+          <exclusion>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-mapreduce</artifactId>
+          </exclusion>
+        </exclusions>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.spark</groupId>
+        <artifactId>spark-sql_2.10</artifactId>
         <version>${spark.version}</version>
         <scope>provided</scope>
         <exclusions>

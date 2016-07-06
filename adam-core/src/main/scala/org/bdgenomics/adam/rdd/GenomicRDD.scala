@@ -17,7 +17,7 @@
  */
 package org.bdgenomics.adam.rdd
 
-import org.apache.avro.generic.IndexedRecord
+import org.apache.avro.specific.SpecificRecord
 import org.apache.parquet.hadoop.metadata.CompressionCodecName
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.SequenceDictionary
@@ -36,7 +36,7 @@ trait MultisampleGenomicRDD[T] extends GenomicRDD[T] {
   val samples: Seq[String]
 }
 
-abstract class MultisampleAvroGenomicRDD[T <% IndexedRecord: Manifest] extends AvroGenomicRDD[T]
+abstract class MultisampleAvroGenomicRDD[T <% SpecificRecord: Manifest] extends AvroGenomicRDD[T]
     with MultisampleGenomicRDD[T] {
 
   override protected def saveMetadata(filePath: String) {
@@ -62,7 +62,7 @@ abstract class MultisampleAvroGenomicRDD[T <% IndexedRecord: Manifest] extends A
   }
 }
 
-abstract class AvroGenomicRDD[T <% IndexedRecord: Manifest] extends ADAMRDDFunctions[T]
+abstract class AvroGenomicRDD[T <% SpecificRecord: Manifest] extends ADAMRDDFunctions[T]
     with GenomicRDD[T] {
 
   /**
