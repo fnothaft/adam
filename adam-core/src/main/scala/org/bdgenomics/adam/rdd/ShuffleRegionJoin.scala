@@ -114,7 +114,8 @@ private[rdd] case class ShuffleRegionJoin(sd: SequenceDictionary, partitionSize:
  * @param binSize The size of each bin in nucleotides
  * @param seqLengths A map containing the length of each contig
  */
-case class GenomeBins(binSize: Long, seqLengths: Map[String, Long]) extends Serializable {
+private[adam] case class GenomeBins(binSize: Long,
+                                    seqLengths: Map[String, Long]) extends Serializable {
   @transient private val names: Seq[String] = seqLengths.keys.toSeq.sortWith(_ < _)
   @transient private val lengths: Seq[Long] = names.map(seqLengths(_))
   @transient private val parts: Seq[Int] = lengths.map(v => round(ceil(v.toDouble / binSize)).toInt)
@@ -170,10 +171,11 @@ case class GenomeBins(binSize: Long, seqLengths: Map[String, Long]) extends Seri
  *
  * @param partitions should correspond to the number of bins in the corresponding GenomeBins
  */
-private case class ManualRegionPartitioner(partitions: Int) extends Partitioner {
+private[rdd] case class ManualRegionPartitioner(partitions: Int) extends Partitioner {
   override def numPartitions: Int = partitions
   override def getPartition(key: Any): Int = key match {
     case (r: ReferenceRegion, p: Int) => p
+    case p: Int                       => p
     case _                            => throw new AssertionError("Unexpected key in ManualRegionPartitioner")
   }
 }

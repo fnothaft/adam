@@ -17,6 +17,7 @@
  */
 package org.bdgenomics.adam.rdd
 
+import java.util.concurrent.Executors
 import org.apache.avro.generic.IndexedRecord
 import org.apache.parquet.hadoop.metadata.CompressionCodecName
 import org.apache.spark.api.java.JavaRDD
@@ -28,6 +29,7 @@ import org.bdgenomics.adam.models.{
 }
 import org.bdgenomics.formats.avro.{ Contig, RecordGroupMetadata, Sample }
 import org.bdgenomics.utils.cli.SaveArgs
+import scala.collection.JavaConversions._
 import scala.reflect.ClassTag
 
 private[rdd] class JavaSaveArgs(var outputPath: String,
@@ -51,6 +53,94 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
 
   def transform(tFn: RDD[T] => RDD[T]): U = {
     replaceRdd(tFn(rdd))
+  }
+
+  /**
+   * Pipes genomic data to a subprocess that runs in parallel using Spark.
+   *
+   * Files are substituted in to the command with a $x syntax. E.g., to invoke
+   * a command that uses the first file from the files Seq, use $0.
+   * 
+   * @param cmd Command to run.
+   * @param files Files to make locally available to the commands being run.
+   * @param flankSize Number of bases to flank each command invocation by.
+   * @return Returns a new GenomicRDD of type Y.
+   *
+   * @tparam X The type of the record created by the piped command.
+   * @tparam Y A GenomicRDD containing X's.
+   */
+  def pipe[X, Y <: GenomicRDD[X, Y]](cmd: String,
+                                     files: Seq[String],
+                                     flankSize: Int = 0)(implicit tFormatter: InFormatter[T],
+                                                         xFormatter: OutFormatter[X],
+                                                         convFn: (U, RDD[X]) => Y,
+                                                         tManifest: ClassTag[T],
+                                                         xManifest: ClassTag[X]): Y = {
+
+    // TODO: support broadcasting files
+    assert(files.isEmpty)
+
+    // make bins
+    val seqLengths = sequences.records.toSeq.map(rec => (rec.name, rec.length)).toMap
+    val totalLength = seqLengths.values.sum
+    val bins = GenomeBins(totalLength / rdd.partitions.size, seqLengths)
+
+    // get region covered, expand region by flank size, and tag with bins
+    val binKeyedRdd = rdd.flatMap(r => {
+
+      // get regions and expand
+      val regions = getReferenceRegions(r).map(_.pad(flankSize))
+
+      // get all the bins this record falls into
+      val recordBins = regions.flatMap(rr => {
+        (bins.getStartBin(rr) to bins.getEndBin(rr))
+      }).distinct
+
+      // key the record by those bins and return
+      // TODO: this should key with the reference region corresponding to a bin
+      recordBins.map(b => (b, r))
+    })
+
+    // repartition yonder our data
+    // TODO: this should repartition and sort within the partition
+    val partitionedRdd = binKeyedRdd.partitionBy(ManualRegionPartitioner(bins.numBins))
+
+    // call map partitions and pipe
+    val pipedRdd = partitionedRdd.values
+      .mapPartitions(iter => {
+
+        // split command and run
+        // TODO: substitute in strings
+        val pb = new ProcessBuilder(cmd.split(" ").toList)
+        pb.redirectError(ProcessBuilder.Redirect.INHERIT)
+        val process = pb.start()
+        val os = process.getOutputStream()
+        val is = process.getInputStream()
+
+        // wrap in and out formatters
+        val ifr = new InFormatterRunner(iter, tFormatter, os)
+        val ofr = new OutFormatterRunner[X, OutFormatter[X]](xFormatter, is)
+
+        // launch thread pool and submit formatters
+        val pool = Executors.newFixedThreadPool(2)
+        pool.submit(ifr)
+        pool.submit(ofr)
+
+        // wait for process to finish
+        val exitCode = process.waitFor()
+        if (exitCode != 0) {
+          throw new RuntimeException("Piped command %s exited with error code %d.".format(
+            cmd, exitCode))
+        }
+
+        // shut thread pool
+        pool.shutdown()
+
+        ofr.iter
+      })
+
+    // build the new GenomicRDD and return
+    convFn(this.asInstanceOf[U], pipedRdd)
   }
 
   protected def replaceRdd(newRdd: RDD[T]): U
