@@ -182,14 +182,6 @@ class ADAMKryoRegistrator extends KryoRegistrator {
     kryo.register(classOf[VCFHeaderLineType])
     kryo.register(Class.forName("htsjdk.variant.vcf.VCFCompoundHeaderLine$SupportedHeaderLineType"))
 
-    // Serialized in GeneSuite / FeatureRDDFunctions.toGene.
-    kryo.register(classOf[Exon])
-    kryo.register(classOf[Array[Exon]])
-    kryo.register(classOf[UTR])
-    kryo.register(classOf[CDS])
-    kryo.register(classOf[Array[Transcript]])
-    kryo.register(classOf[Transcript])
-
     // Broadcast in AlignmentRecordRDDFunctions.convertToSam
     kryo.register(classOf[SAMFileHeaderWritable])
 

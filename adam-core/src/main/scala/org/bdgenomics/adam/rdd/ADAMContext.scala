@@ -1256,9 +1256,9 @@ class ADAMContext private (@transient val sc: SparkContext) extends Serializable
 
   private def isVcfExt(filePath: String): Boolean = {
     filePath.endsWith(".vcf") ||
-    filePath.endsWith(".vcf.gz") ||
-    filePath.endsWith(".vcf.bgzf") ||
-    filePath.endsWith(".vcf.bgz")
+      filePath.endsWith(".vcf.gz") ||
+      filePath.endsWith(".vcf.bgzf") ||
+      filePath.endsWith(".vcf.bgz")
   }
 
   /**
