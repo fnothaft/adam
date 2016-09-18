@@ -31,7 +31,9 @@ import org.bdgenomics.formats.avro.AlignmentRecord
 
 private[rdd] object MarkDuplicates extends Serializable with Logging {
 
-  private def markReadsInBucket(bucket: SingleReadBucket, primaryAreDups: Boolean, secondaryAreDups: Boolean) {
+  private val phred15 = (15 + 33).toChar
+
+  private def markReadsInBucket(bucket: SingleReadBucket, primaryAreDups: Boolean, secondaryAreDups: Boolean): Unit = FinalizeMarkings.time {
     bucket.primaryMapped.foreach(read => {
       read.setDuplicateRead(primaryAreDups)
     })
@@ -45,7 +47,7 @@ private[rdd] object MarkDuplicates extends Serializable with Logging {
 
   // Calculates the sum of the phred scores that are greater than or equal to 15
   def score(record: AlignmentRecord): Int = {
-    record.qualityScores.filter(15 <=).sum
+    record.getQual.filter(_ >= phred15).map(_.toInt).sum
   }
 
   private def scoreBucket(bucket: SingleReadBucket): Int = {
@@ -107,11 +109,11 @@ private[rdd] object MarkDuplicates extends Serializable with Logging {
         leftPos match {
 
           // These are all unmapped reads. There is no way to determine if they are duplicates
-          case None =>
+          case None => MarkUnmappedReads.time {
             markReads(readsAtLeftPos, areDups = false)
-
+          }
           // These reads have their left position mapped
-          case Some(leftPosWithOrientation) =>
+          case Some(leftPosWithOrientation) => DedupeMappedReads.time {
 
             val readsByRightPos = readsAtLeftPos.groupBy(rightPosition)
 
@@ -132,18 +134,24 @@ private[rdd] object MarkDuplicates extends Serializable with Logging {
               // fragments (there are pairs as well) mark all fragments as duplicates.
               // If the group does not contain fragments (it contains pairs) then always score it.
               if (onlyFragments || !groupIsFragments) {
-                // Find the highest-scoring read and mark it as not a duplicate. Mark all the other reads in this group as duplicates.
-                val highestScoringRead = reads.max(ScoreOrdering)
-                markReadsInBucket(highestScoringRead._2, primaryAreDups = false, secondaryAreDups = true)
-                markReads(reads, primaryAreDups = true, secondaryAreDups = true, ignore = Some(highestScoringRead))
+                ScorePairsAndFragments.time {
+                  // Find the highest-scoring read and mark it as not a duplicate. Mark all the other reads in this group as duplicates.
+                  val highestScoringRead = GetMaxScore.time { reads.max(ScoreOrdering) }
+                  markReadsInBucket(highestScoringRead._2, primaryAreDups = false, secondaryAreDups = true)
+                  markReads(reads, primaryAreDups = true, secondaryAreDups = true, ignore = Some(highestScoringRead))
+                }
               } else {
-                markReads(reads, areDups = true)
+                MarkFragmentsAsDuplicates.time {
+                  markReads(reads, areDups = true)
+                }
               }
             })
+          }
         }
 
-        readsAtLeftPos.flatMap(read => { read._2.allReads })
-
+        FlattenBuckets.time {
+          readsAtLeftPos.flatMap(read => { read._2.allReads })
+        }
       })
 
   }
@@ -154,5 +162,4 @@ private[rdd] object MarkDuplicates extends Serializable with Logging {
       scoreBucket(x._2) - scoreBucket(y._2)
     }
   }
-
 }

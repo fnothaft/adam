@@ -190,7 +190,9 @@ class MarkDuplicatesSuite extends ADAMFunSuite {
     // The ascii value 53 is equal to a phred score of 20
     val qual = 53.toChar.toString * 100
     val record = AlignmentRecord.newBuilder().setQual(qual).build()
-    assert(MarkDuplicates.score(record) == 2000)
+    // in integer phred space, this is 2000
+    // in ascii space, add 33 * 100 --> 2000 + 3300 
+    assert(MarkDuplicates.score(record) == 5300)
   }
 
   sparkTest("read pairs that cross chromosomes") {

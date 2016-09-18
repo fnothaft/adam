@@ -45,6 +45,17 @@ object Timers extends Metrics {
   val PerformDuplicateMarking = timer("Perform Duplicate Marking")
   val ScoreAndMarkReads = timer("Score and Mark Reads")
   val MarkReads = timer("Mark Reads")
+  val GetPosition = timer("Get Read Position")
+  val EnrichRead = timer("Enrich Read")
+  val BuildPair = timer("Build Reference Position Pair")
+  val GetReadsFromBucket = timer("Get Reads From Bucket")
+  val FinalizeMarkings = timer("Finalize Duplicate Flags")
+  val MarkUnmappedReads = timer("Mark Unmapped Reads")
+  val DedupeMappedReads = timer("Dedupe Mapped Reads")
+  val GetMaxScore = timer("Get Highest Scoring Read")
+  val ScorePairsAndFragments = timer("Score Pairs/Fragments")
+  val MarkFragmentsAsDuplicates = timer("Mark Fragments as Duplicates")
+  val FlattenBuckets = timer("Flatten SingleReadBucket")
 
   // Recalibrate Base Qualities
   val BQSRInDriver = timer("Base Quality Recalibration")

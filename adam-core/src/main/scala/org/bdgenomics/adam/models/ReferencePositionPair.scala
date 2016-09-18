@@ -21,37 +21,43 @@ import com.esotericsoftware.kryo.{ Kryo, Serializer }
 import com.esotericsoftware.kryo.io.{ Input, Output }
 import Ordering.Option
 import org.bdgenomics.utils.misc.Logging
-import org.bdgenomics.adam.instrumentation.Timers.CreateReferencePositionPair
+import org.bdgenomics.adam.instrumentation.Timers._
 import org.bdgenomics.adam.models.ReferenceRegion._
 import org.bdgenomics.adam.rich.RichAlignmentRecord
 import org.bdgenomics.formats.avro.AlignmentRecord
 
 object ReferencePositionPair extends Logging {
   def apply(singleReadBucket: SingleReadBucket): ReferencePositionPair = CreateReferencePositionPair.time {
-    val firstOfPair = (singleReadBucket.primaryMapped.filter(_.getReadInFragment == 0) ++
-      singleReadBucket.unmapped.filter(_.getReadInFragment == 0)).toSeq
-    val secondOfPair = (singleReadBucket.primaryMapped.filter(_.getReadInFragment == 1) ++
-      singleReadBucket.unmapped.filter(_.getReadInFragment == 1)).toSeq
+    val (firstOfPair, secondOfPair) = GetReadsFromBucket.time {
+      ((singleReadBucket.primaryMapped.filter(_.getReadInFragment == 0) ++
+        singleReadBucket.unmapped.filter(_.getReadInFragment == 0)).toSeq,
+        (singleReadBucket.primaryMapped.filter(_.getReadInFragment == 1) ++
+          singleReadBucket.unmapped.filter(_.getReadInFragment == 1)).toSeq)
+    }
 
-    def getPos(r: AlignmentRecord): ReferencePosition = {
+    def getPos(r: AlignmentRecord): ReferencePosition = GetPosition.time {
       if (r.getReadMapped) {
-        new RichAlignmentRecord(r).fivePrimeReferencePosition
+        EnrichRead.time {
+          new RichAlignmentRecord(r)
+        }.fivePrimeReferencePosition
       } else {
         ReferencePosition(r.getSequence, 0L)
       }
     }
 
-    if (firstOfPair.size + secondOfPair.size > 0) {
-      new ReferencePositionPair(
-        firstOfPair.lift(0).map(getPos),
-        secondOfPair.lift(0).map(getPos)
-      )
-    } else {
-      new ReferencePositionPair(
-        (singleReadBucket.primaryMapped ++
-          singleReadBucket.unmapped).toSeq.headOption.map(getPos),
-        None
-      )
+    BuildPair.time {
+      if (firstOfPair.nonEmpty || secondOfPair.nonEmpty) {
+        new ReferencePositionPair(
+          firstOfPair.lift(0).map(getPos),
+          secondOfPair.lift(0).map(getPos)
+        )
+      } else {
+        new ReferencePositionPair(
+          (singleReadBucket.primaryMapped ++
+            singleReadBucket.unmapped).headOption.map(getPos),
+          None
+        )
+      }
     }
   }
 }
