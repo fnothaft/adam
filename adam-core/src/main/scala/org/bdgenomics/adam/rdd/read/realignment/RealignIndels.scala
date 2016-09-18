@@ -461,18 +461,20 @@ private[rdd] class RealignIndels(
    * @return Realigned read.
    */
   def realignIndels(rdd: RDD[AlignmentRecord]): RDD[AlignmentRecord] = {
-    val sortedRdd = if (dataIsSorted) {
-      rdd.filter(r => r.getReadMapped)
+    val (sortedRdd, optCachedRdd) = if (dataIsSorted) {
+      (rdd.filter(r => r.getReadMapped), None)
     } else {
       val sr = rdd.filter(r => r.getReadMapped)
         .keyBy(ReferencePosition(_))
-        .sortByKey()
-      sr.map(kv => kv._2)
+        .cache()
+
+      (sr.sortByKey().map(kv => kv._2), Some(sr))
     }
 
     // we only want to convert once so let's get it over with
     val richRdd = sortedRdd.map(new RichAlignmentRecord(_))
     richRdd.cache()
+    optCachedRdd.foreach(_.unpersist())
 
     // find realignment targets
     log.info("Generating realignment targets...")
