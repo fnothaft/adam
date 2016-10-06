@@ -18,7 +18,10 @@
 package org.bdgenomics.adam.rdd
 
 import htsjdk.samtools.util.BlockCompressedStreamConstants
+import htsjdk.samtools.cram.build.CramIO
+import htsjdk.samtools.cram.common.CramVersions
 import java.io.{ InputStream, OutputStream }
+import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{ FileSystem, Path }
 import org.bdgenomics.utils.misc.Logging
 import scala.annotation.tailrec
@@ -26,7 +29,12 @@ import scala.annotation.tailrec
 /**
  * Helper object to merge sharded files together.
  */
-private[rdd] object FileMerger extends Logging {
+object FileMerger extends Logging {
+
+  /**
+   * The config entry for the buffer size in bytes.
+   */
+  val BUFFER_SIZE_CONF = "org.bdgenomics.adam.rdd.FileMerger.bufferSize"
 
   /**
    * Merges together sharded files, while preserving partition ordering.
@@ -38,17 +46,69 @@ private[rdd] object FileMerger extends Logging {
    *   been written.
    * @param writeEmptyGzipBlock If true, we write an empty GZIP block at the
    *   end of the merged file.
-   * @param bufferSize The size in bytes of the buffer used for copying.
+   * @param writeCramEOF If true, we write CRAM's EOF signifier.
+   * @param optBufferSize The size in bytes of the buffer used for copying. If
+   *   not set, we check the config for this value. If that is not set, we
+   *   default to 4MB.
+   *
+   * @see mergeFilesAcrossFilesystems
    */
-  def mergeFiles(fs: FileSystem,
-                 outputPath: Path,
-                 tailPath: Path,
-                 optHeaderPath: Option[Path] = None,
-                 writeEmptyGzipBlock: Boolean = false,
-                 bufferSize: Int = 1024) {
+  private[adam] def mergeFiles(conf: Configuration,
+                               fs: FileSystem,
+                               outputPath: Path,
+                               tailPath: Path,
+                               optHeaderPath: Option[Path] = None,
+                               writeEmptyGzipBlock: Boolean = false,
+                               writeCramEOF: Boolean = false,
+                               optBufferSize: Option[Int] = None) {
+    mergeFilesAcrossFilesystems(conf,
+      fs, fs,
+      outputPath, tailPath, optHeaderPath = optHeaderPath,
+      writeEmptyGzipBlock = writeEmptyGzipBlock,
+      writeCramEOF = writeCramEOF,
+      optBufferSize = optBufferSize)
+  }
+
+  /**
+   * Merges together sharded files, while preserving partition ordering.
+   *
+   * Can read files from a different filesystem then they are written to.
+   *
+   * @param fsIn The file system implementation to use for the tail/head paths.
+   * @param fsOut The file system implementation to use for the output path.
+   * @param outputPath The location to write the merged file at.
+   * @param tailPath The location where the sharded files have been written.
+   * @param optHeaderPath Optionally, the location where a header file has
+   *   been written.
+   * @param writeEmptyGzipBlock If true, we write an empty GZIP block at the
+   *   end of the merged file.
+   * @param writeCramEOF If true, we write CRAM's EOF signifier.
+   * @param optBufferSize The size in bytes of the buffer used for copying. If
+   *   not set, we check the config for this value. If that is not set, we
+   *   default to 4MB.
+   */
+  private[adam] def mergeFilesAcrossFilesystems(conf: Configuration,
+                                                fsIn: FileSystem,
+                                                fsOut: FileSystem,
+                                                outputPath: Path,
+                                                tailPath: Path,
+                                                optHeaderPath: Option[Path] = None,
+                                                writeEmptyGzipBlock: Boolean = false,
+                                                writeCramEOF: Boolean = false,
+                                                optBufferSize: Option[Int] = None) {
+
+    // check for buffer size in option, if not in option, check hadoop conf,
+    // if not in hadoop conf, fall back on 4MB
+    val bufferSize = optBufferSize.getOrElse(conf.getInt(BUFFER_SIZE_CONF,
+      4 * 1024 * 1024))
+
+    require(bufferSize > 0,
+      "Cannot have buffer size < 1. %d was provided.".format(bufferSize))
+    require(!(writeEmptyGzipBlock && writeCramEOF),
+      "writeEmptyGzipBlock and writeCramEOF are mutually exclusive.")
 
     // get a list of all of the files in the tail file
-    val tailFiles = fs.globStatus(new Path("%s/part-*".format(tailPath)))
+    val tailFiles = fsIn.globStatus(new Path("%s/part-*".format(tailPath)))
       .toSeq
       .map(_.getPath)
       .sortBy(_.getName)
@@ -67,7 +127,7 @@ private[rdd] object FileMerger extends Logging {
     // but! it is correct.
 
     // open our output file
-    val os = fs.create(outputPath)
+    val os = fsOut.create(outputPath)
 
     // here is a byte array for copying
     val ba = new Array[Byte](bufferSize)
@@ -92,7 +152,7 @@ private[rdd] object FileMerger extends Logging {
       log.info("Copying header file (%s)".format(p))
 
       // open our input file
-      val is = fs.open(p)
+      val is = fsIn.open(p)
 
       // until we are out of bytes, copy
       copy(is, os)
@@ -113,7 +173,7 @@ private[rdd] object FileMerger extends Logging {
         numFiles))
 
       // open our input file
-      val is = fs.open(p)
+      val is = fsIn.open(p)
 
       // until we are out of bytes, copy
       copy(is, os)
@@ -128,6 +188,8 @@ private[rdd] object FileMerger extends Logging {
     // finish the file off
     if (writeEmptyGzipBlock) {
       os.write(BlockCompressedStreamConstants.EMPTY_GZIP_BLOCK);
+    } else if (writeCramEOF) {
+      CramIO.issueEOF(CramVersions.DEFAULT_CRAM_VERSION, os)
     }
 
     // flush and close the output stream
@@ -135,7 +197,7 @@ private[rdd] object FileMerger extends Logging {
     os.close()
 
     // delete temp files
-    optHeaderPath.foreach(headPath => fs.delete(headPath, true))
-    fs.delete(tailPath, true)
+    optHeaderPath.foreach(headPath => fsIn.delete(headPath, true))
+    fsIn.delete(tailPath, true)
   }
 }

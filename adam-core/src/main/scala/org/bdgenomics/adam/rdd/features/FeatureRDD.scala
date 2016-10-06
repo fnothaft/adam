@@ -133,15 +133,8 @@ object FeatureRDD {
     val start = feature.getStart + 1 // IntervalList ranges are 1-based
     val end = feature.getEnd // IntervalList ranges are closed
     val strand = Features.asString(feature.getStrand, emptyUnknown = false)
-    val attributes = Features.gatherAttributes(feature)
-      .map(p => {
-        if (p._2.contains(":")) {
-          p._2.replace(":", "|")
-        } else {
-          "%s|%s".format(p._1, p._2.trim)
-        }
-      }).mkString(";")
-    List(sequenceName, start, end, strand, attributes).mkString("\t")
+    val name = Features.nameOf(feature)
+    List(sequenceName, start, end, strand, name).mkString("\t")
   }
 
   /**
@@ -217,11 +210,10 @@ case class FeatureRDD(rdd: RDD[Feature],
   /**
    * Java friendly save function. Automatically detects the output format.
    *
-   * If the filename ends in ".bed", we write a BED file. If the file name ends
-   * in ".gtf" or ".gff", we write the file as GTF/GFF2. If the file name ends
-   * in ".narrow[pP]eak", we save in the NarrowPeak format. If the file name
-   * ends in ".interval_list", we save in the interval list format. Else, we
-   * save as Parquet. These files are written as sharded text files.
+   * Writes files ending in .bed as BED6/12, .gff3 as GFF3, .gtf/.gff as
+   * GTF/GFF2, .narrow[pP]eak as NarrowPeak, and .interval_list as
+   * IntervalList. If none of these match, we fall back to Parquet.
+   * These files are written as sharded text files.
    *
    * @param filePath The location to write the output.
    * @param asSingleFile If false, writes file to disk as shards with
@@ -234,6 +226,8 @@ case class FeatureRDD(rdd: RDD[Feature],
     } else if (filePath.endsWith(".gtf") ||
       filePath.endsWith(".gff")) {
       saveAsGtf(filePath, asSingleFile = asSingleFile)
+    } else if (filePath.endsWith(".gff3")) {
+      saveAsGff3(filePath, asSingleFile = asSingleFile)
     } else if (filePath.endsWith(".narrowPeak") ||
       filePath.endsWith(".narrowpeak")) {
       saveAsNarrowPeak(filePath, asSingleFile = asSingleFile)
@@ -245,124 +239,6 @@ case class FeatureRDD(rdd: RDD[Feature],
       }
       saveAsParquet(new JavaSaveArgs(filePath))
     }
-  }
-
-  /**
-   * @param str The strand attached to a Feature.
-   * @return Returns true if the strand is not the reverse strand.
-   */
-  private def strand(str: Strand): Boolean = str match {
-    case Strand.FORWARD     => true
-    case Strand.REVERSE     => false
-    case Strand.INDEPENDENT => true
-    case Strand.UNKNOWN     => true
-  }
-
-  /**
-   * @return Converts the underlying RDD into an RDD of Gene models.
-   */
-  private def rddToGeneRDD(): RDD[Gene] = {
-    /*
-    Creating a set of gene models works in four steps:
-
-    1. Key each GTFFeature by its featureType (which should be either 'gene',
-       'transcript', or 'exon').
-
-    2. Take all the values of type 'exon', and create Exon objects from them.
-       Key this RDD by transcriptId of each exon, and group all exons of the same
-       transcript together. Also, do the same for the 'cds' features.
-
-    3. Take all the values of type 'transcript', key them by their transcriptId,
-       and join them with the cds and exons from step #2.  This should give each us
-       enough information to create each Transcript, which we do, key each Transcript
-       by its geneId, and group the transcripts which share a common gene together.
-
-    4. Finally, find each 'gene'-typed GTFFeature, key it by its geneId,
-       and join with the transcripts in #3.  Use these joined values to create the
-       final set of Gene values.
-
-    The three groupBys and two joins are necessary for creating the two-level hierarchical
-    tree-structured Gene models, under the assumption that the rows of the GTF file itself
-    aren't ordered.
-     */
-
-    // Step #1
-    val typePartitioned: RDD[(String, Feature)] = rdd.keyBy(_.getFeatureType).cache()
-
-    // Step #2
-    val exonsByTranscript: RDD[(String, Iterable[Exon])] =
-      typePartitioned.filter(_._1 == "exon").flatMap {
-        // There really only should be _one_ parent listed in this flatMap, but since
-        // getParentIds is modeled as returning a List[], we'll write it this way.
-        case ("exon", ftr: Feature) =>
-          val ids: Seq[String] = ftr.getParentIds
-          ids.map(transcriptId => (
-            transcriptId,
-            Exon(ftr.getFeatureId, transcriptId, strand(ftr.getStrand), ReferenceRegion(ftr))
-          ))
-      }.groupByKey()
-
-    val cdsByTranscript: RDD[(String, Iterable[CDS])] =
-      typePartitioned.filter(_._1 == "CDS").flatMap {
-        case ("CDS", ftr: Feature) =>
-          val ids: Seq[String] = ftr.getParentIds
-          ids.map(transcriptId => (
-            transcriptId,
-            CDS(transcriptId, strand(ftr.getStrand), ReferenceRegion(ftr))
-          ))
-      }.groupByKey()
-
-    val utrsByTranscript: RDD[(String, Iterable[UTR])] =
-      typePartitioned.filter(_._1 == "UTR").flatMap {
-        case ("UTR", ftr: Feature) =>
-          val ids: Seq[String] = ftr.getParentIds
-          ids.map(transcriptId => (
-            transcriptId,
-            UTR(transcriptId, strand(ftr.getStrand), ReferenceRegion(ftr))
-          ))
-      }.groupByKey()
-
-    // Step #3
-    val transcriptsByGene: RDD[(String, Iterable[Transcript])] =
-      typePartitioned.filter(_._1 == "transcript").map {
-        case ("transcript", ftr: Feature) => (ftr.getFeatureId, ftr)
-      }.join(exonsByTranscript)
-        .leftOuterJoin(utrsByTranscript)
-        .leftOuterJoin(cdsByTranscript)
-
-        .flatMap {
-          // There really only should be _one_ parent listed in this flatMap, but since
-          // getParentIds is modeled as returning a List[], we'll write it this way.
-          case (transcriptId: String, (((tgtf: Feature, exons: Iterable[Exon]),
-            utrs: Option[Iterable[UTR]]),
-            cds: Option[Iterable[CDS]])) =>
-            val geneIds: Seq[String] = tgtf.getParentIds // should be length 1
-            geneIds.map(geneId => (
-              geneId,
-              Transcript(transcriptId, Seq(transcriptId), geneId,
-                strand(tgtf.getStrand),
-                exons, cds.getOrElse(Seq()), utrs.getOrElse(Seq()))
-            ))
-        }.groupByKey()
-
-    // Step #4
-    val genes = typePartitioned.filter(_._1 == "gene").map {
-      case ("gene", ftr: Feature) => (ftr.getFeatureId, ftr)
-    }.leftOuterJoin(transcriptsByGene).map {
-      case (geneId: String, (ggtf: Feature, transcripts: Option[Iterable[Transcript]])) =>
-        Gene(geneId, Seq(geneId),
-          strand(ggtf.getStrand),
-          transcripts.getOrElse(Seq()))
-    }
-
-    genes
-  }
-
-  /**
-   * @return Returns this RDD, where the Gene structure was rebuilt.
-   */
-  def toGenes(): GeneRDD = {
-    GeneRDD(rddToGeneRDD, sequences)
   }
 
   /**
@@ -412,7 +288,8 @@ case class FeatureRDD(rdd: RDD[Feature],
       val fs = FileSystem.get(rdd.context.hadoopConfiguration)
 
       // and then merge
-      FileMerger.mergeFiles(fs,
+      FileMerger.mergeFiles(rdd.context.hadoopConfiguration,
+        fs,
         new Path(outputPath),
         new Path(tailPath))
     } else {
@@ -465,7 +342,6 @@ case class FeatureRDD(rdd: RDD[Feature],
    *   file by merging the shards.
    */
   def saveAsIntervalList(fileName: String, asSingleFile: Boolean = false) = {
-    // todo:  SAM style header
     val intervalEntities = rdd.map(FeatureRDD.toInterval)
 
     if (asSingleFile) {
@@ -484,7 +360,11 @@ case class FeatureRDD(rdd: RDD[Feature],
       intervalEntities.saveAsTextFile(tailPath.toString)
 
       // merge
-      FileMerger.mergeFiles(fs, new Path(fileName), tailPath, Some(headPath))
+      FileMerger.mergeFiles(rdd.context.hadoopConfiguration,
+        fs,
+        new Path(fileName),
+        tailPath,
+        Some(headPath))
     } else {
       intervalEntities.saveAsTextFile(fileName)
     }
@@ -513,41 +393,5 @@ case class FeatureRDD(rdd: RDD[Feature],
     implicit def ord = FeatureOrdering
 
     replaceRdd(rdd.sortBy(f => f, ascending, numPartitions))
-  }
-
-  /**
-   * Reassigns the Parent IDs of all of the elements in the RDD.
-   *
-   * @return Returns a new FeatureRDD with canonicalized Parent IDs.
-   */
-  def reassignParentIds(): FeatureRDD = {
-    def reassignParentId(f: Feature): Feature = {
-      val fb = Feature.newBuilder(f)
-
-      val featureId: Option[String] = Option(f.getFeatureId)
-      val geneId: Option[String] = Option(f.getGeneId)
-      val transcriptId: Option[String] = Option(f.getTranscriptId)
-      val exonNumber: Option[String] = Option(f.getAttributes.get("exon_number"))
-      val exonId: Option[String] = Option(f.getExonId) match {
-        case Some(e) => Option(e)
-        case None    => transcriptId.flatMap(t => exonNumber.map(e => t + "_" + e))
-      }
-
-      val (featureIdOpt, parentIdOpt) =
-        f.getFeatureType match {
-          case "gene"        => (geneId, None)
-          case "transcript"  => (transcriptId, geneId)
-          case "exon"        => (exonId, transcriptId)
-          case "CDS" | "UTR" => (featureId, transcriptId)
-          case _             => (featureId, None)
-        }
-      // replace featureId and parentId if defined
-      featureIdOpt.foreach(fb.setFeatureId)
-      parentIdOpt.foreach(parentId => fb.setParentIds(List[String](parentId)))
-
-      fb.build()
-    }
-
-    replaceRdd(rdd.map(reassignParentId))
   }
 }

@@ -27,7 +27,7 @@ import scala.collection.JavaConversions._
 /**
  * This class contains methods to convert AlignmentRecords to other formats.
  */
-private[adam] class AlignmentRecordConverter extends Serializable {
+class AlignmentRecordConverter extends Serializable {
 
   /**
    * Converts a single record to FASTQ. FASTQ format is:
@@ -125,7 +125,7 @@ private[adam] class AlignmentRecordConverter extends Serializable {
     // set read group flags
     Option(adamRecord.getRecordGroupName)
       .foreach(v => {
-        builder.setAttribute("RG", rgd.getIndex(v))
+        builder.setAttribute("RG", v)
         val rg = rgd(v)
         rg.library.foreach(v => builder.setAttribute("LB", v))
         rg.platformUnit.foreach(v => builder.setAttribute("PU", v))

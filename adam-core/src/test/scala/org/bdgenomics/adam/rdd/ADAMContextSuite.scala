@@ -17,7 +17,7 @@
  */
 package org.bdgenomics.adam.rdd
 
-import java.io.File
+import java.io.{ File, FileNotFoundException }
 import java.util.UUID
 import htsjdk.samtools.DiskBasedBAMFileIndex
 import com.google.common.io.Files
@@ -32,12 +32,13 @@ import org.bdgenomics.adam.rdd.read.AlignedReadRDD
 import org.bdgenomics.adam.util.PhredUtils._
 import org.bdgenomics.adam.util.ADAMFunSuite
 import org.bdgenomics.formats.avro._
-import org.seqdoop.hadoop_bam.BAMInputFormat
+import org.seqdoop.hadoop_bam.{ BAMInputFormat, CRAMInputFormat }
 import scala.collection.JavaConversions._
 
 case class TestSaveArgs(var outputPath: String) extends ADAMSaveAnyArgs {
   var sortFastqOutput = false
   var asSingleFile = false
+  var deferMerging = false
   var blockSize = 128 * 1024 * 1024
   var pageSize = 1 * 1024 * 1024
   var compressionCodec = CompressionCodecName.GZIP
@@ -76,6 +77,15 @@ class ADAMContextSuite extends ADAMFunSuite {
     val path = resourcePath("small.sam")
     val reads: RDD[AlignmentRecord] = sc.loadAlignments(path).rdd
     assert(reads.count() === 20)
+  }
+
+  sparkTest("can read a small .CRAM file") {
+    val path = resourcePath("artificial.cram")
+    val referencePath = resourceUrl("artificial.fa").toString
+    sc.hadoopConfiguration.set(CRAMInputFormat.REFERENCE_SOURCE_PATH_PROPERTY,
+      referencePath)
+    val reads: RDD[AlignmentRecord] = sc.loadAlignments(path).rdd
+    assert(reads.count() === 10)
   }
 
   sparkTest("can read a small .SAM with all attribute tag types") {
@@ -129,33 +139,10 @@ class ADAMContextSuite extends ADAMFunSuite {
     val arr = annot.collect
 
     val first = arr.find(f => f.getContigName == "chr1" && f.getStart == 14415L && f.getEnd == 14499L).get
-    assert(
-      first
-        .getDbxrefs
-        .map(dbxref => dbxref.getDb -> dbxref.getAccession)
-        .groupBy(_._1)
-        .mapValues(_.map(_._2).toSet) ==
-        Map(
-          "gn" -> Set("DDX11L1", "RP11-34P13.2"),
-          "ens" -> Set("ENSG00000223972", "ENSG00000227232"),
-          "vega" -> Set("OTTHUMG00000000958", "OTTHUMG00000000961")
-        )
-    )
+    assert(first.getName === "gn|DDX11L1;gn|RP11-34P13.2;ens|ENSG00000223972;ens|ENSG00000227232;vega|OTTHUMG00000000958;vega|OTTHUMG00000000961")
 
     val last = arr.find(f => f.getContigName == "chrY" && f.getStart == 27190031L && f.getEnd == 27190210L).get
-    assert(
-      last
-        .getDbxrefs
-        .map(dbxref => dbxref.getDb -> dbxref.getAccession)
-        .groupBy(_._1)
-        .mapValues(_.map(_._2).toSet) ==
-        Map(
-          "gn" -> Set("BPY2C"),
-          "ccds" -> Set("CCDS44030"),
-          "ens" -> Set("ENSG00000185894"),
-          "vega" -> Set("OTTHUMG00000045199")
-        )
-    )
+    assert(last.getName === "gn|BPY2C;ccds|CCDS44030;ens|ENSG00000185894;vega|OTTHUMG00000045199")
   }
 
   sparkTest("can read a small .vcf file") {
@@ -391,8 +378,26 @@ class ADAMContextSuite extends ADAMFunSuite {
     val outputPath = tmpLocation()
     reads.saveAsParquet(outputPath)
     reads.saveAsParquet(outputPath.replace(".adam", ".2.adam"))
+
+    val paths = new Path(outputPath.replace(".adam", "*.adam") + "/*")
+    assert(sc.getFsAndFiles(paths).size > 2)
+
     val reloadedReads = sc.loadParquetAlignments(outputPath.replace(".adam", "*.adam") + "/*")
     assert((2 * reads.rdd.count) === reloadedReads.rdd.count)
+  }
+
+  sparkTest("bad glob should fail") {
+    val inputPath = resourcePath("small.sam")
+    intercept[FileNotFoundException] {
+      sc.getFsAndFiles(new Path(inputPath.replace(".sam", "*.sad")))
+    }
+  }
+
+  sparkTest("empty directory should fail") {
+    val outputPath = tmpLocation()
+    intercept[FileNotFoundException] {
+      sc.getFsAndFiles(new Path(outputPath))
+    }
   }
 }
 
