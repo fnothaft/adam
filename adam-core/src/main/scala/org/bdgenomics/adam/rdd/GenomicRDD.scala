@@ -21,6 +21,7 @@ import org.apache.avro.generic.IndexedRecord
 import org.apache.parquet.hadoop.metadata.CompressionCodecName
 import org.apache.spark.api.java.JavaRDD
 import org.apache.spark.rdd.RDD
+import org.apache.spark.Partitioner
 import org.bdgenomics.adam.models.{
   RecordGroupDictionary,
   ReferenceRegion,
@@ -28,6 +29,7 @@ import org.bdgenomics.adam.models.{
 }
 import org.bdgenomics.formats.avro.{ Contig, RecordGroupMetadata, Sample }
 import org.bdgenomics.utils.cli.SaveArgs
+import scala.Exception
 import scala.reflect.ClassTag
 
 private[rdd] class JavaSaveArgs(var outputPath: String,
@@ -105,6 +107,7 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
       kv => { getReferenceRegions(kv._1) ++ genomicRdd.getReferenceRegions(kv._2) })
       .asInstanceOf[GenomicRDD[(T, X), Z]]
   }
+
 }
 
 private case class GenericGenomicRDD[T](rdd: RDD[T],
