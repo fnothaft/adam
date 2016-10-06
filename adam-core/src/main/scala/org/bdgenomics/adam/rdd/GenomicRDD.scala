@@ -29,7 +29,6 @@ import org.bdgenomics.adam.models.{
 }
 import org.bdgenomics.formats.avro.{ Contig, RecordGroupMetadata, Sample }
 import org.bdgenomics.utils.cli.SaveArgs
-import scala.Exception
 import scala.reflect.ClassTag
 
 private[rdd] class JavaSaveArgs(var outputPath: String,
@@ -108,6 +107,18 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
       .asInstanceOf[GenomicRDD[(T, X), Z]]
   }
 
+}
+
+private class GenomicPositionRangePartitioner[V](partitions: Int, elements: Int) extends Partitioner {
+
+  override def numPartitions: Int = partitions
+
+  def getPartition(key: Any): Int = {
+    key match {
+      case f: ReferenceRegion => getPartition(f)
+      case _                  => throw new Exception("Reference Region Key require to partition on Genomic Position")
+    }
+  }
 }
 
 private case class GenericGenomicRDD[T](rdd: RDD[T],
