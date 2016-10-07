@@ -109,18 +109,6 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
 
 }
 
-private class GenomicPositionRangePartitioner[V](partitions: Int, elements: Int) extends Partitioner {
-
-  override def numPartitions: Int = partitions
-
-  def getPartition(key: Any): Int = {
-    key match {
-      case f: ReferenceRegion => getPartition(f)
-      case _                  => throw new Exception("Reference Region Key require to partition on Genomic Position")
-    }
-  }
-}
-
 private case class GenericGenomicRDD[T](rdd: RDD[T],
                                         sequences: SequenceDictionary,
                                         regionFn: T => Seq[ReferenceRegion]) extends GenomicRDD[T, GenericGenomicRDD[T]] {
