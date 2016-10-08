@@ -15,20 +15,31 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.bdgenomics.adam.rdd.features
+package org.bdgenomics.adam.rdd
 
 import org.apache.spark.rdd.RDD
-import org.bdgenomics.adam.models.{ Gene, ReferenceRegion, SequenceDictionary }
-import org.bdgenomics.adam.rdd.GenomicRDD
+import org.bdgenomics.adam.models.{
+  ReferenceRegion,
+  SequenceDictionary,
+  SequenceRecord
+}
+import org.bdgenomics.formats.avro.AlignmentRecord
 
-case class GeneRDD(rdd: RDD[Gene],
-                   sequences: SequenceDictionary) extends GenomicRDD[Gene, GeneRDD] {
+class RightOuterShuffleRegionJoinSuite extends OuterRegionJoinSuite {
 
-  protected def replaceRdd(newRdd: RDD[Gene]): GeneRDD = {
-    copy(rdd = newRdd)
+  val partitionSize = 3
+  var seqDict: SequenceDictionary = _
+
+  before {
+    seqDict = SequenceDictionary(
+      SequenceRecord("chr1", 15, url = "test://chrom1"),
+      SequenceRecord("chr2", 15, url = "tes=t://chrom2"))
   }
 
-  protected def getReferenceRegions(elem: Gene): Seq[ReferenceRegion] = {
-    elem.regions
+  def runJoin(leftRdd: RDD[(ReferenceRegion, AlignmentRecord)],
+              rightRdd: RDD[(ReferenceRegion, AlignmentRecord)]): RDD[(Option[AlignmentRecord], AlignmentRecord)] = {
+    RightOuterShuffleRegionJoin[AlignmentRecord, AlignmentRecord](seqDict, partitionSize, sc).partitionAndJoin(
+      leftRdd,
+      rightRdd)
   }
 }

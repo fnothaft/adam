@@ -304,9 +304,12 @@ class ADAMContext private (@transient val sc: SparkContext) extends Serializable
     val paths = if (fs.isDirectory(path)) fs.listStatus(path) else fs.globStatus(path)
 
     // the path must match at least one file
-    if (paths.isEmpty) {
+    if (paths == null || paths.isEmpty) {
       throw new FileNotFoundException(
-        s"Couldn't find any files matching ${path.toUri}"
+        s"Couldn't find any files matching ${path.toUri}. If you are trying to" +
+          " glob a directory of Parquet files, you need to glob inside the" +
+          " directory as well (e.g., \"glob.me.*.adam/*\", instead of" +
+          " \"glob.me.*.adam\"."
       )
     }
 
@@ -324,7 +327,7 @@ class ADAMContext private (@transient val sc: SparkContext) extends Serializable
    *
    * @throws FileNotFoundException if the path does not match any files.
    */
-  private def getFsAndFiles(path: Path): Array[Path] = {
+  private[rdd] def getFsAndFiles(path: Path): Array[Path] = {
 
     // get the underlying fs for the file
     val fs = Option(path.getFileSystem(sc.hadoopConfiguration)).getOrElse(
@@ -395,7 +398,8 @@ class ADAMContext private (@transient val sc: SparkContext) extends Serializable
     val bamFiles = getFsAndFiles(path)
     val filteredFiles = bamFiles.filter(p => {
       val pPath = p.getName()
-      pPath.endsWith(".bam") || pPath.endsWith(".sam") || pPath.startsWith("part-")
+      pPath.endsWith(".bam") || pPath.endsWith(".cram") ||
+        pPath.endsWith(".sam") || pPath.startsWith("part-")
     })
 
     require(filteredFiles.nonEmpty,
@@ -956,15 +960,26 @@ class ADAMContext private (@transient val sc: SparkContext) extends Serializable
   }
 
   /**
+   * Loads file of Features to a CoverageRDD.
+   * Coverage is stored in the score attribute of Feature.
+   *
+   * @param filePath File path to load coverage from.
+   * @return CoverageRDD containing an RDD of Coverage
+   */
+  def loadCoverage(filePath: String): CoverageRDD = loadFeatures(filePath).toCoverage
+
+  /**
    * Loads Parquet file of Features to a CoverageRDD.
    * Coverage is stored in the score attribute of Feature.
    *
-   * @param filePath File path to load coverage from
+   * @param filePath File path to load coverage from.
+   * @param predicate An optional predicate to push down into the file.
    * @return CoverageRDD containing an RDD of Coverage
    */
-  def loadCoverage(filePath: String): CoverageRDD = {
+  def loadParquetCoverage(filePath: String,
+                          predicate: Option[FilterPredicate] = None): CoverageRDD = {
     val proj = Projection(FeatureField.contigName, FeatureField.start, FeatureField.end, FeatureField.score)
-    loadFeatures(filePath, projection = Some(proj)).toCoverage
+    loadParquetFeatures(filePath, predicate = predicate, projection = Some(proj)).toCoverage
   }
 
   /**
@@ -973,11 +988,16 @@ class ADAMContext private (@transient val sc: SparkContext) extends Serializable
    * @param filePath The path to the file to load.
    * @param minPartitions An optional minimum number of partitions to load. If
    *   not set, falls back to the configured Spark default parallelism.
+   * @param stringency Optional stringency to pass. LENIENT stringency will warn
+   *   when a malformed line is encountered, SILENT will ignore the malformed
+   *   line, STRICT will throw an exception.
    * @return Returns a FeatureRDD.
    */
-  def loadGff3(filePath: String, minPartitions: Option[Int] = None): FeatureRDD = {
+  def loadGff3(filePath: String,
+               minPartitions: Option[Int] = None,
+               stringency: ValidationStringency = ValidationStringency.LENIENT): FeatureRDD = {
     val records = sc.textFile(filePath, minPartitions.getOrElse(sc.defaultParallelism))
-      .flatMap(new GFF3Parser().parse)
+      .flatMap(new GFF3Parser().parse(_, stringency))
     if (Metrics.isRecording) records.instrument() else records
     FeatureRDD(records)
   }
@@ -988,11 +1008,16 @@ class ADAMContext private (@transient val sc: SparkContext) extends Serializable
    * @param filePath The path to the file to load.
    * @param minPartitions An optional minimum number of partitions to load. If
    *   not set, falls back to the configured Spark default parallelism.
+   * @param stringency Optional stringency to pass. LENIENT stringency will warn
+   *   when a malformed line is encountered, SILENT will ignore the malformed
+   *   line, STRICT will throw an exception.
    * @return Returns a FeatureRDD.
    */
-  def loadGtf(filePath: String, minPartitions: Option[Int] = None): FeatureRDD = {
+  def loadGtf(filePath: String,
+              minPartitions: Option[Int] = None,
+              stringency: ValidationStringency = ValidationStringency.LENIENT): FeatureRDD = {
     val records = sc.textFile(filePath, minPartitions.getOrElse(sc.defaultParallelism))
-      .flatMap(new GTFParser().parse)
+      .flatMap(new GTFParser().parse(_, stringency))
     if (Metrics.isRecording) records.instrument() else records
     FeatureRDD(records)
   }
@@ -1003,11 +1028,16 @@ class ADAMContext private (@transient val sc: SparkContext) extends Serializable
    * @param filePath The path to the file to load.
    * @param minPartitions An optional minimum number of partitions to load. If
    *   not set, falls back to the configured Spark default parallelism.
+   * @param stringency Optional stringency to pass. LENIENT stringency will warn
+   *   when a malformed line is encountered, SILENT will ignore the malformed
+   *   line, STRICT will throw an exception.
    * @return Returns a FeatureRDD.
    */
-  def loadBed(filePath: String, minPartitions: Option[Int] = None): FeatureRDD = {
+  def loadBed(filePath: String,
+              minPartitions: Option[Int] = None,
+              stringency: ValidationStringency = ValidationStringency.LENIENT): FeatureRDD = {
     val records = sc.textFile(filePath, minPartitions.getOrElse(sc.defaultParallelism))
-      .flatMap(new BEDParser().parse)
+      .flatMap(new BEDParser().parse(_, stringency))
     if (Metrics.isRecording) records.instrument() else records
     FeatureRDD(records)
   }
@@ -1033,7 +1063,7 @@ class ADAMContext private (@transient val sc: SparkContext) extends Serializable
   }
 
   /**
-   * Loads features stored in GATK IntervalList format.
+   * Loads features stored in IntervalList format.
    *
    * @param filePath The path to the file to load.
    * @param minPartitions An optional minimum number of partitions to load. If
@@ -1046,8 +1076,9 @@ class ADAMContext private (@transient val sc: SparkContext) extends Serializable
   def loadIntervalList(filePath: String,
                        minPartitions: Option[Int] = None,
                        stringency: ValidationStringency = ValidationStringency.LENIENT): FeatureRDD = {
+
     val parsedLines = sc.textFile(filePath, minPartitions.getOrElse(sc.defaultParallelism))
-      .map(new IntervalListParser().parse(_, stringency))
+      .map(new IntervalListParser().parseWithHeader(_, stringency))
     val (seqDict, records) = (SequenceDictionary(parsedLines.flatMap(_._1).collect(): _*),
       parsedLines.flatMap(_._2))
     val seqDictMap = seqDict.records.map(sr => sr.name -> sr).toMap
@@ -1188,6 +1219,7 @@ class ADAMContext private (@transient val sc: SparkContext) extends Serializable
    *
    * @see loadBed
    * @see loadGtf
+   * @see loadGff3
    * @see loadNarrowPeak
    * @see loadIntervalList
    * @see loadParquetFeatures
@@ -1337,7 +1369,7 @@ class ADAMContext private (@transient val sc: SparkContext) extends Serializable
    * This method can load:
    *
    * * AlignmentRecords via Parquet (default)
-   * * SAM/BAM (.sam, .bam)
+   * * SAM/BAM/CRAM (.sam, .bam, .cram)
    * * FASTQ (interleaved, single end, paired end) (.ifq, .fq/.fastq)
    * * FASTA (.fa, .fasta)
    * * NucleotideContigFragments via Parquet (.contig.adam)
@@ -1368,8 +1400,9 @@ class ADAMContext private (@transient val sc: SparkContext) extends Serializable
     stringency: ValidationStringency = ValidationStringency.STRICT): AlignmentRecordRDD = LoadAlignmentRecords.time {
 
     if (filePath.endsWith(".sam") ||
-      filePath.endsWith(".bam")) {
-      log.info(s"Loading $filePath as SAM/BAM and converting to AlignmentRecords. Projection is ignored.")
+      filePath.endsWith(".bam") ||
+      filePath.endsWith(".cram")) {
+      log.info(s"Loading $filePath as SAM/BAM/CRAM and converting to AlignmentRecords. Projection is ignored.")
       loadBam(filePath, stringency)
     } else if (filePath.endsWith(".ifq")) {
       log.info(s"Loading $filePath as interleaved FASTQ and converting to AlignmentRecords. Projection is ignored.")
@@ -1398,7 +1431,7 @@ class ADAMContext private (@transient val sc: SparkContext) extends Serializable
    * This method can load:
    *
    * * Fragments via Parquet (default)
-   * * SAM/BAM (.sam, .bam)
+   * * SAM/BAM/CRAM (.sam, .bam, .cram)
    * * FASTQ (interleaved only --> .ifq)
    * * Autodetects AlignmentRecord as Parquet with .reads.adam extension.
    *
@@ -1407,7 +1440,8 @@ class ADAMContext private (@transient val sc: SparkContext) extends Serializable
    */
   def loadFragments(filePath: String): FragmentRDD = LoadFragments.time {
     if (filePath.endsWith(".sam") ||
-      filePath.endsWith(".bam")) {
+      filePath.endsWith(".bam") ||
+      filePath.endsWith(".cram")) {
       log.info(s"Loading $filePath as SAM/BAM and converting to Fragments.")
       loadBam(filePath).toFragments
     } else if (filePath.endsWith(".reads.adam")) {
