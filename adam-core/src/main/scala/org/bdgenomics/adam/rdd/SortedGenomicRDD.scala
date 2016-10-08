@@ -1,6 +1,6 @@
 package org.bdgenomics.adam.rdd
 
-import org.apache.spark.{SparkContext, Partitioner}
+import org.apache.spark.{ SparkContext, Partitioner }
 import org.bdgenomics.adam.models.ReferenceRegion
 
 import scala.reflect.ClassTag
@@ -11,9 +11,7 @@ import org.bdgenomics.adam.rdd.ADAMContext
 
 import org.bdgenomics.adam.rdd.ADAMContext._
 
-import org.bdgenomics.adam.projections.{AlignmentRecordField, Projection}
-
-
+import org.bdgenomics.adam.projections.{ AlignmentRecordField, Projection }
 
 /**
  * Created by DevinPetersohn on 10/5/16.
@@ -36,10 +34,10 @@ trait SortedGenomicRDD[T, U <: SortedGenomicRDD[T, U]] extends GenomicRDD[T, U] 
       .partitionBy(new GenomicPositionRangePartitioner(partitions, elements.toInt))
       .map(f => f._2)
     val average = partitionTupleCounts.sum / partitionTupleCounts.size
-    for(i <- 0 until partitions) {
-      if(partitionTupleCounts(i) > 1.5 * average) {
+    for (i <- 0 until partitions) {
+      if (partitionTupleCounts(i) > 1.5 * average) {
         println("Partition " + i + " contains 50% more than the average -> " + partitionTupleCounts(i) / average)
-      } else if(partitionTupleCounts(i) > 1.5 * average) {
+      } else if (partitionTupleCounts(i) > 1.5 * average) {
         println("Partition " + i + " contains 50% less than the average -> " + partitionTupleCounts(i) / average)
       }
     }

@@ -166,8 +166,6 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
       .asInstanceOf[GenomicRDD[(T, X), Z]]
   }
 
-
-
   /**
    * Performs a sort-merge right outer join between this RDD and another RDD.
    *
