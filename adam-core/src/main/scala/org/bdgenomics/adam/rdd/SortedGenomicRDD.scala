@@ -20,10 +20,6 @@ import org.bdgenomics.adam.projections.{AlignmentRecordField, Projection}
  */
 trait SortedGenomicRDD[T, U <: SortedGenomicRDD[T, U]] extends GenomicRDD[T, U] {
 
-  val ac = new ADAMContext(new SparkContext())
-  val x = ac.loadBam("/data/recompute/alignments/NA12878.bam.aln.bam")
-
-
   val elements: Long = rdd.count
 
   val partitions: Int = 16
