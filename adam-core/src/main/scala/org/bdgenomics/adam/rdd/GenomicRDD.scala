@@ -45,7 +45,11 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
 
   val rdd: RDD[T]
 
-  val elements: Long = rdd.count
+  private val starts: RDD[Long] = flattenRddByRegions().map(f => f._1.start)
+
+  val elements: Long = starts.max
+
+  val minimum: Long = starts.min
 
   val partitions: Int = 16
 
@@ -392,39 +396,116 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
   }
 
   def wellBalancedRepartitionByGenomicCoordinate()(implicit c: ClassTag[T]) = {
-    val partitionedRDD = rdd.map(f => (getReferenceRegions(f), f))
+    val partitionedRDD: RDD[(ReferenceRegion, T)] = flattenRddByRegions()
       .partitionBy(new GenomicPositionRangePartitioner(partitions, elements.toInt))
-      .map(f => f._2)
-    val average = partitionTupleCounts.sum / partitionTupleCounts.size
+    var partitionTupleCounts: Array[Int] = partitionedRDD.mapPartitions(f => Iterator(f.size)).collect
+    val average: Double = partitionTupleCounts.sum.asInstanceOf[Double] / partitionTupleCounts.length.asInstanceOf[Double]
+    //val x = partitionedRDD.mapPartitions(f => f.toArray.sortBy(_._1.start).map(_._2).toIterator)
+    val x = partitionedRDD.mapPartitions(f => radixSort(f))
+      .mapPartitionsWithIndex((idx, iter) => {
+        val tuple = getPartitionData(iter, partitionTupleCounts(idx), average)
+        if(idx == partitions-1) Iterator(((idx, true), tuple._1))
+        else Iterator(((idx, true), tuple._1),((idx+1, false), tuple._2))
+      }).partitionBy(new GenomicPositionRangePartitioner(partitions, 0))
+      .mapPartitions(f => {
+        val list = f.toList
+        if(list.isEmpty) Iterator()
+        else if(list.size == 1) list.head._2.toIterator
+        else {
+          val firstElement = list.head
+          val secondElement = list(1)
+          if (!firstElement._1._2) Iterator(firstElement._2, secondElement._2).flatten
+          else Iterator(secondElement._2, firstElement._2).flatten
+        }
+      })
+
     for(i <- 0 until partitions) {
-      if(partitionTupleCounts(i) > 1.5 * average) {
-        println("Partition " + i + " contains 50% more than the average -> " + partitionTupleCounts(i) / average)
-      } else if(partitionTupleCounts(i) > 1.5 * average) {
-        println("Partition " + i + " contains 50% less than the average -> " + partitionTupleCounts(i) / average)
+      if(partitionTupleCounts(i) > 1.4 * average) {
+        println("Partition " + i + " contains > 140% of the average -> " + partitionTupleCounts(i) / average)
+
+        //x.mapPartitionsWithIndex((idx, iter) => if(idx == i) Iterator(iter.partition(f => true)) else Iterator()).map()
+      } else if(partitionTupleCounts(i) < 0.6 * average) {
+        println("Partition " + i + " contains < 60% of the average -> " + partitionTupleCounts(i) / average)
       }
     }
-    replaceRdd(partitionedRDD)
+
+    partitionTupleCounts = x.mapPartitions(f => Iterator(f.size)).collect
+
+    for(i <- 0 until partitions) {
+      if(partitionTupleCounts(i) > 1.4 * average) {
+        println("Partition " + i + " contains > 140% of the average -> " + partitionTupleCounts(i) / average)
+      } else if(partitionTupleCounts(i) < 0.6 * average) {
+        println("Partition " + i + " contains < 60% of the average -> " + partitionTupleCounts(i) / average)
+      }
+    }
+
+    //replaceRdd(x)
   }
 
-  var partitionTupleCounts: Array[Int] = Array.fill[Int](partitions)(0)
+  def getPartitionData(iter: Iterator[T], count: Int, average: Double): (List[T],List[T]) = {
+    val numToTransfer = if(count > 1.4 * average) (count * 0.4).toInt else 0
+    if(numToTransfer <= 0) (iter.toList, List())
+    else (iter.toList.dropRight(numToTransfer), iter.drop(count - numToTransfer).toList)
+  }
+
+  def radixSort(iterator: Iterator[(ReferenceRegion, T)]): Iterator[T] = {
+    val a = iterator.toArray
+    var max = a.map(_._1.start).max
+    var powerOf10 = 1
+    while(max > 0) {
+      val byDigit = Array.fill(10)(List[(ReferenceRegion, T)]())
+      for(num <- a) {
+        val digit = num._1.start.toInt/powerOf10%10
+        byDigit(digit) ::= num
+      }
+      var i = 0
+      for(bin <- byDigit; num <- bin.reverse) {
+        a(i) = num
+        i += 1
+      }
+      powerOf10 *= 10
+      max /= 10
+    }
+    a.toIterator.map(_._2)
+  }
 
   private class GenomicPositionRangePartitioner[V](partitions: Int, elements: Int) extends Partitioner {
 
     override def numPartitions: Int = partitions
 
     def getRegionPartition(key: ReferenceRegion): Int = {
-      val partitionNumber = key.start.toInt * partitions / elements
-      partitionTupleCounts(partitionNumber) += 1
+      val partitionNumber =
+        if ((key.start.toInt - minimum.toInt) * partitions / (elements - minimum.toInt) == partitions) partitions - 1
+        else (key.start.toInt - minimum.toInt) * partitions / (elements - minimum.toInt)
       partitionNumber
     }
 
     def getPartition(key: Any): Int = {
       key match {
-        case f: ReferenceRegion => {
-          getRegionPartition(f)
-        }
+        case f: ReferenceRegion => getRegionPartition(f)
+        case f: (Int, Boolean) => f._1
         case _ => throw new Exception("Reference Region Key require to partition on Genomic Position")
       }
+    }
+
+    def counting_sort(iterator: Iterator[(ReferenceRegion, T)]): Iterator[T] = {
+      val a = iterator.toArray
+      val max = a.map(_._1.start).max
+      val n = a.length
+      val m = max+1
+      val z = a.map(_._1.start).min
+      val countArray = Array.fill((m-z).toInt)(0)
+      for(i <- a){
+        countArray((i._1.start - z).toInt) += 1
+      }
+      var i = 0
+      for(j <- 0 until m.toInt) {
+        for(c <- 0 until countArray(j)) {
+          //a(i) = j + z
+          i += 1
+        }
+      }
+      a.toIterator.map(_._2)
     }
   }
 }
