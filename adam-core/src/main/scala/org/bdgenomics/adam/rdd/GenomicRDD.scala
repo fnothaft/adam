@@ -29,6 +29,7 @@ import org.bdgenomics.adam.models.{
 }
 import org.bdgenomics.formats.avro.{ Contig, RecordGroupMetadata, Sample }
 import org.bdgenomics.utils.cli.SaveArgs
+import scala.collection.mutable.ArrayBuffer
 import scala.reflect.ClassTag
 
 private[rdd] class JavaSaveArgs(var outputPath: String,
@@ -45,13 +46,11 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
 
   val rdd: RDD[T]
 
-  private val starts: RDD[Long] = flattenRddByRegions().map(f => f._1.start)
+  private[this] lazy val starts: RDD[Long] = flattenRddByRegions().map(f => f._1.start)
 
-  val elements: Long = starts.max
+  private[this] lazy val elements: Long = starts.max
 
-  val minimum: Long = starts.min
-
-  val partitions: Int = 16
+  private[this] lazy val minimum: Long = starts.min
 
   val sequences: SequenceDictionary
 
@@ -388,23 +387,26 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
 
   }
 
-  def repartitionByGenomicCoordinate()(implicit c: ClassTag[T]) = {
+  def repartitionByGenomicCoordinate(partitions: Int = rdd.partitions.length)(implicit c: ClassTag[T]) = {
     val partitionedRDD = rdd.map(f => (getReferenceRegions(f), f))
       .partitionBy(new GenomicPositionRangePartitioner(partitions, elements.toInt))
       .map(f => f._2)
     replaceRdd(partitionedRDD)
   }
 
-  def wellBalancedRepartitionByGenomicCoordinate()(implicit c: ClassTag[T]) = {
+  def wellBalancedRepartitionByGenomicCoordinate(partitions: Int = rdd.partitions.length)(implicit c: ClassTag[T]) = {
     val partitionedRDD: RDD[(ReferenceRegion, T)] = flattenRddByRegions()
       .partitionBy(new GenomicPositionRangePartitioner(partitions, elements.toInt))
-    var partitionTupleCounts: Array[Int] = partitionedRDD.mapPartitions(f => Iterator(f.size)).collect
+    val partitionTupleCounts: Array[Int] = partitionedRDD.mapPartitions(f => Iterator(f.size)).collect
     val average: Double = partitionTupleCounts.sum.asInstanceOf[Double] / partitionTupleCounts.length.asInstanceOf[Double]
+    partitionTupleCounts.foreach(println)
+    println(average)
+  /*
     //val x = partitionedRDD.mapPartitions(f => f.toArray.sortBy(_._1.start).map(_._2).toIterator)
-    val x = partitionedRDD.mapPartitions(f => radixSort(f))
+    val x = partitionedRDD.mapPartitions(f => radixSort(f)).map(_._2)
       .mapPartitionsWithIndex((idx, iter) => {
         val tuple = getPartitionData(iter, partitionTupleCounts(idx), average)
-        if(idx == partitions-1) Iterator(((idx, true), tuple._1))
+        if(idx == partitions-1) Iterator(((idx, true), tuple._1 ++ tuple._2))
         else Iterator(((idx, true), tuple._1),((idx+1, false), tuple._2))
       }).partitionBy(new GenomicPositionRangePartitioner(partitions, 0))
       .mapPartitions(f => {
@@ -418,28 +420,30 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
           else Iterator(secondElement._2, firstElement._2).flatten
         }
       })
-
-    for(i <- 0 until partitions) {
-      if(partitionTupleCounts(i) > 1.4 * average) {
-        println("Partition " + i + " contains > 140% of the average -> " + partitionTupleCounts(i) / average)
-
-        //x.mapPartitionsWithIndex((idx, iter) => if(idx == i) Iterator(iter.partition(f => true)) else Iterator()).map()
-      } else if(partitionTupleCounts(i) < 0.6 * average) {
-        println("Partition " + i + " contains < 60% of the average -> " + partitionTupleCounts(i) / average)
-      }
-    }
-
-    partitionTupleCounts = x.mapPartitions(f => Iterator(f.size)).collect
-
-    for(i <- 0 until partitions) {
-      if(partitionTupleCounts(i) > 1.4 * average) {
-        println("Partition " + i + " contains > 140% of the average -> " + partitionTupleCounts(i) / average)
-      } else if(partitionTupleCounts(i) < 0.6 * average) {
-        println("Partition " + i + " contains < 60% of the average -> " + partitionTupleCounts(i) / average)
-      }
-    }
-
-    //replaceRdd(x)
+    */
+    //val y = partitionedRDD.mapPartitions(f => f.toArray.sortBy(_._1.start).toIterator).zipWithIndex
+    val y = partitionedRDD.mapPartitions(f => radixSort(f)).zipWithIndex
+        .mapPartitions(iter => {
+          getBalancedPartitionNumber(iter.map(_.swap), average)
+        }).partitionBy(new GenomicPositionRangePartitioner(partitions, 0))
+      .mapPartitions(iter => {
+        val listRepresentation = iter.map(_._2).toList
+        val tempList = new ArrayBuffer[(Int, List[(ReferenceRegion, T)])]()
+        for(i <- listRepresentation.indices) {
+          tempList += ((i, listRepresentation(i)))
+        }
+        var sortedList = new ArrayBuffer[List[T]]()
+        for(i <- tempList.sortBy(_._2.head._1.start)) {
+          val append = listRepresentation(i._1).map(_._2)
+          sortedList += append
+        }
+        sortedList.flatten.toIterator
+      }).persist()
+    println("Partitioned: ")
+    y.mapPartitions(f => Iterator(f.size)).collect.foreach(println)
+    this.replaceRdd(y)
+    println("Replaced: ")
+    this.rdd.mapPartitions(f => Iterator(f.size)).collect.foreach(println)
   }
 
   def getPartitionData(iter: Iterator[T], count: Int, average: Double): (List[T],List[T]) = {
@@ -448,25 +452,42 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
     else (iter.toList.dropRight(numToTransfer), iter.drop(count - numToTransfer).toList)
   }
 
-  def radixSort(iterator: Iterator[(ReferenceRegion, T)]): Iterator[T] = {
-    val a = iterator.toArray
-    var max = a.map(_._1.start).max
+  def getBalancedPartitionNumber(iter: Iterator[(Long, (ReferenceRegion, T))], average: Double): Iterator[(Int, List[(ReferenceRegion,T)])] = {
+    val listRepresentation = iter.toList
+    listRepresentation.map(f => ((f._1/average).asInstanceOf[Int], f._2)).groupBy(_._1).mapValues(f => f.map(_._2)).toIterator
+
+  }
+
+  def radixSort(iter: Iterator[(ReferenceRegion, T)]): Iterator[(ReferenceRegion, T)] = {
+    if(iter.isEmpty) return iter
+    val a = iter.toArray
+    var max = a.map(_._1.start).max - a.map(_._1.start).min
     var powerOf10 = 1
+    val byDigit = Array.fill(10)(List[(ReferenceRegion, T)]())
     while(max > 0) {
-      val byDigit = Array.fill(10)(List[(ReferenceRegion, T)]())
       for(num <- a) {
         val digit = num._1.start.toInt/powerOf10%10
         byDigit(digit) ::= num
       }
       var i = 0
+      for(j <- byDigit.indices){
+        val bin = byDigit(j)
+        for(num <- bin.reverse) {
+          a(i) = num
+          i += 1
+        }
+        byDigit(j) = List[(ReferenceRegion, T)]()
+      }
+      /*
       for(bin <- byDigit; num <- bin.reverse) {
         a(i) = num
         i += 1
       }
+      */
       powerOf10 *= 10
       max /= 10
     }
-    a.toIterator.map(_._2)
+    a.toIterator
   }
 
   private class GenomicPositionRangePartitioner[V](partitions: Int, elements: Int) extends Partitioner {
@@ -484,11 +505,12 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
       key match {
         case f: ReferenceRegion => getRegionPartition(f)
         case f: (Int, Boolean) => f._1
+        case f: Int => f
         case _ => throw new Exception("Reference Region Key require to partition on Genomic Position")
       }
     }
 
-    def counting_sort(iterator: Iterator[(ReferenceRegion, T)]): Iterator[T] = {
+    def counting_sort(iterator: Iterator[(ReferenceRegion, T)]): Iterator[(ReferenceRegion, T)] = {
       val a = iterator.toArray
       val max = a.map(_._1.start).max
       val n = a.length
@@ -505,7 +527,7 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
           i += 1
         }
       }
-      a.toIterator.map(_._2)
+      a.toIterator
     }
   }
 }

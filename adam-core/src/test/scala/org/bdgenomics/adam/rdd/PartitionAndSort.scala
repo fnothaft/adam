@@ -19,9 +19,20 @@ class PartitionAndSort extends SparkFunSuite {
   sparkTest("testing partitioner") {
     time {
       //val x = sc.loadBam("/data/recompute/alignments/NA12878.bam.aln.bam")
-      val x = sc.loadBam("/Users/DevinPetersohn/Desktop/adam/adam-core/src/test/resources/bqsr1.sam")
+      val x = sc.loadBam("/Users/DevinPetersohn/software_builds/adam/adam-core/src/test/resources/unsorted.sam")
       println(x.rdd.first)
       x.wellBalancedRepartitionByGenomicCoordinate()
+      println(x.rdd.first)
+      val partitionTupleCounts: Array[Int] = x.rdd.mapPartitions(f => Iterator(f.size)).collect
+      partitionTupleCounts.foreach(println)
+      val average = partitionTupleCounts.sum.asInstanceOf[Double] / partitionTupleCounts.length.asInstanceOf[Double]
+      for(i <- partitionTupleCounts.indices) {
+        if(partitionTupleCounts(i) > 1.4 * average) {
+          println("Partition " + i + " contains > 140% of the average -> " + partitionTupleCounts(i) / average)
+        } else if(partitionTupleCounts(i) < 0.6 * average) {
+          println("Partition " + i + " contains < 60% of the average -> " + partitionTupleCounts(i) / average)
+        }
+      }
     }
   }
 }
