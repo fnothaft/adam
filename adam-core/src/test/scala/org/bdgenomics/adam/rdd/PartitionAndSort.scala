@@ -21,7 +21,7 @@ class PartitionAndSort extends SparkFunSuite {
       //val x = sc.loadBam("/data/recompute/alignments/NA12878.bam.aln.bam")
       val x = sc.loadBam("/Users/DevinPetersohn/software_builds/adam/adam-core/src/test/resources/unsorted.sam")
       println(x.rdd.first)
-      x.wellBalancedRepartitionByGenomicCoordinate()
+      x.wellBalancedRepartitionByGenomicCoordinate(16)
       println(x.rdd.first)
       val partitionTupleCounts: Array[Int] = x.rdd.mapPartitions(f => Iterator(f.size)).collect
       partitionTupleCounts.foreach(println)
