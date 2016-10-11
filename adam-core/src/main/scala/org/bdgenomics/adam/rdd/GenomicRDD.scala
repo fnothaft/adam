@@ -46,11 +46,11 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
 
   val rdd: RDD[T]
 
-  private[this] lazy val starts: RDD[Long] = flattenRddByRegions().map(f => f._1.start)
+  private[this] val starts: RDD[Long] = flattenRddByRegions().map(f => f._1.start)
 
-  private[this] lazy val elements: Long = starts.max
+  private[this] val elements: Long = starts.max
 
-  private[this] lazy val minimum: Long = starts.min
+  private[this] val minimum: Long = starts.min
 
   val sequences: SequenceDictionary
 
