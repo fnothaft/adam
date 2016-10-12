@@ -167,8 +167,6 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
       .asInstanceOf[GenomicRDD[(T, X), Z]]
   }
 
-
-
   /**
    * Performs a sort-merge right outer join between this RDD and another RDD.
    *
@@ -381,7 +379,7 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
 
   }
 
-  def wellBalancedRepartitionByGenomicCoordinate(partitions: Int = rdd.partitions.length)(implicit c: ClassTag[T]): Unit ={
+  def wellBalancedRepartitionByGenomicCoordinate(partitions: Int = rdd.partitions.length)(implicit c: ClassTag[T]): Unit = {
     //this.asInstanceOf[SortedGenomicRDD[T, U]].wellBalancedRepartitionByGenomicCoordinate(partitions)
   }
 
