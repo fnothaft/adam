@@ -1,12 +1,9 @@
 package org.bdgenomics.adam.rdd
 
-import org.apache.avro.generic.IndexedRecord
-import org.apache.parquet.hadoop.metadata.CompressionCodecName
-import org.apache.spark.rdd.RDD
 import org.apache.spark.Partitioner
-import org.bdgenomics.adam.models.{ RecordGroupDictionary, SequenceDictionary, ReferenceRegion }
-import org.bdgenomics.formats.avro.{ RecordGroupMetadata, Contig, Sample }
-import org.bdgenomics.utils.cli.SaveArgs
+import org.apache.spark.rdd.RDD
+import org.bdgenomics.adam.models.{ ReferenceRegion, SequenceDictionary }
+import org.bdgenomics.formats.avro.Sample
 import scala.collection.mutable.ArrayBuffer
 import scala.reflect.ClassTag
 
@@ -16,7 +13,7 @@ import scala.reflect.ClassTag
 
 trait SortedGenomicRDD[T, U <: SortedGenomicRDD[T, U]] extends GenomicRDD[T, U] {
 
-  val sorted: Boolean = true
+  var sorted: Boolean = false
 
   private[this] val starts: RDD[Long] = flattenRddByRegions().map(f => f._1.start)
 
@@ -159,153 +156,4 @@ private case class GenericSortedGenomicRDD[T](rdd: RDD[T],
 
 trait MultisampleSortedGenomicRDD[T, U <: MultisampleSortedGenomicRDD[T, U]] extends SortedGenomicRDD[T, U] {
   val samples: Seq[Sample]
-}
-
-abstract class AvroReadGroupSortedGenomicRDD[T <% IndexedRecord: Manifest, U <: AvroReadGroupSortedGenomicRDD[T, U]] extends AvroSortedGenomicRDD[T, U] {
-
-  val recordGroups: RecordGroupDictionary
-
-  override protected def saveMetadata(filePath: String) {
-
-    // convert sequence dictionary to avro form and save
-    val contigs = sequences.toAvro
-    val schema = Contig.SCHEMA$
-    schema.addProp("sorted", { "sorted" -> "true" })
-    saveAvro("%s/_seqdict.avro".format(filePath),
-      rdd.context,
-      schema,
-      contigs)
-
-    // convert record group to avro and save
-    val rgMetadata = recordGroups.recordGroups
-      .map(_.toMetadata)
-    saveAvro("%s/_rgdict.avro".format(filePath),
-      rdd.context,
-      RecordGroupMetadata.SCHEMA$,
-      rgMetadata)
-  }
-}
-
-abstract class MultisampleAvroSortedGenomicRDD[T <% IndexedRecord: Manifest, U <: MultisampleAvroSortedGenomicRDD[T, U]] extends AvroSortedGenomicRDD[T, U]
-    with MultisampleSortedGenomicRDD[T, U] {
-
-  override protected def saveMetadata(filePath: String) {
-
-    val sampleSchema = Sample.SCHEMA$
-    sampleSchema.addProp("sorted", { "sorted" -> "true" })
-    // get file to write to
-    saveAvro("%s/_samples.avro".format(filePath),
-      rdd.context,
-      sampleSchema,
-      samples)
-
-    val contigSchema = Contig.SCHEMA$
-    contigSchema.addProp("sorted", { "sorted" -> "true" })
-    // convert sequence dictionary to avro form and save
-    val contigs = sequences.toAvro
-    saveAvro("%s/_seqdict.avro".format(filePath),
-      rdd.context,
-      contigSchema,
-      contigs)
-  }
-}
-
-abstract class AvroSortedGenomicRDD[T <% IndexedRecord: Manifest, U <: AvroSortedGenomicRDD[T, U]] extends ADAMRDDFunctions[T]
-    with SortedGenomicRDD[T, U] {
-
-  /**
-   * Called in saveAsParquet after saving RDD to Parquet to save metadata.
-   *
-   * Writes any necessary metadata to disk. If not overridden, writes the
-   * sequence dictionary to disk as Avro.
-   *
-   * @param args Arguments for saving file to disk.
-   */
-  protected def saveMetadata(filePath: String) {
-
-    // convert sequence dictionary to avro form and save
-    val contigs = sequences.toAvro
-    val contigSchema = Contig.SCHEMA$
-    contigSchema.addProp("sorted", { "sorted" -> "true" })
-    saveAvro("%s/_seqdict.avro".format(filePath),
-      rdd.context,
-      contigSchema,
-      contigs)
-  }
-
-  /**
-   * Saves RDD as a directory of Parquet files.
-   *
-   * The RDD is written as a directory of Parquet files, with
-   * Parquet configuration described by the input param args.
-   * The provided sequence dictionary is written at args.outputPath/_seqdict.avro
-   * as Avro binary.
-   *
-   * @param args Save configuration arguments.
-   */
-  def saveAsParquet(args: SaveArgs) {
-    saveAsParquet(
-      args.outputPath,
-      args.blockSize,
-      args.pageSize,
-      args.compressionCodec,
-      args.disableDictionaryEncoding
-    )
-  }
-
-  /**
-   * Saves this RDD to disk as a Parquet file.
-   *
-   * @param filePath Path to save the file at.
-   * @param blockSize Size per block.
-   * @param pageSize Size per page.
-   * @param compressCodec Name of the compression codec to use.
-   * @param disableDictionaryEncoding Whether or not to disable bit-packing.
-   *   Default is false.
-   */
-  def saveAsParquet(
-    filePath: String,
-    blockSize: Int = 128 * 1024 * 1024,
-    pageSize: Int = 1 * 1024 * 1024,
-    compressCodec: CompressionCodecName = CompressionCodecName.GZIP,
-    disableDictionaryEncoding: Boolean = false) {
-    saveRddAsParquet(filePath,
-      blockSize,
-      pageSize,
-      compressCodec,
-      disableDictionaryEncoding)
-    saveMetadata(filePath)
-  }
-
-  /**
-   * Saves this RDD to disk as a Parquet file.
-   *
-   * @param filePath Path to save the file at.
-   * @param blockSize Size per block.
-   * @param pageSize Size per page.
-   * @param compressCodec Name of the compression codec to use.
-   * @param disableDictionaryEncoding Whether or not to disable bit-packing.
-   */
-  def saveAsParquet(
-    filePath: java.lang.String,
-    blockSize: java.lang.Integer,
-    pageSize: java.lang.Integer,
-    compressCodec: CompressionCodecName,
-    disableDictionaryEncoding: java.lang.Boolean) {
-    saveAsParquet(
-      new JavaSaveArgs(filePath,
-        blockSize = blockSize,
-        pageSize = pageSize,
-        compressionCodec = compressCodec,
-        disableDictionaryEncoding = disableDictionaryEncoding))
-  }
-
-  /**
-   * Saves this RDD to disk as a Parquet file.
-   *
-   * @param filePath Path to save the file at.
-   */
-  def saveAsParquet(filePath: java.lang.String) {
-    saveAsParquet(new JavaSaveArgs(filePath))
-  }
 }

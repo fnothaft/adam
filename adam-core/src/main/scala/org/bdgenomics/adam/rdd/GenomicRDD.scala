@@ -435,23 +435,27 @@ abstract class MultisampleAvroGenomicRDD[T <% IndexedRecord: Manifest, U <: Mult
 
   override protected def saveMetadata(filePath: String) {
 
+    val sampleSchema = Sample.SCHEMA$
+    if (sorted) sampleSchema.addProp("sorted", { "sorted" -> "true" })
     // get file to write to
     saveAvro("%s/_samples.avro".format(filePath),
       rdd.context,
-      Sample.SCHEMA$,
+      sampleSchema,
       samples)
 
+    val contigSchema = Contig.SCHEMA$
+    if (sorted) contigSchema.addProp("sorted", { "sorted" -> "true" })
     // convert sequence dictionary to avro form and save
     val contigs = sequences.toAvro
     saveAvro("%s/_seqdict.avro".format(filePath),
       rdd.context,
-      Contig.SCHEMA$,
+      contigSchema,
       contigs)
   }
 }
 
 abstract class AvroGenomicRDD[T <% IndexedRecord: Manifest, U <: AvroGenomicRDD[T, U]] extends ADAMRDDFunctions[T]
-    with GenomicRDD[T, U] {
+    with GenomicRDD[T, U] with SortedGenomicRDD[T, U] {
 
   /**
    * Called in saveAsParquet after saving RDD to Parquet to save metadata.
@@ -465,9 +469,11 @@ abstract class AvroGenomicRDD[T <% IndexedRecord: Manifest, U <: AvroGenomicRDD[
 
     // convert sequence dictionary to avro form and save
     val contigs = sequences.toAvro
+    val contigSchema = Contig.SCHEMA$
+    if (sorted) contigSchema.addProp("sorted", { "sorted" -> "true" })
     saveAvro("%s/_seqdict.avro".format(filePath),
       rdd.context,
-      Contig.SCHEMA$,
+      contigSchema,
       contigs)
   }
 
