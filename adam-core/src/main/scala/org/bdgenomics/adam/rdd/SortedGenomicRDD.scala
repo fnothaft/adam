@@ -36,8 +36,8 @@ trait SortedGenomicRDD[T, U <: SortedGenomicRDD[T, U]] extends GenomicRDD[T, U] 
     partitionTupleCounts.foreach(println)
     println(average)
     /*
-      //val x = partitionedRDD.mapPartitions(f => f.toArray.sortBy(_._1.start).map(_._2).toIterator)
-      val x = partitionedRDD.mapPartitions(f => radixSort(f)).map(_._2)
+      //val finalPartitionedRDD = partitionedRDD.mapPartitions(f => f.toArray.sortBy(_._1.start).map(_._2).toIterator)
+      val finalPartitionedRDD = partitionedRDD.mapPartitions(f => radixSort(f)).map(_._2)
         .mapPartitionsWithIndex((idx, iter) => {
           val tuple = getPartitionData(iter, partitionTupleCounts(idx), average)
           if(idx == partitions-1) Iterator(((idx, true), tuple._1 ++ tuple._2))
@@ -56,7 +56,7 @@ trait SortedGenomicRDD[T, U <: SortedGenomicRDD[T, U]] extends GenomicRDD[T, U] 
         })
       */
     //val y = partitionedRDD.mapPartitions(f => f.toArray.sortBy(_._1.start).toIterator).zipWithIndex
-    val y = partitionedRDD.mapPartitions(f => radixSort(f)).zipWithIndex
+    val finalPartitionedRDD = partitionedRDD.mapPartitions(f => radixSort(f)).zipWithIndex
       .mapPartitions(iter => {
         getBalancedPartitionNumber(iter.map(_.swap), average)
       }).partitionBy(new GenomicPositionRangePartitioner(partitions, 0))
@@ -74,8 +74,8 @@ trait SortedGenomicRDD[T, U <: SortedGenomicRDD[T, U]] extends GenomicRDD[T, U] 
         sortedList.flatten.toIterator
       }).persist()
     println("Partitioned: ")
-    y.mapPartitions(f => Iterator(f.size)).collect.foreach(println)
-    this.replaceRdd(y)
+    finalPartitionedRDD.mapPartitions(f => Iterator(f.size)).collect.foreach(println)
+    this.replaceRdd(finalPartitionedRDD)
     println("Replaced: ")
     this.rdd.mapPartitions(f => Iterator(f.size)).collect.foreach(println)
   }
@@ -140,20 +140,4 @@ trait SortedGenomicRDD[T, U <: SortedGenomicRDD[T, U]] extends GenomicRDD[T, U] 
     }
 
   }
-}
-private case class GenericSortedGenomicRDD[T](rdd: RDD[T],
-                                              sequences: SequenceDictionary,
-                                              regionFn: T => Seq[ReferenceRegion]) extends SortedGenomicRDD[T, GenericSortedGenomicRDD[T]] {
-
-  protected def replaceRdd(newRdd: RDD[T]): GenericSortedGenomicRDD[T] = {
-    copy(rdd = newRdd)
-  }
-
-  protected def getReferenceRegions(elem: T): Seq[ReferenceRegion] = {
-    regionFn(elem)
-  }
-}
-
-trait MultisampleSortedGenomicRDD[T, U <: MultisampleSortedGenomicRDD[T, U]] extends SortedGenomicRDD[T, U] {
-  val samples: Seq[Sample]
 }
