@@ -19,7 +19,6 @@ package org.bdgenomics.adam.rdd.read
 
 import java.io.File
 import java.nio.file.Files
-
 import htsjdk.samtools.ValidationStringency
 import org.bdgenomics.adam.models.{
   RecordGroupDictionary,
@@ -30,6 +29,10 @@ import org.bdgenomics.adam.models.{
 import org.bdgenomics.adam.rdd.ADAMContext._
 import org.bdgenomics.adam.rdd.TestSaveArgs
 import org.bdgenomics.adam.rdd.features.CoverageRDD
+import org.bdgenomics.adam.rdd.variation.{
+  VariantContextRDD,
+  VCFOutFormatter
+}
 import org.bdgenomics.adam.util.ADAMFunSuite
 import org.bdgenomics.formats.avro._
 import org.seqdoop.hadoop_bam.{ CRAMInputFormat, SAMFormat }
@@ -83,7 +86,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
   }
 
   sparkTest("computes coverage") {
-    val inputPath = resourcePath("artificial.sam")
+    val inputPath = testFile("artificial.sam")
     val reads: AlignmentRecordRDD = sc.loadAlignments(inputPath)
 
     // get pileup at position 30
@@ -93,7 +96,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
   }
 
   sparkTest("merges adjacent records with equal coverage values") {
-    val inputPath = resourcePath("artificial.sam")
+    val inputPath = testFile("artificial.sam")
     val reads: AlignmentRecordRDD = sc.loadAlignments(inputPath)
 
     // repartition reads to 1 partition to acheive maximal merging of coverage
@@ -177,7 +180,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
   }
 
   sparkTest("round trip with single CRAM file produces equivalent Read values") {
-    val readsPath = resourcePath("artificial.cram")
+    val readsPath = testFile("artificial.cram")
     val referencePath = resourceUrl("artificial.fa").toString
     sc.hadoopConfiguration.set(CRAMInputFormat.REFERENCE_SOURCE_PATH_PROPERTY,
       referencePath)
@@ -208,7 +211,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
   }
 
   sparkTest("round trip with sharded CRAM file produces equivalent Read values") {
-    val readsPath = resourcePath("artificial.cram")
+    val readsPath = testFile("artificial.cram")
     val referencePath = resourceUrl("artificial.fa").toString
     sc.hadoopConfiguration.set(CRAMInputFormat.REFERENCE_SOURCE_PATH_PROPERTY,
       referencePath)
@@ -301,8 +304,8 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
   }
 
   sparkTest("round trip from ADAM to paired-FASTQ and back to ADAM produces equivalent Read values") {
-    val path1 = resourcePath("proper_pairs_1.fq")
-    val path2 = resourcePath("proper_pairs_2.fq")
+    val path1 = testFile("proper_pairs_1.fq")
+    val path2 = testFile("proper_pairs_2.fq")
     val rddA = sc.loadAlignments(path1).reassembleReadPairs(sc.loadAlignments(path2).rdd,
       validationStringency = ValidationStringency.STRICT)
 
@@ -332,7 +335,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
   }
 
   sparkTest("writing a small sorted file as SAM should produce the expected result") {
-    val unsortedPath = resourcePath("unsorted.sam")
+    val unsortedPath = testFile("unsorted.sam")
     val ardd = sc.loadBam(unsortedPath)
     val reads = ardd.rdd
 
@@ -342,11 +345,11 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
         isSorted = true,
         asSingleFile = true)
 
-    checkFiles(resourcePath("sorted.sam"), actualSortedPath)
+    checkFiles(testFile("sorted.sam"), actualSortedPath)
   }
 
   sparkTest("writing unordered sam from unordered sam") {
-    val unsortedPath = resourcePath("unordered.sam")
+    val unsortedPath = testFile("unordered.sam")
     val ardd = sc.loadBam(unsortedPath)
     val reads = ardd.rdd
 
@@ -359,7 +362,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
   }
 
   sparkTest("writing ordered sam from unordered sam") {
-    val unsortedPath = resourcePath("unordered.sam")
+    val unsortedPath = testFile("unordered.sam")
     val ardd = sc.loadBam(unsortedPath)
     val reads = ardd.sortReadsByReferencePosition
 
@@ -368,11 +371,11 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
       isSorted = true,
       asSingleFile = true)
 
-    checkFiles(resourcePath("ordered.sam"), actualSortedPath)
+    checkFiles(testFile("ordered.sam"), actualSortedPath)
   }
 
   def testBQSR(asSam: Boolean, filename: String) {
-    val inputPath = resourcePath("bqsr1.sam")
+    val inputPath = testFile("bqsr1.sam")
     val tempFile = Files.createTempDirectory("bqsr1")
     val rRdd = sc.loadAlignments(inputPath)
     rRdd.rdd.cache()
@@ -456,7 +459,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
   }
 
   sparkTest("saveAsParquet with save args, sequence dictionary, and record group dictionary") {
-    val inputPath = resourcePath("small.sam")
+    val inputPath = testFile("small.sam")
     val reads: AlignmentRecordRDD = sc.loadAlignments(inputPath)
     val outputPath = tmpLocation()
     reads.saveAsParquet(TestSaveArgs(outputPath))
@@ -464,7 +467,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
   }
 
   sparkTest("save as SAM format") {
-    val inputPath = resourcePath("small.sam")
+    val inputPath = testFile("small.sam")
     val reads: AlignmentRecordRDD = sc.loadAlignments(inputPath)
     val outputPath = tmpLocation(".sam")
     reads.save(TestSaveArgs(outputPath))
@@ -472,7 +475,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
   }
 
   sparkTest("save as sorted SAM format") {
-    val inputPath = resourcePath("small.sam")
+    val inputPath = testFile("small.sam")
     val reads: AlignmentRecordRDD = sc.loadAlignments(inputPath)
     val outputPath = tmpLocation(".sam")
     reads.save(TestSaveArgs(outputPath), true)
@@ -480,7 +483,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
   }
 
   sparkTest("save as BAM format") {
-    val inputPath = resourcePath("small.sam")
+    val inputPath = testFile("small.sam")
     val reads: AlignmentRecordRDD = sc.loadAlignments(inputPath)
     val outputPath = tmpLocation(".bam")
     reads.save(TestSaveArgs(outputPath))
@@ -488,7 +491,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
   }
 
   sparkTest("save as sorted BAM format") {
-    val inputPath = resourcePath("small.sam")
+    val inputPath = testFile("small.sam")
     val reads: AlignmentRecordRDD = sc.loadAlignments(inputPath)
     val outputPath = tmpLocation(".bam")
     reads.save(TestSaveArgs(outputPath), true)
@@ -496,7 +499,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
   }
 
   sparkTest("save as FASTQ format") {
-    val inputPath = resourcePath("small.sam")
+    val inputPath = testFile("small.sam")
     val reads: AlignmentRecordRDD = sc.loadAlignments(inputPath)
     val outputPath = tmpLocation(".fq")
     reads.save(TestSaveArgs(outputPath))
@@ -504,7 +507,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
   }
 
   sparkTest("save as ADAM parquet format") {
-    val inputPath = resourcePath("small.sam")
+    val inputPath = testFile("small.sam")
     val reads: AlignmentRecordRDD = sc.loadAlignments(inputPath)
     val outputPath = tmpLocation(".adam")
     reads.save(TestSaveArgs(outputPath))
@@ -512,7 +515,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
   }
 
   sparkTest("saveAsSam SAM format") {
-    val inputPath = resourcePath("small.sam")
+    val inputPath = testFile("small.sam")
     val reads: AlignmentRecordRDD = sc.loadAlignments(inputPath)
     val outputPath = tmpLocation(".sam")
     reads.saveAsSam(outputPath, asType = Some(SAMFormat.SAM))
@@ -520,7 +523,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
   }
 
   sparkTest("saveAsSam SAM format single file") {
-    val inputPath = resourcePath("small.sam")
+    val inputPath = testFile("small.sam")
     val reads: AlignmentRecordRDD = sc.loadAlignments(inputPath)
     val outputPath = tmpLocation(".sam")
     reads.saveAsSam(outputPath,
@@ -530,7 +533,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
   }
 
   sparkTest("saveAsSam sorted SAM format single file") {
-    val inputPath = resourcePath("small.sam")
+    val inputPath = testFile("small.sam")
     val reads: AlignmentRecordRDD = sc.loadAlignments(inputPath)
     val outputPath = tmpLocation(".sam")
     reads.saveAsSam(outputPath,
@@ -541,7 +544,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
   }
 
   sparkTest("saveAsSam BAM format") {
-    val inputPath = resourcePath("small.sam")
+    val inputPath = testFile("small.sam")
     val reads: AlignmentRecordRDD = sc.loadAlignments(inputPath)
     val outputPath = tmpLocation(".bam")
     reads.saveAsSam(outputPath, asType = Some(SAMFormat.BAM))
@@ -549,7 +552,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
   }
 
   sparkTest("saveAsSam BAM format single file") {
-    val inputPath = resourcePath("small.sam")
+    val inputPath = testFile("small.sam")
     val reads: AlignmentRecordRDD = sc.loadAlignments(inputPath)
     val outputPath = tmpLocation(".bam")
     reads.saveAsSam(outputPath,
@@ -559,7 +562,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
   }
 
   sparkTest("saveAsSam sorted BAM format single file") {
-    val inputPath = resourcePath("small.sam")
+    val inputPath = testFile("small.sam")
     val reads: AlignmentRecordRDD = sc.loadAlignments(inputPath)
     val outputPath = tmpLocation(".bam")
     reads.saveAsSam(outputPath,
@@ -570,7 +573,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
   }
 
   sparkTest("saveAsFastq") {
-    val inputPath = resourcePath("small.sam")
+    val inputPath = testFile("small.sam")
     val reads: AlignmentRecordRDD = sc.loadAlignments(inputPath)
     val outputPath = tmpLocation(".fq")
     reads.saveAsFastq(outputPath, None)
@@ -578,7 +581,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
   }
 
   sparkTest("saveAsFastq with original base qualities") {
-    val inputPath = resourcePath("small.sam")
+    val inputPath = testFile("small.sam")
     val reads: AlignmentRecordRDD = sc.loadAlignments(inputPath)
     val outputPath = tmpLocation(".fq")
     reads.saveAsFastq(outputPath, None, true)
@@ -586,7 +589,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
   }
 
   sparkTest("saveAsFastq sorted by read name") {
-    val inputPath = resourcePath("small.sam")
+    val inputPath = testFile("small.sam")
     val reads: AlignmentRecordRDD = sc.loadAlignments(inputPath)
     val outputPath = tmpLocation(".fq")
     reads.saveAsFastq(outputPath, None, false, true)
@@ -594,7 +597,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
   }
 
   sparkTest("saveAsFastq sorted by read name with original base qualities") {
-    val inputPath = resourcePath("small.sam")
+    val inputPath = testFile("small.sam")
     val reads: AlignmentRecordRDD = sc.loadAlignments(inputPath)
     val outputPath = tmpLocation(".fq")
     reads.saveAsFastq(outputPath, None, true, true)
@@ -602,7 +605,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
   }
 
   sparkTest("saveAsFastq paired FASTQ") {
-    val inputPath = resourcePath("small.sam")
+    val inputPath = testFile("small.sam")
     val reads: AlignmentRecordRDD = sc.loadAlignments(inputPath)
     val outputPath1 = tmpLocation("_1.fq")
     val outputPath2 = tmpLocation("_2.fq")
@@ -612,12 +615,76 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
   }
 
   sparkTest("saveAsPairedFastq") {
-    val inputPath = resourcePath("small.sam")
+    val inputPath = testFile("small.sam")
     val reads: AlignmentRecordRDD = sc.loadAlignments(inputPath)
     val outputPath1 = tmpLocation("_1.fq")
     val outputPath2 = tmpLocation("_2.fq")
     reads.saveAsPairedFastq(outputPath1, outputPath2)
     assert(new File(outputPath1).exists())
     assert(new File(outputPath2).exists())
+  }
+
+  sparkTest("don't lose any reads when piping as SAM") {
+    val reads12Path = testFile("reads12.sam")
+    val ardd = sc.loadBam(reads12Path)
+    val records = ardd.rdd.count
+
+    implicit val tFormatter = SAMInFormatter
+    implicit val uFormatter = new AnySAMOutFormatter
+
+    val pipedRdd: AlignmentRecordRDD = ardd.pipe("tee /dev/null")
+    val newRecords = pipedRdd.rdd.count
+    assert(records === newRecords)
+  }
+
+  sparkTest("don't lose any reads when piping as BAM") {
+    val reads12Path = testFile("reads12.sam")
+    val ardd = sc.loadBam(reads12Path)
+    val records = ardd.rdd.count
+
+    implicit val tFormatter = BAMInFormatter
+    implicit val uFormatter = new AnySAMOutFormatter
+
+    val pipedRdd: AlignmentRecordRDD = ardd.pipe("tee /dev/null")
+    val newRecords = pipedRdd.rdd.count
+    assert(records === newRecords)
+  }
+
+  sparkTest("can properly set environment variables inside of a pipe") {
+    val reads12Path = testFile("reads12.sam")
+    val smallPath = testFile("small.sam")
+    val scriptPath = testFile("env_test_command.sh")
+    val ardd = sc.loadBam(reads12Path)
+    val reads12Records = ardd.rdd.count
+    val smallRecords = sc.loadBam(smallPath).rdd.count
+    val writePath = tmpLocation("reads12.sam")
+
+    implicit val tFormatter = SAMInFormatter
+    implicit val uFormatter = new AnySAMOutFormatter
+
+    val pipedRdd: AlignmentRecordRDD = ardd.pipe("/bin/bash %s".format(scriptPath),
+      environment = Map(("INPUT_PATH" -> smallPath),
+        ("OUTPUT_PATH" -> writePath)))
+    val newRecords = pipedRdd.rdd.count
+    assert(smallRecords === newRecords)
+  }
+
+  sparkTest("read vcf from alignment record pipe") {
+    val readsPath = testFile("small.1.sam")
+    val vcfPath = testFile("small.vcf")
+    val scriptPath = testFile("test_command.sh")
+    val tempPath = tmpLocation(".sam")
+    val ardd = sc.loadBam(readsPath)
+
+    implicit val tFormatter = SAMInFormatter
+    implicit val uFormatter = new VCFOutFormatter
+
+    val pipedRdd: VariantContextRDD = ardd.pipe("/bin/bash $0 %s $1".format(tempPath),
+      files = Seq(scriptPath, vcfPath))
+    val newRecords = pipedRdd.rdd.count
+    assert(newRecords === 6)
+
+    val tempBam = sc.loadBam(tempPath)
+    assert(tempBam.rdd.count === ardd.rdd.count)
   }
 }

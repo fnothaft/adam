@@ -30,9 +30,11 @@ sealed trait ShuffleRegionJoin[T, U, RT, RU] extends RegionJoin[T, U, RT, RU] {
 
   val sd: SequenceDictionary
   val partitionSize: Long
-  @transient val sc: SparkContext
+  val sc: SparkContext
 
   // Create the set of bins across the genome for parallel processing
+  //   partitionSize (in nucleotides) may range from 10000 to 10000000+ 
+  //   depending on cluster and dataset size
   protected val seqLengths = Map(sd.records.toSeq.map(rec => (rec.name, rec.length)): _*)
   protected val bins = sc.broadcast(GenomeBins(partitionSize, seqLengths))
 
@@ -243,8 +245,7 @@ case class RightOuterShuffleRegionJoinAndGroupByLeft[T, U](sd: SequenceDictionar
  *
  * @param partitions should correspond to the number of bins in the corresponding GenomeBins
  */
-private case class ManualRegionPartitioner(partitions: Int) extends Partitioner {
-
+private[rdd] case class ManualRegionPartitioner(partitions: Int) extends Partitioner {
   override def numPartitions: Int = partitions
 
   override def getPartition(key: Any): Int = key match {

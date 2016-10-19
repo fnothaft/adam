@@ -20,13 +20,13 @@ package org.bdgenomics.adam.models
 import htsjdk.samtools.{ SAMFileHeader, SAMProgramRecord }
 import scala.collection.JavaConversions._
 
-object SAMFileHeaderWritable {
+private[adam] object SAMFileHeaderWritable {
   def apply(header: SAMFileHeader): SAMFileHeaderWritable = {
     new SAMFileHeaderWritable(header)
   }
 }
 
-class SAMFileHeaderWritable(@transient hdr: SAMFileHeader) extends Serializable {
+class SAMFileHeaderWritable(hdr: SAMFileHeader) extends Serializable {
   // extract fields that are needed in order to recreate the SAMFileHeader
   protected val text = {
     val txt: String = hdr.getTextHeader
