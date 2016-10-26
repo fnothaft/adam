@@ -21,14 +21,26 @@ class PartitionAndSort extends SparkFunSuite {
       //val x = sc.loadBam("/data/recompute/alignments/NA12878.bam.aln.bam")
       val x = sc.loadBam("/Users/DevinPetersohn/software_builds/adam/adam-core/src/test/resources/bqsr1.sam")
       println(x.rdd.first)
-      val y = x.wellBalancedRepartitionByGenomicCoordinate(16)
+      val y = x.repartitionAndSortByGenomicCoordinate(16)
+      val z = x.wellBalancedRepartitionByGenomicCoordinate(16)
       println("Printing class:")
-      println(y.getClass)
-      println(y.rdd.first)
-      println(y.toCoverage(true).rdd.first)
+      println(z.getClass)
+      println(x.rdd.first)
+      println(x.toCoverage(true).rdd.first)
 
-      val partitionTupleCounts: Array[Int] = y.rdd.mapPartitions(f => Iterator(f.size)).collect
-      partitionTupleCounts.foreach(println)
+//      x.shuffleRegionJoin(y)
+//      z.shuffleRegionJoin(y)
+//      y.shuffleRegionJoin(z)
+
+      val partitionTupleCounts: Array[Int] = z.rdd.mapPartitions(f => Iterator(f.size)).collect
+      println(partitionTupleCounts.mkString(","))
+
+      val a = z.evenlyRepartition(200)
+      val partitionTupleCounts2: Array[Int] = a.rdd.mapPartitions(f => Iterator(f.size)).collect
+      println(partitionTupleCounts2.mkString(","))
+
+      assert(partitionTupleCounts.sum == partitionTupleCounts2.sum)
+
       val average = partitionTupleCounts.sum.asInstanceOf[Double] / partitionTupleCounts.length.asInstanceOf[Double]
       for (i <- partitionTupleCounts.indices) {
         if (partitionTupleCounts(i) > 1.4 * average) {

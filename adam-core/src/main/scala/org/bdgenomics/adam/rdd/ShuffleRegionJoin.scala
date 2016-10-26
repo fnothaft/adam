@@ -62,6 +62,8 @@ sealed trait ShuffleRegionJoin[T, U, RT, RU] extends RegionJoin[T, U, RT, RU] {
     rightRDD: RDD[(ReferenceRegion, U)])(implicit tManifest: ClassTag[T],
                                          uManifest: ClassTag[U]): RDD[(RT, RU)] = {
 
+
+
     // Key each RDD element to its corresponding bin
     // Elements may be replicated if they overlap multiple bins
     val keyedLeft: RDD[((ReferenceRegion, Int), T)] =
@@ -94,6 +96,10 @@ sealed trait ShuffleRegionJoin[T, U, RT, RU] extends RegionJoin[T, U, RT, RU] {
     // has no meaning for the return type of RDD[(T, U)].  In fact, how
     // do you order a pair of ReferenceRegions?
     sortedLeft.zipPartitions(sortedRight, preservesPartitioning = false)(sweep)
+  }
+
+  def joinCoPartitionedRdds(leftRDD: RDD[((ReferenceRegion, Int), T)], rightRDD: RDD[((ReferenceRegion, Int), U)])(implicit tManifest: ClassTag[T], uManifest: ClassTag[U]): RDD[(RT, RU)] = {
+    leftRDD.zipPartitions(rightRDD)(sweep)
   }
 
   protected def makeIterator(region: ReferenceRegion,

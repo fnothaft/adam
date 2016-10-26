@@ -124,8 +124,7 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
    *   in the environment for the newly created process. Default is empty.
    * @param flankSize Number of bases to flank each command invocation by.
    * @return Returns a new GenomicRDD of type Y.
-   *
-   * @tparam X The type of the record created by the piped command.
+    * @tparam X The type of the record created by the piped command.
    * @tparam Y A GenomicRDD containing X's.
    * @tparam V The InFormatter to use for formatting the data being piped to the
    *   command.
@@ -265,11 +264,11 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
     }
   }
 
-  protected def replaceRdd(newRdd: RDD[T]): U
+  protected[rdd] def replaceRdd(newRdd: RDD[T]): U
 
-  protected def getReferenceRegions(elem: T): Seq[ReferenceRegion]
+  protected[rdd] def getReferenceRegions(elem: T): Seq[ReferenceRegion]
 
-  protected def flattenRddByRegions(): RDD[(ReferenceRegion, T)] = {
+  protected[rdd] def flattenRddByRegions(): RDD[(ReferenceRegion, T)] = {
     rdd.flatMap(elem => {
       getReferenceRegions(elem).map(r => (r, elem))
     })
@@ -356,6 +355,10 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
   def shuffleRegionJoin[X, Y <: GenomicRDD[X, Y], Z <: GenomicRDD[(T, X), Z]](genomicRdd: GenomicRDD[X, Y],
                                                                               optPartitions: Option[Int] = None)(
                                                                                 implicit tTag: ClassTag[T], xTag: ClassTag[X]): GenomicRDD[(T, X), Z] = {
+
+    if(genomicRdd.isInstanceOf[SortedGenomicRDD[X, Y]]) {
+      println("That is sorted but this is not")
+    } else println("Both not sorted")
 
     // did the user provide a set partition count?
     // if no, take the max partition count from our rdds
@@ -588,63 +591,29 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
 
   }
 
-  def repartitionByGenomicCoordinate(partitions: Int = rdd.partitions.length)(implicit c: ClassTag[T]): U = {
-    val partitionedRDD = rdd.map(f => (getReferenceRegions(f), f))
-      .partitionBy(new GenomicPositionRangePartitioner(partitions, elements.toInt))
-      .map(f => f._2)
-    replaceRdd(partitionedRDD)
-  }
-
-  def wellBalancedRepartitionByGenomicCoordinate(partitions: Int = rdd.partitions.length)(implicit tTag: ClassTag[T]): MixTest[T, U] = {
+  def repartitionAndSortByGenomicCoordinate(partitions: Int = rdd.partitions.length)(implicit c: ClassTag[T]): SortedGenomicRDDMixIn[T, U] = {
     starts.persist
-    elements.toString
-    minimum.toString
-    val partitionedRDD: RDD[(ReferenceRegion, T)] = flattenRddByRegions()
+    elements
+    minimum
+    val partitionedRDD = flattenRddByRegions()
       .partitionBy(new GenomicPositionRangePartitioner(partitions, elements.toInt))
-    val partitionTupleCounts: Array[Int] = partitionedRDD.mapPartitions(f => Iterator(f.size)).collect
-    val average: Double = partitionTupleCounts.sum.asInstanceOf[Double] / partitionTupleCounts.length.asInstanceOf[Double]
-    val finalPartitionedRDD = partitionedRDD.mapPartitions(f => f.toArray.sortBy(_._1.start).toIterator).zipWithIndex
-      .mapPartitions(iter => {
-        getBalancedPartitionNumber(iter.map(_.swap), average)
-      }).partitionBy(new GenomicPositionRangePartitioner(partitions, 0))
-      .mapPartitions(iter => {
-        val listRepresentation = iter.map(_._2).toList
-        val tempList = new ArrayBuffer[(Int, List[(ReferenceRegion, T)])]()
-        for (i <- listRepresentation.indices) {
-          tempList += ((i, listRepresentation(i)))
-        }
-        var sortedList = new ArrayBuffer[List[T]]()
-        for (i <- tempList.sortBy(_._2.head._1.start)) {
-          val append = listRepresentation(i._1).map(_._2)
-          sortedList += append
-        }
-        sortedList.flatten.toIterator
-      }).persist()
-    finalPartitionedRDD.count()
-    println("Getting ready to replace")
-    replaceRdd(finalPartitionedRDD) :: SortedGenomicRDD
+      .mapPartitions(iter => iter.toArray.sortBy(_._1.start).toIterator)
+    val positions = partitionedRDD.keys.map(f => (f.start, f.end))
+
+    addSortedTrait(replaceRdd(partitionedRDD.values), partitionedRDD.keys.collect, )
   }
 
-  def getPartitionData(iter: Iterator[T], count: Int, average: Double): (List[T], List[T]) = {
-    val numToTransfer = if (count > 1.4 * average) (count * 0.4).toInt else 0
-    if (numToTransfer <= 0) (iter.toList, List())
-    else (iter.toList.dropRight(numToTransfer), iter.drop(count - numToTransfer).toList)
+  def wellBalancedRepartitionByGenomicCoordinate(partitions: Int = rdd.partitions.length)(implicit tTag: ClassTag[T]): SortedGenomicRDDMixIn[T, U] = {
+    repartitionAndSortByGenomicCoordinate(partitions).evenlyRepartition(partitions)
   }
 
-  def getBalancedPartitionNumber(iter: Iterator[(Long, (ReferenceRegion, T))], average: Double): Iterator[(Int, List[(ReferenceRegion, T)])] = {
-    val listRepresentation = iter.toList
-    listRepresentation.map(f => ((f._1 / average).asInstanceOf[Int], f._2)).groupBy(_._1).mapValues(f => f.map(_._2)).toIterator
-
-  }
-
-  private class GenomicPositionRangePartitioner[V](partitions: Int, elements: Int) extends Partitioner {
+  private[rdd] class GenomicPositionRangePartitioner[V](partitions: Int, elements: Int = 0) extends Partitioner {
 
     override def numPartitions: Int = partitions
 
     def getRegionPartition(key: ReferenceRegion): Int = {
       val partitionNumber =
-        if ((key.start.toInt - minimum.toInt) * partitions / (elements - minimum.toInt) == partitions) partitions - 1
-        else (key.start.toInt - minimum.toInt) * partitions / (elements - minimum.toInt)
+        (key.start.toInt - minimum.toInt) * (partitions - 1) / (elements - minimum.toInt)
       partitionNumber
     }
 
@@ -664,11 +633,11 @@ private case class GenericGenomicRDD[T](rdd: RDD[T],
                                         sequences: SequenceDictionary,
                                         regionFn: T => Seq[ReferenceRegion]) extends GenomicRDD[T, GenericGenomicRDD[T]] {
 
-  protected def replaceRdd(newRdd: RDD[T]): GenericGenomicRDD[T] = {
+  protected[rdd] def replaceRdd(newRdd: RDD[T]): GenericGenomicRDD[T] = {
     copy(rdd = newRdd)
   }
 
-  protected def getReferenceRegions(elem: T): Seq[ReferenceRegion] = {
+  protected[rdd] def getReferenceRegions(elem: T): Seq[ReferenceRegion] = {
     regionFn(elem)
   }
 }

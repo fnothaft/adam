@@ -255,7 +255,7 @@ case class FeatureRDD(rdd: RDD[Feature],
    * @param newRdd The RDD to replace the underlying RDD with.
    * @return Returns a new FeatureRDD with the underlying RDD replaced.
    */
-  protected def replaceRdd(newRdd: RDD[Feature]): FeatureRDD = {
+  protected[rdd] def replaceRdd(newRdd: RDD[Feature]): FeatureRDD = {
     copy(rdd = newRdd)
   }
 
@@ -264,7 +264,7 @@ case class FeatureRDD(rdd: RDD[Feature],
    * @return Since a feature maps directly to a single genomic region, this
    *   method will always return a Seq of exactly one ReferenceRegion.
    */
-  protected def getReferenceRegions(elem: Feature): Seq[ReferenceRegion] = {
+  protected[rdd] def getReferenceRegions(elem: Feature): Seq[ReferenceRegion] = {
     Seq(ReferenceRegion(elem))
   }
 

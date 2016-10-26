@@ -216,7 +216,7 @@ case class VariantContextRDD(rdd: RDD[VariantContext],
    * @return Returns a new VariantContextRDD where the underlying RDD has
    *   been replaced.
    */
-  protected def replaceRdd(newRdd: RDD[VariantContext]): VariantContextRDD = {
+  protected[rdd] def replaceRdd(newRdd: RDD[VariantContext]): VariantContextRDD = {
     copy(rdd = newRdd)
   }
 
@@ -224,7 +224,7 @@ case class VariantContextRDD(rdd: RDD[VariantContext],
    * @param elem The variant context to get a reference region for.
    * @return Returns a seq containing the position key from the variant context.
    */
-  protected def getReferenceRegions(elem: VariantContext): Seq[ReferenceRegion] = {
+  protected[rdd] def getReferenceRegions(elem: VariantContext): Seq[ReferenceRegion] = {
     Seq(ReferenceRegion(elem.position))
   }
 }
