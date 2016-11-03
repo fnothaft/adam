@@ -38,7 +38,8 @@ object ADAMMain {
           Transform,
           ADAM2Fastq,
           Flatten,
-          MergeShards
+          MergeShards,
+          RealignIndels
         )
       ),
       CommandGroup(

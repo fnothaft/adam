@@ -222,7 +222,7 @@ private[rdd] object RealignIndels extends Serializable with Logging {
 
 import org.bdgenomics.adam.rdd.read.realignment.RealignIndels._
 
-private[rdd] class RealignIndels(
+class RealignIndels(
     val consensusModel: ConsensusGenerator = new ConsensusGeneratorFromReads,
     val dataIsSorted: Boolean = false,
     val maxIndelSize: Int = 500,
