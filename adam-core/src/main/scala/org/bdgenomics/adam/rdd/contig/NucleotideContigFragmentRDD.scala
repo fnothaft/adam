@@ -45,8 +45,14 @@ object NucleotideContigFragmentRDD extends Serializable {
   private[rdd] def apply(rdd: RDD[NucleotideContigFragment]): NucleotideContigFragmentRDD = {
 
     // get sequence dictionary
-    val sd = new SequenceDictionary(rdd.map(SequenceRecord.fromADAMContigFragment)
-      .distinct
+    val sd = new SequenceDictionary(rdd.flatMap(ncf => {
+      if (ncf.getContig != null &&
+        ncf.getContig.getContigName != null) {
+        Some(SequenceRecord.fromADAMContigFragment(ncf))
+      } else {
+        None
+      }
+    }).distinct
       .collect
       .toVector)
 
@@ -84,7 +90,7 @@ case class NucleotideContigFragmentRDD(
    * @return Returns a new NucleotideContigFragmentRDD where the underlying RDD
    *   has been replaced.
    */
-  protected def replaceRdd(newRdd: RDD[NucleotideContigFragment]): NucleotideContigFragmentRDD = {
+  protected[rdd] def replaceRdd(newRdd: RDD[NucleotideContigFragment]): NucleotideContigFragmentRDD = {
     copy(rdd = newRdd)
   }
 
@@ -94,7 +100,7 @@ case class NucleotideContigFragmentRDD(
    *   reference region. If the fragment start position and name is not defined,
    *   returns no regions.
    */
-  protected def getReferenceRegions(elem: NucleotideContigFragment): Seq[ReferenceRegion] = {
+  protected[rdd] def getReferenceRegions(elem: NucleotideContigFragment): Seq[ReferenceRegion] = {
     ReferenceRegion(elem).toSeq
   }
 

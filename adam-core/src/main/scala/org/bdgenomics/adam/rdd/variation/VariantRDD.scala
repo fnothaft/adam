@@ -44,7 +44,7 @@ case class VariantRDD(rdd: RDD[Variant],
    * @param newRdd An RDD to replace the underlying RDD with.
    * @return Returns a new VariantRDD with the underlying RDD replaced.
    */
-  protected def replaceRdd(newRdd: RDD[Variant]): VariantRDD = {
+  protected[rdd] def replaceRdd(newRdd: RDD[Variant]): VariantRDD = {
     copy(rdd = newRdd)
   }
 
@@ -52,7 +52,7 @@ case class VariantRDD(rdd: RDD[Variant],
    * @param elem The variant to get a reference region for.
    * @return Returns the singular region this variant covers.
    */
-  protected def getReferenceRegions(elem: Variant): Seq[ReferenceRegion] = {
+  protected[rdd] def getReferenceRegions(elem: Variant): Seq[ReferenceRegion] = {
     Seq(ReferenceRegion(elem))
   }
 }

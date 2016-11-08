@@ -44,7 +44,7 @@ case class DatabaseVariantAnnotationRDD(rdd: RDD[DatabaseVariantAnnotation],
    * @param newRdd An RDD for replacing the underlying RDD.
    * @return A new DatabaseVariantAnnotationRDD with the underlying RDD replaced.
    */
-  protected def replaceRdd(newRdd: RDD[DatabaseVariantAnnotation]): DatabaseVariantAnnotationRDD = {
+  protected[rdd] def replaceRdd(newRdd: RDD[DatabaseVariantAnnotation]): DatabaseVariantAnnotationRDD = {
     copy(rdd = newRdd)
   }
 
@@ -52,7 +52,7 @@ case class DatabaseVariantAnnotationRDD(rdd: RDD[DatabaseVariantAnnotation],
    * @param elem Database variant annotation to get a region for.
    * @return Returns the singular region covered by the variant.
    */
-  protected def getReferenceRegions(elem: DatabaseVariantAnnotation): Seq[ReferenceRegion] = {
+  protected[rdd] def getReferenceRegions(elem: DatabaseVariantAnnotation): Seq[ReferenceRegion] = {
     Seq(ReferenceRegion(elem))
   }
 }

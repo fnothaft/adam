@@ -17,8 +17,10 @@
  */
 package org.bdgenomics.adam.rdd
 
+import java.util.concurrent.Executors
 import org.apache.avro.generic.IndexedRecord
 import org.apache.parquet.hadoop.metadata.CompressionCodecName
+import org.apache.spark.SparkFiles
 import org.apache.spark.api.java.JavaRDD
 import org.apache.spark.rdd.RDD
 import org.apache.spark.Partitioner
@@ -30,7 +32,10 @@ import org.bdgenomics.adam.models.{
 import org.bdgenomics.formats.avro.{ Contig, RecordGroupMetadata, Sample }
 import org.bdgenomics.utils.cli.SaveArgs
 import scala.collection.mutable.ArrayBuffer
+import scala.annotation.tailrec
+import scala.collection.JavaConversions._
 import scala.reflect.ClassTag
+import org.bdgenomics.adam.rdd.SortedGenomicRDD._
 
 private[rdd] class JavaSaveArgs(var outputPath: String,
                                 var blockSize: Int = 128 * 1024 * 1024,
@@ -40,6 +45,42 @@ private[rdd] class JavaSaveArgs(var outputPath: String,
                                 var asSingleFile: Boolean = false) extends ADAMSaveAnyArgs {
   var sortFastqOutput = false
   var deferMerging = false
+}
+
+private[rdd] object GenomicRDD {
+
+  /**
+   * Replaces file references in a command.
+   *
+   * @see pipe
+    * @param cmd Command to split and replace references in.
+   * @param files List of paths to files.
+   * @return Returns a split up command string, with file paths subbed in.
+   */
+  def processCommand(cmd: String,
+                     files: Seq[String]): List[String] = {
+    val filesWithIndex = files.zipWithIndex
+      .map(p => {
+        val (file, index) = p
+        ("$%d".format(index), file)
+      }).reverse
+
+    @tailrec def replaceEscapes(cmd: String,
+                                iter: Iterator[(String, String)]): String = {
+      if (!iter.hasNext) {
+        cmd
+      } else {
+        val (idx, file) = iter.next
+        val newCmd = cmd.replace(idx, file)
+        replaceEscapes(newCmd, iter)
+      }
+    }
+
+    cmd.split(" ")
+      .map(s => {
+        replaceEscapes(s, filesWithIndex.toIterator)
+      }).toList
+  }
 }
 
 trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
@@ -56,11 +97,177 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
     replaceRdd(tFn(rdd))
   }
 
-  protected def replaceRdd(newRdd: RDD[T]): U
+  lazy val starts: RDD[Long] = flattenRddByRegions().map(f => f._1.start)
 
-  protected def getReferenceRegions(elem: T): Seq[ReferenceRegion]
+  lazy val elements: Long = starts.max
 
-  protected def flattenRddByRegions(): RDD[(ReferenceRegion, T)] = {
+  lazy val minimum: Long = starts.min
+
+  /**
+   * Pipes genomic data to a subprocess that runs in parallel using Spark.
+   *
+   * Files are substituted in to the command with a $x syntax. E.g., to invoke
+   * a command that uses the first file from the files Seq, use $0.
+   *
+   * Pipes require the presence of an InFormatterCompanion and an OutFormatter
+   * as implicit values. The InFormatterCompanion should be a singleton whose
+   * apply method builds an InFormatter given a specific type of GenomicRDD.
+   * The implicit InFormatterCompanion yields an InFormatter which is used to
+   * format the input to the pipe, and the implicit OutFormatter is used to
+   * parse the output from the pipe.
+   *
+   * @param cmd Command to run.
+   * @param files Files to make locally available to the commands being run.
+   *   Default is empty.
+   * @param environment A map containing environment variable/value pairs to set
+   *   in the environment for the newly created process. Default is empty.
+   * @param flankSize Number of bases to flank each command invocation by.
+   * @return Returns a new GenomicRDD of type Y.
+    * @tparam X The type of the record created by the piped command.
+   * @tparam Y A GenomicRDD containing X's.
+   * @tparam V The InFormatter to use for formatting the data being piped to the
+   *   command.
+   */
+  def pipe[X, Y <: GenomicRDD[X, Y], V <: InFormatter[T, U, V]](cmd: String,
+                                                                files: Seq[String] = Seq.empty,
+                                                                environment: Map[String, String] = Map.empty,
+                                                                flankSize: Int = 0)(implicit tFormatterCompanion: InFormatterCompanion[T, U, V],
+                                                                                    xFormatter: OutFormatter[X],
+                                                                                    convFn: (U, RDD[X]) => Y,
+                                                                                    tManifest: ClassTag[T],
+                                                                                    xManifest: ClassTag[X]): Y = {
+
+    // TODO: support broadcasting files
+    files.foreach(f => {
+      rdd.context.addFile(f)
+    })
+
+    // make formatter
+    val tFormatter: V = tFormatterCompanion.apply(this.asInstanceOf[U])
+
+    // make bins
+    val seqLengths = sequences.records.toSeq.map(rec => (rec.name, rec.length)).toMap
+    val totalLength = seqLengths.values.sum
+    val bins = GenomeBins(totalLength / rdd.partitions.size, seqLengths)
+
+    // if the input rdd is mapped, then we need to repartition
+    val partitionedRdd = if (sequences.records.size > 0) {
+      // get region covered, expand region by flank size, and tag with bins
+      val binKeyedRdd = rdd.flatMap(r => {
+
+        // get regions and expand
+        val regions = getReferenceRegions(r).map(_.pad(flankSize))
+
+        // get all the bins this record falls into
+        val recordBins = regions.flatMap(rr => {
+          (bins.getStartBin(rr) to bins.getEndBin(rr)).map(b => (rr, b))
+        })
+
+        // key the record by those bins and return
+        // TODO: this should key with the reference region corresponding to a bin
+        recordBins.map(b => (b, r))
+      })
+
+      // repartition yonder our data
+      // TODO: this should repartition and sort within the partition
+      binKeyedRdd.repartitionAndSortWithinPartitions(ManualRegionPartitioner(bins.numBins))
+        .values
+    } else {
+      rdd
+    }
+
+    // are we in local mode?
+    val isLocal = partitionedRdd.context.isLocal
+
+    // call map partitions and pipe
+    val pipedRdd = partitionedRdd.mapPartitions(iter => {
+
+      // get files
+      // from SPARK-3311, SparkFiles doesn't work in local mode.
+      // so... we'll bypass that by checking if we're running in local mode.
+      // sigh!
+      val locs = if (isLocal) {
+        files
+      } else {
+        files.map(f => {
+          SparkFiles.get(f)
+        })
+      }
+
+      // split command and create process builder
+      val finalCmd = GenomicRDD.processCommand(cmd, locs)
+      val pb = new ProcessBuilder(finalCmd)
+      pb.redirectError(ProcessBuilder.Redirect.INHERIT)
+
+      // add environment variables to the process builder
+      val pEnv = pb.environment()
+      environment.foreach(kv => {
+        val (k, v) = kv
+        pEnv.put(k, v)
+      })
+
+      // start underlying piped command
+      val process = pb.start()
+      val os = process.getOutputStream()
+      val is = process.getInputStream()
+
+      // wrap in and out formatters
+      val ifr = new InFormatterRunner[T, U, V](iter, tFormatter, os)
+      val ofr = new OutFormatterRunner[X, OutFormatter[X]](xFormatter, is)
+
+      // launch thread pool and submit formatters
+      val pool = Executors.newFixedThreadPool(2)
+      pool.submit(ifr)
+      val futureIter = pool.submit(ofr)
+
+      // wait for process to finish
+      val exitCode = process.waitFor()
+      if (exitCode != 0) {
+        throw new RuntimeException("Piped command %s exited with error code %d.".format(
+          finalCmd, exitCode))
+      }
+
+      // shut thread pool
+      pool.shutdown()
+
+      futureIter.get
+    })
+
+    // build the new GenomicRDD
+    val newRdd = convFn(this.asInstanceOf[U], pipedRdd)
+
+    // if the original rdd was aligned and the final rdd is aligned, then we must filter
+    if (newRdd.sequences.isEmpty ||
+      sequences.isEmpty) {
+      newRdd
+    } else {
+      def filterPartition(idx: Int, iter: Iterator[X]): Iterator[X] = {
+
+        // get the region for this partition
+        val region = bins.invert(idx)
+
+        // map over the iterator and filter out any items that don't belong
+        iter.filter(x => {
+
+          // get the regions for x
+          val regions = newRdd.getReferenceRegions(x)
+
+          // are there any regions that overlap our current region
+          !regions.forall(!_.overlaps(region))
+        })
+      }
+
+      // run a map partitions with index and discard all items that fall outside of their
+      // own partition's region bound
+      newRdd.transform(_.mapPartitionsWithIndex(filterPartition))
+    }
+  }
+
+  protected[rdd] def replaceRdd(newRdd: RDD[T]): U
+
+  protected[rdd] def getReferenceRegions(elem: T): Seq[ReferenceRegion]
+
+  protected[rdd] def flattenRddByRegions(): RDD[(ReferenceRegion, T)] = {
     rdd.flatMap(elem => {
       getReferenceRegions(elem).map(r => (r, elem))
     })
@@ -153,17 +360,31 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
     val partitions = optPartitions.getOrElse(Seq(rdd.partitions.length,
       genomicRdd.rdd.partitions.length).max)
 
+    val leftRdd = repartitionAndSortByGenomicCoordinate(partitions).evenlyRepartition(partitions)
+    val rightRdd = {
+      genomicRdd match {
+        case in: SortedGenomicRDDMixIn[X, Y] =>
+          println("That is sorted but this is not")
+          in.coPartitionByGenomicRegion(leftRdd.asInstanceOf[SortedGenomicRDDMixIn[X, Y]])
+        case _ => println("Both not sorted")
+          genomicRdd.repartitionAndSortByGenomicCoordinate(partitions).coPartitionByGenomicRegion(leftRdd.asInstanceOf[SortedGenomicRDDMixIn[X, Y]])
+      }
+    }
+
+    val leftRddReadyToJoin = leftRdd.rdd.zipWithIndex.mapPartitionsWithIndex((idx, iter) => {
+      iter.map(f => ((leftRdd.indexedReferenceRegions(f._2.toInt), idx), f._1))
+    })
+    val rightRddReadytoJoin = rightRdd.rdd.zipWithIndex.mapPartitionsWithIndex((idx, iter) => {
+      iter.map(f => ((rightRdd.indexedReferenceRegions(f._2.toInt), idx), f._1))
+    })
     // what sequences do we wind up with at the end?
     val endSequences = sequences ++ genomicRdd.sequences
 
     // key the RDDs and join
     GenericGenomicRDD[(T, X)](
-      InnerShuffleRegionJoin[T, X](endSequences,
-        partitions,
-        rdd.context).partitionAndJoin(flattenRddByRegions(),
-          genomicRdd.flattenRddByRegions()),
+      InnerShuffleRegionJoin[T, X](endSequences, partitions, rdd.context).joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadytoJoin),
       endSequences,
-      kv => { getReferenceRegions(kv._1) ++ genomicRdd.getReferenceRegions(kv._2) })
+      kv => { getReferenceRegions(kv._1) ++ rightRdd.getReferenceRegions(kv._2) })
       .asInstanceOf[GenomicRDD[(T, X), Z]]
   }
 
@@ -376,28 +597,61 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
           kv._1.toSeq.flatMap(v => getReferenceRegions(v))).toSeq
       })
       .asInstanceOf[GenomicRDD[(Option[T], Iterable[X]), Z]]
-
   }
 
-  def wellBalancedRepartitionByGenomicCoordinate(partitions: Int = rdd.partitions.length)(implicit c: ClassTag[T]): Unit ={
-    //this.asInstanceOf[SortedGenomicRDD[T, U]].wellBalancedRepartitionByGenomicCoordinate(partitions)
+  def repartitionAndSortByGenomicCoordinate(partitions: Int = rdd.partitions.length)(implicit c: ClassTag[T]): SortedGenomicRDDMixIn[T, U] = {
+    starts.persist
+    elements
+    minimum
+    val partitionedRDD = flattenRddByRegions()
+      .partitionBy(new GenomicPositionRangePartitioner(partitions, elements.toInt))
+      .mapPartitions(iter => iter.toArray.sortBy(tuple => (tuple._1.start, tuple._1.end)).toIterator).zipWithIndex()
+
+    addSortedTrait(replaceRdd(partitionedRDD.keys.values), partitionedRDD.keys.keys.collect,
+      partitionedRDD.values.mapPartitions(iter => {
+        if(iter.isEmpty) Iterator()
+        else {
+          val listRepresentation = iter.toList
+          Iterator((listRepresentation.head, listRepresentation.last))
+        }
+      }).collect)
   }
 
-  def repartitionByGenomicCoordinate(partitions: Int = rdd.partitions.length)(implicit c: ClassTag[T]): Unit = {
-    //this.asInstanceOf[SortedGenomicRDD[T, U]].repartitionByGenomicCoordinate(partitions)
+  def wellBalancedRepartitionByGenomicCoordinate(partitions: Int = rdd.partitions.length)(implicit tTag: ClassTag[T]): SortedGenomicRDDMixIn[T, U] = {
+    repartitionAndSortByGenomicCoordinate(partitions).evenlyRepartition(partitions)
   }
 
+  private[rdd] class GenomicPositionRangePartitioner[V](partitions: Int, elements: Int = 0) extends Partitioner {
+
+    override def numPartitions: Int = partitions
+
+    def getRegionPartition(key: ReferenceRegion): Int = {
+      val partitionNumber =
+        (key.start.toInt - minimum.toInt) * (partitions - 1) / (elements - minimum.toInt)
+      partitionNumber
+    }
+
+    def getPartition(key: Any): Int = {
+      key match {
+        case f: ReferenceRegion     => getRegionPartition(f)
+        case (f1: Int, f2: Boolean) => f1
+        case f: Int                 => f
+        case _                      => throw new Exception("Reference Region Key require to partition on Genomic Position")
+      }
+    }
+
+  }
 }
 
 private case class GenericGenomicRDD[T](rdd: RDD[T],
                                         sequences: SequenceDictionary,
                                         regionFn: T => Seq[ReferenceRegion]) extends GenomicRDD[T, GenericGenomicRDD[T]] {
 
-  protected def replaceRdd(newRdd: RDD[T]): GenericGenomicRDD[T] = {
+  protected[rdd] def replaceRdd(newRdd: RDD[T]): GenericGenomicRDD[T] = {
     copy(rdd = newRdd)
   }
 
-  protected def getReferenceRegions(elem: T): Seq[ReferenceRegion] = {
+  protected[rdd] def getReferenceRegions(elem: T): Seq[ReferenceRegion] = {
     regionFn(elem)
   }
 }
@@ -415,17 +669,21 @@ abstract class AvroReadGroupGenomicRDD[T <% IndexedRecord: Manifest, U <: AvroRe
 
     // convert sequence dictionary to avro form and save
     val contigs = sequences.toAvro
+    val contigSchema = Contig.SCHEMA$
+    //if (sorted) contigSchema.addProp("sorted", { "sorted" -> "true" })
     saveAvro("%s/_seqdict.avro".format(filePath),
       rdd.context,
-      Contig.SCHEMA$,
+      contigSchema,
       contigs)
 
     // convert record group to avro and save
     val rgMetadata = recordGroups.recordGroups
       .map(_.toMetadata)
+    val recordGroupMetaData = RecordGroupMetadata.SCHEMA$
+    //if (sorted) recordGroupMetaData.addProp("sorted", { "sorted" -> "true })
     saveAvro("%s/_rgdict.avro".format(filePath),
       rdd.context,
-      RecordGroupMetadata.SCHEMA$,
+      recordGroupMetaData,
       rgMetadata)
   }
 }
@@ -435,23 +693,27 @@ abstract class MultisampleAvroGenomicRDD[T <% IndexedRecord: Manifest, U <: Mult
 
   override protected def saveMetadata(filePath: String) {
 
+    val sampleSchema = Sample.SCHEMA$
+    //if (sorted) sampleSchema.addProp("sorted", { "sorted" -> "true" })
     // get file to write to
     saveAvro("%s/_samples.avro".format(filePath),
       rdd.context,
-      Sample.SCHEMA$,
+      sampleSchema,
       samples)
 
+    val contigSchema = Contig.SCHEMA$
+    //if (sorted) contigSchema.addProp("sorted", { "sorted" -> "true" })
     // convert sequence dictionary to avro form and save
     val contigs = sequences.toAvro
     saveAvro("%s/_seqdict.avro".format(filePath),
       rdd.context,
-      Contig.SCHEMA$,
+      contigSchema,
       contigs)
   }
 }
 
 abstract class AvroGenomicRDD[T <% IndexedRecord: Manifest, U <: AvroGenomicRDD[T, U]] extends ADAMRDDFunctions[T]
-    with GenomicRDD[T, U] {
+    with GenomicRDD[T, U] { // with SortedGenomicRDD[T, U] {
 
   /**
    * Called in saveAsParquet after saving RDD to Parquet to save metadata.
@@ -465,9 +727,11 @@ abstract class AvroGenomicRDD[T <% IndexedRecord: Manifest, U <: AvroGenomicRDD[
 
     // convert sequence dictionary to avro form and save
     val contigs = sequences.toAvro
+    val contigSchema = Contig.SCHEMA$
+    //if (sorted) contigSchema.addProp("sorted", { "sorted" -> "true" })
     saveAvro("%s/_seqdict.avro".format(filePath),
       rdd.context,
-      Contig.SCHEMA$,
+      contigSchema,
       contigs)
   }
 

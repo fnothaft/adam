@@ -105,7 +105,7 @@ case class GenotypeRDD(rdd: RDD[Genotype],
    * @param newRdd An RDD to replace the underlying RDD with.
    * @return Returns a new GenotypeRDD with the underlying RDD replaced.
    */
-  protected def replaceRdd(newRdd: RDD[Genotype]): GenotypeRDD = {
+  protected[rdd] def replaceRdd(newRdd: RDD[Genotype]): GenotypeRDD = {
     copy(rdd = newRdd)
   }
 
@@ -113,7 +113,7 @@ case class GenotypeRDD(rdd: RDD[Genotype],
    * @param elem The genotype to get a reference region for.
    * @return Returns the singular region this genotype covers.
    */
-  protected def getReferenceRegions(elem: Genotype): Seq[ReferenceRegion] = {
+  protected[rdd] def getReferenceRegions(elem: Genotype): Seq[ReferenceRegion] = {
     Seq(ReferenceRegion(elem))
   }
 }

@@ -24,6 +24,7 @@ import org.bdgenomics.adam.models.ReferenceRegion._
 import org.bdgenomics.adam.models.{ SequenceDictionary, ReferenceRegion }
 import scala.collection.mutable.ListBuffer
 import scala.reflect.ClassTag
+import org.bdgenomics.adam.rdd.SortedGenomicRDD._
 
 sealed trait ShuffleRegionJoin[T, U, RT, RU] extends RegionJoin[T, U, RT, RU] {
 
@@ -32,6 +33,8 @@ sealed trait ShuffleRegionJoin[T, U, RT, RU] extends RegionJoin[T, U, RT, RU] {
   val sc: SparkContext
 
   // Create the set of bins across the genome for parallel processing
+  //   partitionSize (in nucleotides) may range from 10000 to 10000000+ 
+  //   depending on cluster and dataset size
   protected val seqLengths = Map(sd.records.toSeq.map(rec => (rec.name, rec.length)): _*)
   protected val bins = sc.broadcast(GenomeBins(partitionSize, seqLengths))
 
@@ -58,6 +61,8 @@ sealed trait ShuffleRegionJoin[T, U, RT, RU] extends RegionJoin[T, U, RT, RU] {
     leftRDD: RDD[(ReferenceRegion, T)],
     rightRDD: RDD[(ReferenceRegion, U)])(implicit tManifest: ClassTag[T],
                                          uManifest: ClassTag[U]): RDD[(RT, RU)] = {
+
+
 
     // Key each RDD element to its corresponding bin
     // Elements may be replicated if they overlap multiple bins
@@ -91,6 +96,10 @@ sealed trait ShuffleRegionJoin[T, U, RT, RU] extends RegionJoin[T, U, RT, RU] {
     // has no meaning for the return type of RDD[(T, U)].  In fact, how
     // do you order a pair of ReferenceRegions?
     sortedLeft.zipPartitions(sortedRight, preservesPartitioning = false)(sweep)
+  }
+
+  def joinCoPartitionedRdds(leftRDD: RDD[((ReferenceRegion, Int), T)], rightRDD: RDD[((ReferenceRegion, Int), U)])(implicit tManifest: ClassTag[T], uManifest: ClassTag[U]): RDD[(RT, RU)] = {
+    leftRDD.zipPartitions(rightRDD)(sweep)
   }
 
   protected def makeIterator(region: ReferenceRegion,
@@ -242,8 +251,7 @@ case class RightOuterShuffleRegionJoinAndGroupByLeft[T, U](sd: SequenceDictionar
  *
  * @param partitions should correspond to the number of bins in the corresponding GenomeBins
  */
-private case class ManualRegionPartitioner(partitions: Int) extends Partitioner {
-
+private[rdd] case class ManualRegionPartitioner(partitions: Int) extends Partitioner {
   override def numPartitions: Int = partitions
 
   override def getPartition(key: Any): Int = key match {

@@ -129,7 +129,7 @@ sealed trait AlignmentRecordRDD extends AvroReadGroupGenomicRDD[AlignmentRecord,
    * @param elem Read to produce regions for.
    * @return The seq of reference regions this read covers.
    */
-  protected def getReferenceRegions(elem: AlignmentRecord): Seq[ReferenceRegion] = {
+  protected[rdd] def getReferenceRegions(elem: AlignmentRecord): Seq[ReferenceRegion] = {
     ReferenceRegion.opt(elem).toSeq
   }
 
@@ -862,7 +862,7 @@ case class AlignedReadRDD(rdd: RDD[AlignmentRecord],
       recordGroups)
   }
 
-  protected def replaceRdd(newRdd: RDD[AlignmentRecord]): AlignedReadRDD = {
+  protected[rdd] def replaceRdd(newRdd: RDD[AlignmentRecord]): AlignedReadRDD = {
     copy(rdd = newRdd)
   }
 }
@@ -884,7 +884,7 @@ case class UnalignedReadRDD(rdd: RDD[AlignmentRecord],
                             recordGroups: RecordGroupDictionary) extends AlignmentRecordRDD
     with Unaligned {
 
-  protected def replaceRdd(newRdd: RDD[AlignmentRecord]): UnalignedReadRDD = {
+  protected[rdd] def replaceRdd(newRdd: RDD[AlignmentRecord]): UnalignedReadRDD = {
     copy(rdd = newRdd)
   }
 
