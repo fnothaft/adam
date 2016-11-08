@@ -539,15 +539,39 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
     val partitions = optPartitions.getOrElse(Seq(rdd.partitions.length,
       genomicRdd.rdd.partitions.length).max)
 
+    val leftRdd = repartitionAndSortByGenomicCoordinate(partitions).evenlyRepartition(partitions)
+    val rightRdd = {
+      genomicRdd match {
+        case in: SortedGenomicRDDMixIn[X, Y] =>
+          println("That is sorted but this is not")
+          in.coPartitionByGenomicRegion(leftRdd.asInstanceOf[SortedGenomicRDDMixIn[X, Y]])
+        case _ =>
+          println("Both not sorted")
+          genomicRdd.repartitionAndSortByGenomicCoordinate(partitions).coPartitionByGenomicRegion(leftRdd.asInstanceOf[SortedGenomicRDDMixIn[X, Y]])
+      }
+    }
+
+    val leftRddReadyToJoin = leftRdd.rdd.zipWithIndex.mapPartitionsWithIndex((idx, iter) => {
+      iter.map(f => ((leftRdd.indexedReferenceRegions(f._2.toInt), idx), f._1))
+    })
+    val rightRddReadytoJoin = rightRdd.rdd.zipWithIndex.mapPartitionsWithIndex((idx, iter) => {
+      iter.map(f => ((rightRdd.indexedReferenceRegions(f._2.toInt), idx), f._1))
+    })
     // what sequences do we wind up with at the end?
     val endSequences = sequences ++ genomicRdd.sequences
-
+    println("Preparing for partitionMap")
+    val joinedRDD = InnerShuffleRegionJoin[T, X](endSequences,
+      partitions,
+      rdd.context).joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadytoJoin).mapPartitionsWithIndex((idx, iter) => {
+        if (iter.isEmpty) Iterator()
+        else {
+          val listRepresentation = iter.toList
+          listRepresentation.groupBy(_._1).mapValues(_.map(_._2).toIterable).toIterator
+        }
+      })
     // key the RDDs and join
     GenericGenomicRDD[(T, Iterable[X])](
-      InnerShuffleRegionJoinAndGroupByLeft[T, X](endSequences,
-        partitions,
-        rdd.context).partitionAndJoin(flattenRddByRegions(),
-          genomicRdd.flattenRddByRegions()),
+      joinedRDD,
       endSequences,
       kv => {
         (kv._2.flatMap(v => genomicRdd.getReferenceRegions(v)) ++

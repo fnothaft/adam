@@ -148,6 +148,7 @@ object SortedGenomicRDD {
           //and like magic, our partition is sorted
           sortedList.flatten.toIterator
         }, preservesPartitioning = true)
+
       val partitionMap = finalPartitionedRDD.zipWithIndex.mapPartitions((iter) => {
         if (iter.isEmpty) Iterator()
         else {
@@ -155,6 +156,7 @@ object SortedGenomicRDD {
           Iterator((listRepresentation.head._2, listRepresentation.last._2))
         }
       }).collect
+
       addSortedTrait(replaceRdd(finalPartitionedRDD.values), finalPartitionedRDD.keys.collect, partitionMap)
     }
 
