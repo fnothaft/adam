@@ -53,8 +53,7 @@ private[rdd] object GenomicRDD {
    * Replaces file references in a command.
    *
    * @see pipe
-   *
-   * @param cmd Command to split and replace references in.
+    * @param cmd Command to split and replace references in.
    * @param files List of paths to files.
    * @return Returns a split up command string, with file paths subbed in.
    */
@@ -356,26 +355,36 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
                                                                               optPartitions: Option[Int] = None)(
                                                                                 implicit tTag: ClassTag[T], xTag: ClassTag[X]): GenomicRDD[(T, X), Z] = {
 
-    if(genomicRdd.isInstanceOf[SortedGenomicRDD[X, Y]]) {
-      println("That is sorted but this is not")
-    } else println("Both not sorted")
-
     // did the user provide a set partition count?
     // if no, take the max partition count from our rdds
     val partitions = optPartitions.getOrElse(Seq(rdd.partitions.length,
       genomicRdd.rdd.partitions.length).max)
 
+    val leftRdd = repartitionAndSortByGenomicCoordinate(partitions).evenlyRepartition(partitions)
+    val rightRdd = {
+      genomicRdd match {
+        case in: SortedGenomicRDDMixIn[X, Y] =>
+          println("That is sorted but this is not")
+          in.coPartitionByGenomicRegion(leftRdd.asInstanceOf[SortedGenomicRDDMixIn[X, Y]])
+        case _ => println("Both not sorted")
+          genomicRdd.repartitionAndSortByGenomicCoordinate(partitions).coPartitionByGenomicRegion(leftRdd.asInstanceOf[SortedGenomicRDDMixIn[X, Y]])
+      }
+    }
+
+    val leftRddReadyToJoin = leftRdd.rdd.zipWithIndex.mapPartitionsWithIndex((idx, iter) => {
+      iter.map(f => ((leftRdd.indexedReferenceRegions(f._2.toInt), idx), f._1))
+    })
+    val rightRddReadytoJoin = rightRdd.rdd.zipWithIndex.mapPartitionsWithIndex((idx, iter) => {
+      iter.map(f => ((rightRdd.indexedReferenceRegions(f._2.toInt), idx), f._1))
+    })
     // what sequences do we wind up with at the end?
     val endSequences = sequences ++ genomicRdd.sequences
 
     // key the RDDs and join
     GenericGenomicRDD[(T, X)](
-      InnerShuffleRegionJoin[T, X](endSequences,
-        partitions,
-        rdd.context).partitionAndJoin(flattenRddByRegions(),
-          genomicRdd.flattenRddByRegions()),
+      InnerShuffleRegionJoin[T, X](endSequences, partitions, rdd.context).joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadytoJoin),
       endSequences,
-      kv => { getReferenceRegions(kv._1) ++ genomicRdd.getReferenceRegions(kv._2) })
+      kv => { getReferenceRegions(kv._1) ++ rightRdd.getReferenceRegions(kv._2) })
       .asInstanceOf[GenomicRDD[(T, X), Z]]
   }
 
@@ -588,7 +597,6 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
           kv._1.toSeq.flatMap(v => getReferenceRegions(v))).toSeq
       })
       .asInstanceOf[GenomicRDD[(Option[T], Iterable[X]), Z]]
-
   }
 
   def repartitionAndSortByGenomicCoordinate(partitions: Int = rdd.partitions.length)(implicit c: ClassTag[T]): SortedGenomicRDDMixIn[T, U] = {
@@ -597,10 +605,16 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
     minimum
     val partitionedRDD = flattenRddByRegions()
       .partitionBy(new GenomicPositionRangePartitioner(partitions, elements.toInt))
-      .mapPartitions(iter => iter.toArray.sortBy(_._1.start).toIterator)
-    val positions = partitionedRDD.keys.map(f => (f.start, f.end))
+      .mapPartitions(iter => iter.toArray.sortBy(tuple => (tuple._1.start, tuple._1.end)).toIterator).zipWithIndex()
 
-    addSortedTrait(replaceRdd(partitionedRDD.values), partitionedRDD.keys.collect, )
+    addSortedTrait(replaceRdd(partitionedRDD.keys.values), partitionedRDD.keys.keys.collect,
+      partitionedRDD.values.mapPartitions(iter => {
+        if(iter.isEmpty) Iterator()
+        else {
+          val listRepresentation = iter.toList
+          Iterator((listRepresentation.head, listRepresentation.last))
+        }
+      }).collect)
   }
 
   def wellBalancedRepartitionByGenomicCoordinate(partitions: Int = rdd.partitions.length)(implicit tTag: ClassTag[T]): SortedGenomicRDDMixIn[T, U] = {

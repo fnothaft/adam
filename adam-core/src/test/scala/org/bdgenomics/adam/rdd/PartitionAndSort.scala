@@ -23,6 +23,15 @@ class PartitionAndSort extends SparkFunSuite {
       println(x.rdd.first)
       val y = x.repartitionAndSortByGenomicCoordinate(16)
       val z = x.wellBalancedRepartitionByGenomicCoordinate(16)
+      val arrayRepresentationOfZ = z.rdd.collect
+      //verify sort worked
+      for(currentArray <- List(y.rdd.collect, z.rdd.collect)) {
+        for (i <- currentArray.indices) {
+          if (i != 0) assert(arrayRepresentationOfZ(i).getStart > arrayRepresentationOfZ(i - 1).getStart ||
+            (arrayRepresentationOfZ(i).getStart == arrayRepresentationOfZ(i - 1).getStart && arrayRepresentationOfZ(i).getEnd >= arrayRepresentationOfZ(i - 1).getEnd))
+        }
+      }
+
       println("Printing class:")
       println(z.getClass)
       println(x.rdd.first)
@@ -41,14 +50,16 @@ class PartitionAndSort extends SparkFunSuite {
 
       assert(partitionTupleCounts.sum == partitionTupleCounts2.sum)
 
-      val average = partitionTupleCounts.sum.asInstanceOf[Double] / partitionTupleCounts.length.asInstanceOf[Double]
-      for (i <- partitionTupleCounts.indices) {
-        if (partitionTupleCounts(i) > 1.4 * average) {
-          println("Partition " + i + " contains > 140% of the average -> " + partitionTupleCounts(i) / average)
-        } else if (partitionTupleCounts(i) < 0.6 * average) {
-          println("Partition " + i + " contains < 60% of the average -> " + partitionTupleCounts(i) / average)
-        }
+      val b = z.shuffleRegionJoin(x, Some(1)).rdd.collect
+      val c = x.shuffleRegionJoin(z).rdd.collect
+      println("B length: " + b.length + "\t" + "C length: " + c.length)
+      assert(b.length == c.length)
+
+
+      for(i <- b.indices) {
+        assert(b(i) == c(i))
       }
+
     }
   }
 }
