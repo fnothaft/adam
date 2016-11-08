@@ -43,7 +43,9 @@ class PartitionAndSort extends SparkFunSuite {
 
       val partitionTupleCounts: Array[Int] = z.rdd.mapPartitions(f => Iterator(f.size)).collect
       println(partitionTupleCounts.mkString(","))
-
+      val d = x.shuffleRegionJoinAndGroupByLeft(y)
+      d.rdd.count
+      println(d.rdd.first)
       val a = z.evenlyRepartition(200)
       val partitionTupleCounts2: Array[Int] = a.rdd.mapPartitions(f => Iterator(f.size)).collect
       println(partitionTupleCounts2.mkString(","))

@@ -21,7 +21,7 @@ import htsjdk.samtools.SAMReadGroupRecord
 import org.bdgenomics.formats.avro.AlignmentRecord
 import org.scalatest.FunSuite
 
-class RecordGroupDictionarySuite extends FunSuite {
+class moRecordGroupDictionarySuite extends FunSuite {
 
   test("simple conversion to and from sam read group") {
     val origSAMRGR = new SAMReadGroupRecord("myId")
