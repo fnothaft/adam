@@ -25,7 +25,7 @@ class PartitionAndSort extends SparkFunSuite {
       val z = x.wellBalancedRepartitionByGenomicCoordinate(16)
       val arrayRepresentationOfZ = z.rdd.collect
       //verify sort worked
-      for(currentArray <- List(y.rdd.collect, z.rdd.collect)) {
+      for (currentArray <- List(y.rdd.collect, z.rdd.collect)) {
         for (i <- currentArray.indices) {
           if (i != 0) assert(arrayRepresentationOfZ(i).getStart > arrayRepresentationOfZ(i - 1).getStart ||
             (arrayRepresentationOfZ(i).getStart == arrayRepresentationOfZ(i - 1).getStart && arrayRepresentationOfZ(i).getEnd >= arrayRepresentationOfZ(i - 1).getEnd))
@@ -37,9 +37,9 @@ class PartitionAndSort extends SparkFunSuite {
       println(x.rdd.first)
       println(x.toCoverage(true).rdd.first)
 
-//      x.shuffleRegionJoin(y)
-//      z.shuffleRegionJoin(y)
-//      y.shuffleRegionJoin(z)
+      //      x.shuffleRegionJoin(y)
+      //      z.shuffleRegionJoin(y)
+      //      y.shuffleRegionJoin(z)
 
       val partitionTupleCounts: Array[Int] = z.rdd.mapPartitions(f => Iterator(f.size)).collect
       println(partitionTupleCounts.mkString(","))
@@ -55,8 +55,7 @@ class PartitionAndSort extends SparkFunSuite {
       println("B length: " + b.length + "\t" + "C length: " + c.length)
       assert(b.length == c.length)
 
-
-      for(i <- b.indices) {
+      for (i <- b.indices) {
         assert(b(i) == c(i))
       }
 

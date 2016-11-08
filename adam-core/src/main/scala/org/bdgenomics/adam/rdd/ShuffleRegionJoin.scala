@@ -62,8 +62,6 @@ sealed trait ShuffleRegionJoin[T, U, RT, RU] extends RegionJoin[T, U, RT, RU] {
     rightRDD: RDD[(ReferenceRegion, U)])(implicit tManifest: ClassTag[T],
                                          uManifest: ClassTag[U]): RDD[(RT, RU)] = {
 
-
-
     // Key each RDD element to its corresponding bin
     // Elements may be replicated if they overlap multiple bins
     val keyedLeft: RDD[((ReferenceRegion, Int), T)] =

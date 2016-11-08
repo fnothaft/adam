@@ -53,7 +53,7 @@ private[rdd] object GenomicRDD {
    * Replaces file references in a command.
    *
    * @see pipe
-    * @param cmd Command to split and replace references in.
+   * @param cmd Command to split and replace references in.
    * @param files List of paths to files.
    * @return Returns a split up command string, with file paths subbed in.
    */
@@ -123,7 +123,7 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
    *   in the environment for the newly created process. Default is empty.
    * @param flankSize Number of bases to flank each command invocation by.
    * @return Returns a new GenomicRDD of type Y.
-    * @tparam X The type of the record created by the piped command.
+   * @tparam X The type of the record created by the piped command.
    * @tparam Y A GenomicRDD containing X's.
    * @tparam V The InFormatter to use for formatting the data being piped to the
    *   command.
@@ -366,7 +366,8 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
         case in: SortedGenomicRDDMixIn[X, Y] =>
           println("That is sorted but this is not")
           in.coPartitionByGenomicRegion(leftRdd.asInstanceOf[SortedGenomicRDDMixIn[X, Y]])
-        case _ => println("Both not sorted")
+        case _ =>
+          println("Both not sorted")
           genomicRdd.repartitionAndSortByGenomicCoordinate(partitions).coPartitionByGenomicRegion(leftRdd.asInstanceOf[SortedGenomicRDDMixIn[X, Y]])
       }
     }
@@ -609,7 +610,7 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
 
     addSortedTrait(replaceRdd(partitionedRDD.keys.values), partitionedRDD.keys.keys.collect,
       partitionedRDD.values.mapPartitions(iter => {
-        if(iter.isEmpty) Iterator()
+        if (iter.isEmpty) Iterator()
         else {
           val listRepresentation = iter.toList
           Iterator((listRepresentation.head, listRepresentation.last))
