@@ -203,8 +203,8 @@ class RealignIndelsSuite extends ADAMFunSuite {
     val ri = new RealignIndels()
 
     // this should be a NOP
-    assert(ri.realignTargetGroup(None.asInstanceOf[Option[IndelRealignmentTarget]],
-      reads).size === 2)
+    assert(ri.realignTargetGroup((None.asInstanceOf[Option[IndelRealignmentTarget]],
+      reads)).size === 2)
   }
 
   sparkTest("we shouldn't try to realign reads with no indel evidence") {

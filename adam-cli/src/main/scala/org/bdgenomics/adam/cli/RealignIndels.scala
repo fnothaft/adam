@@ -17,6 +17,7 @@
  */
 package org.bdgenomics.adam.cli
 
+import org.apache.hadoop.fs.Path
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.algorithms.consensus._
@@ -49,6 +50,12 @@ class RealignIndelsArgs extends Args4jBase {
   var warmupsToRun: Int = 100
   @Argument(required = true, metaVar = "ITERATIONS", usage = "Number of iterations to run.", index = 2)
   var iterationsToRun: Int = 1000
+  @Argument(required = true, metaVar = "READ_TEXT", usage = "Output text file containing the read sequence/qualities", index = 3)
+  var readsPath: String = null
+  @Argument(required = true, metaVar = "CONSENSUSES", usage = "Output text file containing the consensus sequences", index = 4)
+  var consensusPath: String = null
+  @Argument(required = true, metaVar = "RESULTS", usage = "Output text file containing the final alignment positions", index = 5)
+  var resultPath: String = null
 }
 
 class RealignIndels(protected val args: RealignIndelsArgs) extends BDGSparkCommand[RealignIndelsArgs] with Logging {
@@ -64,6 +71,19 @@ class RealignIndels(protected val args: RealignIndelsArgs) extends BDGSparkComma
         new RichAlignmentRecord(read)
       }).collect()
       .toIterable
+
+    // get a output stream to write the reads to
+    val path = new Path(args.readsPath)
+    val fs = path.getFileSystem(sc.hadoopConfiguration)
+    val readOs = fs.create(path)
+
+    // write those reads as a two column file
+    readOs.writeBytes(reads.map(_.record)
+      .map(read => {
+        "%s\t%s".format(read.getSequence, read.getQual)
+      }).mkString("\n"))
+    readOs.flush()
+    readOs.close()
 
     // we just need a dummy target
     val target = new IndelRealignmentTarget(None, ReferenceRegion("unk", 1L, 1000L))
@@ -81,7 +101,10 @@ class RealignIndels(protected val args: RealignIndelsArgs) extends BDGSparkComma
 
     (0 to args.warmupsToRun).foreach(idx => {
 
-      val newReads = indelRealigner.realignTargetGroup((Some(target), reads))
+      val newReads = indelRealigner.realignTargetGroup((Some(target), reads),
+        optConsensusPath = Some(args.consensusPath),
+        optRealignmentResultPath = Some(args.resultPath),
+        optSc = Some(sc))
       realignedReads += newReads.size
     })
 

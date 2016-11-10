@@ -19,6 +19,8 @@ package org.bdgenomics.adam.rdd.read.realignment
 
 import htsjdk.samtools.{ Cigar, CigarElement, CigarOperator }
 import org.bdgenomics.utils.misc.Logging
+import org.apache.hadoop.fs.Path
+import org.apache.spark.SparkContext
 import org.apache.spark.rdd.MetricsContext._
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.algorithms.consensus.{ Consensus, ConsensusGenerator, ConsensusGeneratorFromReads }
@@ -238,7 +240,10 @@ class RealignIndels(
    * @return A sequence of reads which have either been realigned if there is a sufficiently good alternative
    * consensus, or not realigned if there is not a sufficiently good consensus.
    */
-  def realignTargetGroup(targetGroup: (Option[IndelRealignmentTarget], Iterable[RichAlignmentRecord])): Iterable[RichAlignmentRecord] = RealignTargetGroup.time {
+  def realignTargetGroup(targetGroup: (Option[IndelRealignmentTarget], Iterable[RichAlignmentRecord]),
+                         optConsensusPath: Option[String] = None,
+                         optRealignmentResultPath: Option[String] = None,
+                         optSc: Option[SparkContext] = None): Iterable[RichAlignmentRecord] = RealignTargetGroup.time {
     val (target, reads) = targetGroup
 
     if (target.isEmpty) {
@@ -266,6 +271,26 @@ class RealignIndels(
         consensus = r.shuffle(consensus).take(maxConsensusNumber)
       }
 
+      // get a output stream to write the consensus sequences to a file if requested
+      val optOs = optConsensusPath.map(filename => {
+        val path = new Path(filename)
+        val fs = path.getFileSystem(optSc.get.hadoopConfiguration)
+        fs.create(path)
+      })
+
+      // get a output stream to write the consensus sequences to a file if requested
+      val optResultOs = optRealignmentResultPath.map(filename => {
+        val path = new Path(filename)
+        val fs = path.getFileSystem(optSc.get.hadoopConfiguration)
+        fs.create(path)
+      })
+
+      // write the reference sequence
+      optOs.foreach(os => {
+        os.writeBytes("REF\t%s".format(reference))
+      })
+      var consensusIdx = 0
+
       if (readsToClean.size > 0 && consensus.size > 0) {
 
         // do not check realigned reads - they must match
@@ -282,6 +307,10 @@ class RealignIndels(
         consensus.foreach(c => {
           // generate a reference sequence from the consensus
           val consensusSequence = c.insertIntoReference(reference, refRegion)
+          optOs.foreach(os => {
+            os.writeBytes("\n%d\t%s".format(consensusIdx, consensusSequence))
+            consensusIdx += 1
+          })
 
           // evaluate all reads against the new consensus
           val sweptValues = readsToClean.map(r => {
@@ -319,14 +348,28 @@ class RealignIndels(
         log.info("On " + refRegion + ", before realignment, sum was " + totalMismatchSumPreCleaning +
           ", best realignment has " + bestConsensusMismatchSum)
         val lodImprovement = (totalMismatchSumPreCleaning - bestConsensusMismatchSum).toDouble / 10.0
-        if (lodImprovement > lodThreshold) {
+        if (true) { //lodImprovement > lodThreshold) {
           var realignedReadCount = 0
+
+          // write consensus to result file
+          optResultOs.foreach(os => {
+            os.writeBytes("Picked consensus %s".format(
+              bestConsensus.insertIntoReference(reference, refRegion)))
+          })
 
           // if we see a sufficient improvement, realign the reads
           val cleanedReads: Iterable[RichAlignmentRecord] = readsToClean.map(r => {
 
             val builder: AlignmentRecord.Builder = AlignmentRecord.newBuilder(r)
             val remapping = bestMappings(r)
+
+            optResultOs.foreach(os => {
+              if (remapping != -1) {
+                os.writeBytes("\ntrue\t%d".format(remapping))
+              } else {
+                os.writeBytes("\nfalse\t%d".format(r.getStart - refRegion.start))
+              }
+            })
 
             // if read alignment is improved by aligning against new consensus, realign
             if (remapping != -1) {
@@ -383,6 +426,15 @@ class RealignIndels(
             lodImprovement + "for consensus " + bestConsensus)
           realignedReads = readsToClean ++ realignedReads
         }
+
+        optResultOs.foreach(os => {
+          os.flush()
+          os.close()
+        })
+        optOs.foreach(os => {
+          os.flush()
+          os.close()
+        })
       }
 
       // return all reads that we cleaned and all reads that were initially realigned
@@ -494,7 +546,7 @@ class RealignIndels(
 
       // realign target groups
       log.info("Sorting reads by reference in ADAM RDD")
-      readsMappedToTarget.flatMap(realignTargetGroup).map(r => r.record)
+      readsMappedToTarget.flatMap(realignTargetGroup(_)).map(r => r.record)
     }
   }
 
