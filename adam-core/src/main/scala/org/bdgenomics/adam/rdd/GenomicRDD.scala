@@ -628,9 +628,12 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
     starts.persist
     elements
     minimum
-    val partitionedRDD = flattenRddByRegions()
-      .partitionBy(new GenomicPositionRangePartitioner(partitions, elements.toInt))
-      .mapPartitions(iter => iter.toArray.sortBy(tuple => (tuple._1.start, tuple._1.end)).toIterator).zipWithIndex()
+
+    //var seqLengths = Map(sequences.records.toSeq.map(rec => (rec.name, rec.length)): _*)
+    //val bins = rdd.context.broadcast(GenomeBins(partitions, seqLengths))
+    val partitionedRDD = flattenRddByRegions().sortBy(f => (f._1.referenceName, f._1.start, f._1.end)).zipWithIndex //.map(f => (bins.value.getStartBin(f._1), (f)))
+    //.partitionBy(new GenomicPositionRangePartitioner(partitions, elements.toInt)) //.values
+    //.mapPartitions(iter => iter.toArray.sortBy(tuple => (tuple._1.referenceName, tuple._1.start, tuple._1.end)).toIterator).zipWithIndex()
 
     addSortedTrait(replaceRdd(partitionedRDD.keys.values), partitionedRDD.keys.keys.collect,
       partitionedRDD.values.mapPartitions(iter => {
@@ -651,8 +654,9 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
     override def numPartitions: Int = partitions
 
     def getRegionPartition(key: ReferenceRegion): Int = {
-      val partitionNumber =
-        (key.start.toInt - minimum.toInt) * (partitions - 1) / (elements - minimum.toInt)
+      val partitionNumber = if ((key.start.toInt - minimum.toInt) * partitions / (elements - minimum.toInt) == partitions)
+        Math.abs((key.start.toInt - minimum.toInt) * partitions / (elements - minimum.toInt) - 1)
+      else Math.abs((key.start.toInt - minimum.toInt) * partitions / (elements - minimum.toInt))
       partitionNumber
     }
 

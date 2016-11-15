@@ -21,6 +21,7 @@ class PartitionAndSort extends SparkFunSuite {
       //val x = sc.loadBam("/data/recompute/alignments/NA12878.bam.aln.bam")
       val x = sc.loadBam("/home/eecs/devin/software_builds/adam/adam-core/src/test/resources/bqsr1.sam")
       println(x.rdd.first)
+      println(x.rdd.partitions.length);
       val y = x.repartitionAndSortByGenomicCoordinate(16)
       val z = x.wellBalancedRepartitionByGenomicCoordinate(16)
       val arrayRepresentationOfZ = z.rdd.collect
