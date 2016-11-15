@@ -1,12 +1,13 @@
 package org.bdgenomics.adam.rdd
 
+import org.bdgenomics.adam.models.ReferenceRegion
 import org.bdgenomics.adam.rdd.ADAMContext._
 import org.bdgenomics.utils.misc.SparkFunSuite
 
 /**
  * Created by DevinPetersohn on 10/8/16.
  */
-class PartitionAndSort extends SparkFunSuite {
+class SortedGenomicRDDSuite extends SparkFunSuite {
 
   def time[R](block: => R): R = {
     val t0 = System.nanoTime()
@@ -16,14 +17,21 @@ class PartitionAndSort extends SparkFunSuite {
     result
   }
 
+  def isSorted(list: Seq[ReferenceRegion]): Boolean = {
+    val test = list.drop(1)
+    !list.dropRight(1).zip(test).exists(f => f._1.start > f._2.start && f._1.end > f._2.end && f._1.referenceName > f._2.referenceName)
+  }
+
   sparkTest("testing partitioner") {
     time {
       //val x = sc.loadBam("/data/recompute/alignments/NA12878.bam.aln.bam")
-      val x = sc.loadBam("/home/eecs/devin/software_builds/adam/adam-core/src/test/resources/bqsr1.sam")
+      val x = sc.loadBam("/Users/DevinPetersohn/software_builds/adam/adam-core/src/test/resources/bqsr1.sam")
       println(x.rdd.first)
-      println(x.rdd.partitions.length);
+      println(x.rdd.partitions.length)
       val y = x.repartitionAndSortByGenomicCoordinate(16)
+      assert(isSorted(y.indexedReferenceRegions.toList))
       val z = x.wellBalancedRepartitionByGenomicCoordinate(16)
+      assert(isSorted(z.indexedReferenceRegions.toList))
       val arrayRepresentationOfZ = z.rdd.collect
       //verify sort worked
       for (currentArray <- List(y.rdd.collect, z.rdd.collect)) {
