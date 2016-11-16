@@ -25,7 +25,7 @@ class SortedGenomicRDDSuite extends SparkFunSuite {
   sparkTest("testing partitioner") {
     time {
       //val x = sc.loadBam("/data/recompute/alignments/NA12878.bam.aln.bam")
-      val x = sc.loadBam("/Users/DevinPetersohn/software_builds/adam/adam-core/src/test/resources/bqsr1.sam")
+      val x = sc.loadBam("/home/eecs/devin/software_builds/adam/adam-core/src/test/resources/bqsr1.sam")
       println(x.rdd.first)
       println(x.rdd.partitions.length)
       val y = x.repartitionAndSortByGenomicCoordinate(16)

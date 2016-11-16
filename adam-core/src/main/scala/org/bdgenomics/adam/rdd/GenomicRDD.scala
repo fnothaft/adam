@@ -31,7 +31,7 @@ import org.bdgenomics.adam.models.{
 }
 import org.bdgenomics.formats.avro.{ Contig, RecordGroupMetadata, Sample }
 import org.bdgenomics.utils.cli.SaveArgs
-import scala.collection.mutable.{ListBuffer, ArrayBuffer}
+import scala.collection.mutable.{ ListBuffer, ArrayBuffer }
 import scala.annotation.tailrec
 import scala.collection.JavaConversions._
 import scala.reflect.ClassTag
@@ -633,33 +633,33 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
     //var seqLengths = Map(sequences.records.toSeq.map(rec => (rec.name, rec.length)): _*)
     //val bins = rdd.context.broadcast(GenomeBins(partitions, seqLengths))
     val partitionedRDD = flattenRddByRegions().keyBy(f => (f._1.referenceName, f._1.start, f._1.end))
-        .mapPartitions(iter => {
-          val listRepresentation = iter.toList
-          listRepresentation.sortBy(f => (f._1._1, f._1._2, f._1._3)).toIterator
-        }).values
-        .mapPartitions(iter => getDestinationPartition(partitions,iter), preservesPartitioning = true)
-        .partitionBy(new GenomicPositionRangePartitioner(partitions))
-        .mapPartitions(iter => {
-          val listRepresentation = iter.toList.map(_._2)
-          val finalTempList = new ListBuffer[((ReferenceRegion, T))]
-          while(listRepresentation.exists(_.nonEmpty)) {
-            val tempList = new ListBuffer[((ReferenceRegion, T), Int)]
-            for (i <- listRepresentation.indices) {
-              breakable {
-                try {
-                  tempList += ((listRepresentation(i).head, i))
-                } catch {
-                  case e: NoSuchElementException => break
-                }
+      .mapPartitions(iter => {
+        val listRepresentation = iter.toList
+        listRepresentation.sortBy(f => (f._1._1, f._1._2, f._1._3)).toIterator
+      }).values
+      .mapPartitions(iter => getDestinationPartition(partitions, iter), preservesPartitioning = true)
+      .partitionBy(new GenomicPositionRangePartitioner(partitions))
+      .mapPartitions(iter => {
+        val listRepresentation = iter.toList.map(_._2)
+        val finalTempList = new ListBuffer[((ReferenceRegion, T))]
+        while (listRepresentation.exists(_.nonEmpty)) {
+          val tempList = new ListBuffer[((ReferenceRegion, T), Int)]
+          for (i <- listRepresentation.indices) {
+            breakable {
+              try {
+                tempList += ((listRepresentation(i).head, i))
+              } catch {
+                case e: NoSuchElementException => break
               }
             }
-            val min = tempList.minBy(f => (f._1._1.referenceName, f._1._1.start, f._1._1.end))
-            finalTempList += min._1
-            listRepresentation(min._2).remove(0)
           }
-          finalTempList.toIterator
-        }, preservesPartitioning = true)
-        .zipWithIndex //.map(f => (bins.value.getStartBin(f._1), (f)))
+          val min = tempList.minBy(f => (f._1._1.referenceName, f._1._1.start, f._1._1.end))
+          finalTempList += min._1
+          listRepresentation(min._2).remove(0)
+        }
+        finalTempList.toIterator
+      }, preservesPartitioning = true)
+      .zipWithIndex //.map(f => (bins.value.getStartBin(f._1), (f)))
     //.partitionBy(new GenomicPositionRangePartitioner(partitions, elements.toInt)) //.values
     //.mapPartitions(iter => iter.toArray.sortBy(tuple => (tuple._1.referenceName, tuple._1.start, tuple._1.end)).toIterator).zipWithIndex()
 
@@ -677,7 +677,7 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
     val listRepresentation = iter.toList
     listRepresentation.map(f => ({
       val fin = Math.abs((f._1.start.toInt - minimum.toInt) * partitions / (elements - minimum.toInt))
-      if(fin == partitions) (fin - 1).toInt
+      if (fin == partitions) (fin - 1).toInt
       else fin.toInt
     }, f)).groupBy(_._1).mapValues(f => f.map(_._2).to[ListBuffer]).toIterator
   }
