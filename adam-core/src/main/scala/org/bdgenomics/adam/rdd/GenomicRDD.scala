@@ -31,7 +31,7 @@ import org.bdgenomics.adam.models.{
 }
 import org.bdgenomics.formats.avro.{ Contig, RecordGroupMetadata, Sample }
 import org.bdgenomics.utils.cli.SaveArgs
-import scala.collection.mutable.{ListBuffer, ArrayBuffer}
+import scala.collection.mutable.{ ListBuffer, ArrayBuffer }
 import scala.annotation.tailrec
 import scala.collection.JavaConversions._
 import scala.reflect.ClassTag
@@ -656,11 +656,15 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
     val partitionMap = sample.keyBy(f => (f._1.referenceName, f._1.start, f._1.end)).sortByKey(true, partitions)
       .zipWithIndex
       .mapPartitions(iter => {
-        iter.map(f => (f._2/average, f._1._2))
+        iter.map(f => ((f._2/average).toInt, f._1._2))
       })
       .partitionBy(new GenomicPositionRangePartitioner(partitions))
       .mapPartitions(iter => {
-        Iterator((iter.toList.head._2._1, iter.toList.last._2._1))
+        if(iter.isEmpty) Iterator()
+        else {
+          val listRepresentation = iter.toList
+          Iterator((listRepresentation.head._2._1, listRepresentation.last._2._1))
+        }
       }).collect
 
     val partitionedRDD = if(false) {
@@ -685,14 +689,11 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
                 }
               }
             }
-            val min = tempList.minBy(f => (f._1._1.referenceName, f._1._1.start, f._1._1.end))
-            finalTempList += min._1
-            listRepresentation(min._2).remove(0)
           }
           finalTempList.toIterator
         }, preservesPartitioning = true)
         .zipWithIndex
-    } else regionedRDD.sortBy(f => (f._1.referenceName, f._1.start, f._1.end)).zipWithIndex
+    } else regionedRDD.sortBy(f => (f._1.referenceName, f._1.start, f._1.end), true, partitions).zipWithIndex
 
     //.map(f => (bins.value.getStartBin(f._1), (f)))
     //.partitionBy(new GenomicPositionRangePartitioner(partitions, elements.toInt)) //.values

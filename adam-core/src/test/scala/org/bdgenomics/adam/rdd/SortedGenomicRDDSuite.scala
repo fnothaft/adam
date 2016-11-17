@@ -25,11 +25,12 @@ class SortedGenomicRDDSuite extends SparkFunSuite {
   sparkTest("testing partitioner") {
     time {
       //val x = sc.loadBam("/data/recompute/alignments/NA12878.bam.aln.bam")
-      val x = sc.loadBam("/Users/DevinPetersohn/software_builds/adam/adam-core/src/test/resources/bqsr1.sam")
-      println(x.rdd.first)
+      val x = sc.loadBam(ClassLoader.getSystemClassLoader.getResource("bqsr1.sam").getFile)
       println(x.rdd.partitions.length)
       val y = x.repartitionAndSortByGenomicCoordinate(16)
       assert(isSorted(y.indexedReferenceRegions.toList))
+      println("Uneven: " + y.rdd.mapPartitions(f => Iterator(f.size)).collect.mkString(","))
+      println("Partitions of Uneven: " + y.rdd.partitions.length)
       val z = x.wellBalancedRepartitionByGenomicCoordinate(16)
       assert(isSorted(z.indexedReferenceRegions.toList))
       val arrayRepresentationOfZ = z.rdd.collect
@@ -43,7 +44,6 @@ class SortedGenomicRDDSuite extends SparkFunSuite {
 
       println("Printing class:")
       println(z.getClass)
-      println(x.rdd.first)
       println(x.toCoverage(true).rdd.first)
 
       //      x.shuffleRegionJoin(y)
