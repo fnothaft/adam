@@ -58,27 +58,27 @@ object SortedGenomicRDD {
      * @return a new SortedGenomicRDDMixIn with the RDD partitioned evenly
      */
     def evenlyRepartition(partitions: Int)(implicit tTag: ClassTag[T]): SortedGenomicRDDMixIn[T, U] = {
-      //we want to know exactly how much data is on each node
+      // we want to know exactly how much data is on each node
       val partitionTupleCounts: Array[Int] = rdd.mapPartitions(f => Iterator(f.size)).collect
-      //the average number of records on each node will help us evenly repartition
+      // the average number of records on each node will help us evenly repartition
       val average: Double = partitionTupleCounts.sum.asInstanceOf[Double] / partitions
-      //we already have a sorted rdd, so let's just move the data
-      //but we want to move it in blocks to maintain order
-      //zipWithIndex seems to be the cheapest way to guarantee this
+      // we already have a sorted rdd, so let's just move the data
+      // but we want to move it in blocks to maintain order
+      // zipWithIndex seems to be the cheapest way to guarantee this
       val finalPartitionedRDD = rdd.zipWithIndex
         .mapPartitions(iter => {
           getBalancedPartitionNumber(iter.map(_.swap), average)
         }, preservesPartitioning = true).partitionBy(new GenomicPositionRangePartitioner(partitions)) //should we make a new partitioner for this trait?
         .mapPartitions(iter => {
-          //trying to avoid iterator access issues
+          // trying to avoid iterator access issues
           val listRepresentation = iter.map(_._2).toList
           var sortedList = new ArrayBuffer[List[(Long, T)]]()
-          //we are sorting by the zipped index of the head of the list
-          //this is how we maintain the sorted order
+          // we are sorting by the zipped index of the head of the list
+          // this is how we maintain the sorted order
           for (listBlock <- listRepresentation.sortBy(_.head._1)) {
             sortedList += listBlock
           }
-          //and like magic, our partition is sorted
+          // and like magic, our partition is sorted
           sortedList.flatten.toIterator
         }, preservesPartitioning = true)
       val partitionMap = finalPartitionedRDD.mapPartitions((iter) => {
@@ -99,12 +99,12 @@ object SortedGenomicRDD {
      *         their original order
      */
     private def getBalancedPartitionNumber(iter: Iterator[(Long, T)], average: Double): Iterator[(Int, List[(Long, T)])] = {
-      //converting to list so we can package data that is going to the same node with a groupBy
+      // converting to list so we can package data that is going to the same node with a groupBy
       val listRepresentation = iter.toList
-      //simple division to get the partition number
+      // simple division to get the partition number
       listRepresentation.map(f => ((f._1 / average).asInstanceOf[Int], (f._1, f._2)))
-        //groupBy will preserve our value order, but we don't want a map
-        //so we convert it back to an iterator
+        // groupBy will preserve our value order, but we don't want a map
+        // so we convert it back to an iterator
         .groupBy(_._1).mapValues(f => f.map(_._2)).toIterator
     }
 
@@ -140,12 +140,12 @@ object SortedGenomicRDD {
         .mapPartitions(iter => {
           var sortedList = new ArrayBuffer[Array[(ReferenceRegion, T)]]()
           val listRepresentation = iter.toArray.filter(_._2.nonEmpty).sortBy(_._2.head._1.start)
-          //we are sorting by the zipped index of the head of the list
-          //this is how we maintain the sorted order
+          // we are sorting by the zipped index of the head of the list
+          // this is how we maintain the sorted order
           for (listBlock <- listRepresentation) {
             sortedList += listBlock._2
           }
-          //and like magic, our partition is sorted
+          // and like magic, our partition is sorted
           sortedList.flatten.toIterator
         }, preservesPartitioning = true)
 
@@ -180,17 +180,17 @@ object SortedGenomicRDD {
       // did the user provide a set partition count?
       // if no, we will avoid repartitioning this one
       val partitions = optPartitions.getOrElse(rdd.partitions.length)
-      //if the user asked for a different number of partitions than we
-      //originally had we need to do a repartition first
+      // if the user asked for a different number of partitions than we
+      // originally had we need to do a repartition first
       val leftRdd: SortedGenomicRDDMixIn[T, U] = evenlyRepartition(partitions)
 
       val rightRdd: SortedGenomicRDDMixIn[X, Y] =
         genomicRdd match {
-          //if both are sorted, great! let's just co-partition the data properly
+          // if both are sorted, great! let's just co-partition the data properly
           case in: SortedGenomicRDDMixIn[X, Y] =>
             println("Both sorted")
             in.coPartitionByGenomicRegion(leftRdd.asInstanceOf[SortedGenomicRDDMixIn[X, Y]])
-          //otherwise we will just do a generic range partition and sort first
+          // otherwise we will just do a generic range partition and sort first
           // then we can perform our co-partition
           case _ =>
             println("This is sorted, but that is not")
@@ -209,13 +209,12 @@ object SortedGenomicRDD {
       // what sequences do we wind up with at the end?
       val endSequences = sequences ++ genomicRdd.sequences
 
-      //as sorted
+      // as sorted
       GenericGenomicRDD[(T, X)](
         InnerShuffleRegionJoin[T, X](endSequences, partitions, rdd.context).joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadytoJoin),
         endSequences,
         kv => { getReferenceRegions(kv._1) ++ rightRdd.getReferenceRegions(kv._2) })
         .asInstanceOf[GenomicRDD[(T, X), Z]]
-      //addSortedTrait(joinedRdd, Seq(), Array())
     }
   }
 }
