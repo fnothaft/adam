@@ -45,8 +45,6 @@ import scala.collection.mutable.{ Buffer, HashMap }
  * conversions. Does not handle Variant annotations. Genotype annotations are
  * annotations in the VCF GT field while Variant annotations are annotations
  * contained in the VCF INFO field.
- *
- * @see VariantAnnotationConverter
  */
 private[adam] object VariantContextConverter {
 
@@ -412,11 +410,7 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
    */
   private def extractVariantAnnotation(variant: Variant,
                                        vc: HtsjdkVariantContext): VariantAnnotation = {
-    val annotation = VariantAnnotation.newBuilder()
-      .setVariant(variant)
-      .build
-
-    VariantAnnotationConverter.convert(vc, annotation)
+    ???
   }
 
   /**
@@ -481,7 +475,7 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
         }
         setPL(g, genotype)
 
-        VariantAnnotationConverter.convert(g, genotype.build)
+        ???
       }
     ).toSeq
 
@@ -565,9 +559,7 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
    *   this site.
    */
   private def extractVariantCallingAnnotations(vc: HtsjdkVariantContext): VariantCallingAnnotations = {
-    val call: VariantCallingAnnotations.Builder = VariantCallingAnnotations.newBuilder
-
-    VariantAnnotationConverter.convert(vc, call.build())
+    ???
   }
 
   /**
