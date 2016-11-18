@@ -569,7 +569,61 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
     formatPhaseInfo(_, _, _, _)
   )
 
-  private val annotationFormatFieldConversionFns: Iterable[(HtsjdkGenotype, VariantCallingAnnotations.Builder, Int, Array[Int]) => VariantCallingAnnotations.Builder] = Iterable()
+  private def formatFilters(g: HtsjdkGenotype,
+                            vcab: VariantCallingAnnotations.Builder,
+                            idx: Int,
+                            indices: Array[Int]): VariantCallingAnnotations.Builder = {
+    // see https://github.com/samtools/htsjdk/issues/741
+    val gtFiltersWereApplied = true
+    if (gtFiltersWereApplied) {
+      val filtersWereApplied = vcab.setFiltersApplied(true)
+      if (g.isFiltered) {
+        filtersWereApplied.setFiltersPassed(false)
+          .setFiltersFailed(g.getFilters.split(",").toList)
+      } else {
+        filtersWereApplied.setFiltersPassed(true)
+      }
+    } else {
+      vcab.setFiltersApplied(false)
+    }
+  }
+
+  private def formatFisherStrandBias(g: HtsjdkGenotype,
+                                     vcab: VariantCallingAnnotations.Builder,
+                                     idx: Int,
+                                     indices: Array[Int]): VariantCallingAnnotations.Builder = {
+    Option(g.getExtendedAttribute("FS"))
+      .map(attr => {
+        vcab.setFisherStrandBiasPValue(attr.asInstanceOf[java.lang.Float])
+      }).getOrElse(vcab)
+  }
+
+  private def formatRmsMapQ(g: HtsjdkGenotype,
+                            vcab: VariantCallingAnnotations.Builder,
+                            idx: Int,
+                            indices: Array[Int]): VariantCallingAnnotations.Builder = {
+    Option(g.getExtendedAttribute("MQ"))
+      .map(attr => {
+        vcab.setRmsMapQ(attr.asInstanceOf[java.lang.Float])
+      }).getOrElse(vcab)
+  }
+
+  private def formatMapQ0(g: HtsjdkGenotype,
+                          vcab: VariantCallingAnnotations.Builder,
+                          idx: Int,
+                          indices: Array[Int]): VariantCallingAnnotations.Builder = {
+    Option(g.getExtendedAttribute("MQ0"))
+      .map(attr => {
+        vcab.setMapq0Reads(attr.asInstanceOf[java.lang.Integer])
+      }).getOrElse(vcab)
+  }
+
+  private val annotationFormatFieldConversionFns: Iterable[(HtsjdkGenotype, VariantCallingAnnotations.Builder, Int, Array[Int]) => VariantCallingAnnotations.Builder] = Iterable(
+    formatFilters(_, _, _, _),
+    formatFisherStrandBias(_, _, _, _),
+    formatRmsMapQ(_, _, _, _),
+    formatMapQ0(_, _, _, _)
+  )
 
   private def toInt(obj: java.lang.Object): Int = {
     obj.asInstanceOf[java.lang.Integer]
