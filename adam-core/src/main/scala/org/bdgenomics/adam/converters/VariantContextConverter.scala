@@ -31,7 +31,9 @@ import htsjdk.variant.variantcontext.{
 import htsjdk.variant.vcf.{
   VCFConstants,
   VCFFormatHeaderLine,
-  VCFHeaderLine
+  VCFHeaderLine,
+  VCFHeaderLineCount,
+  VCFHeaderLineType
 }
 import java.util.Collections
 import org.bdgenomics.utils.misc.Logging
@@ -569,13 +571,167 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
 
   private val annotationFormatFieldConversionFns: Iterable[(HtsjdkGenotype, VariantCallingAnnotations.Builder, Int, Array[Int]) => VariantCallingAnnotations.Builder] = Iterable()
 
+  private def toInt(obj: java.lang.Object): Int = {
+    obj.asInstanceOf[java.lang.Integer]
+  }
+
+  private def toChar(obj: java.lang.Object): Char = {
+    obj.asInstanceOf[java.lang.Character]
+  }
+
+  private def toFloat(obj: java.lang.Object): Float = {
+    obj.asInstanceOf[java.lang.Float]
+  }
+
+  // don't shadow toString
+  private def asString(obj: java.lang.Object): String = {
+    obj.asInstanceOf[java.lang.String]
+  }
+
+  private def toIntArray(obj: java.lang.Object): Array[Int] = {
+    obj.asInstanceOf[Array[java.lang.Integer]]
+      .map(i => i: Int)
+  }
+
+  private def toCharArray(obj: java.lang.Object): Array[Char] = {
+    obj.asInstanceOf[Array[java.lang.Character]]
+      .map(c => c: Char)
+  }
+
+  private def toFloatArray(obj: java.lang.Object): Array[Float] = {
+    obj.asInstanceOf[Array[java.lang.Float]]
+      .map(f => f: Float)
+  }
+
+  private def toStringArray(obj: java.lang.Object): Array[String] = {
+    obj.asInstanceOf[Array[java.lang.String]]
+      .map(s => s: String)
+  }
+
+  private def filterArray[T](array: Array[T],
+                             indices: List[Int]): List[T] = {
+    if (indices.isEmpty) {
+      array.toList
+    } else {
+      indices.map(idx => array(idx))
+    }
+  }
+
+  private def arrayFieldExtractor(g: HtsjdkGenotype,
+                                  id: String,
+                                  toFn: (java.lang.Object => Array[String]),
+                                  indices: List[Int]): Option[(String, List[String])] = {
+    Option(g.getExtendedAttribute(id))
+      .map(toFn)
+      .map(filterArray(_, indices))
+      .map(v => (id, v))
+  }
+
+  private def fromArrayExtractor(g: HtsjdkGenotype,
+                                 id: String,
+                                 toFn: (java.lang.Object => Array[String]),
+                                 idx: Int): Option[(String, String)] = {
+    Option(g.getExtendedAttribute(id))
+      .map(toFn)
+      .map(array => (id, array(idx)))
+  }
+
+  private def fieldExtractor(g: HtsjdkGenotype,
+                             id: String,
+                             toFn: (java.lang.Object => Any)): Option[(String, Any)] = {
+    Option(g.getExtendedAttribute(id))
+      .map(toFn)
+      .map(attr => (id, attr))
+  }
+
+  private def lineToExtractor(
+    headerLine: VCFFormatHeaderLine): ((HtsjdkGenotype, Int, Array[Int]) => Option[(String, String)]) = {
+    val id = headerLine.getID
+
+    if (headerLine.isFixedCount && headerLine.getCount == 1) {
+      headerLine.getType match {
+        case VCFHeaderLineType.Flag => {
+          throw new IllegalArgumentException("Flag is not supported for Format lines: %s".format(
+            headerLine))
+        }
+        case VCFHeaderLineType.Character => {
+          (g: HtsjdkGenotype, idx: Int, indices: Array[Int]) =>
+            {
+              fieldExtractor(g, id, toChar).map(kv => (kv._1, kv._2.toString))
+            }
+        }
+        case VCFHeaderLineType.Float => {
+          (g: HtsjdkGenotype, idx: Int, indices: Array[Int]) =>
+            {
+              fieldExtractor(g, id, toFloat).map(kv => (kv._1, kv._2.toString))
+            }
+        }
+        case VCFHeaderLineType.Integer => {
+          (g: HtsjdkGenotype, idx: Int, indices: Array[Int]) =>
+            {
+              fieldExtractor(g, id, toInt).map(kv => (kv._1, kv._2.toString))
+            }
+        }
+        case VCFHeaderLineType.String => {
+          (g: HtsjdkGenotype, idx: Int, indices: Array[Int]) =>
+            {
+              fieldExtractor(g, id, asString).map(kv => (kv._1, kv._2.toString))
+            }
+        }
+      }
+    } else {
+      val toFn: (java.lang.Object => Array[String]) = headerLine.getType match {
+        case VCFHeaderLineType.Flag => {
+          throw new IllegalArgumentException("Flag is not supported for Format lines: %s".format(
+            headerLine))
+        }
+        case VCFHeaderLineType.Character => {
+          toCharArray(_).map(c => c.toString)
+        }
+        case VCFHeaderLineType.Float => {
+          toFloatArray(_).map(f => f.toString)
+        }
+        case VCFHeaderLineType.Integer => {
+          toIntArray(_).map(i => i.toString)
+        }
+        case VCFHeaderLineType.String => {
+          toStringArray(_)
+        }
+      }
+
+      (headerLine.isFixedCount, headerLine.getCountType) match {
+        case (false, VCFHeaderLineCount.A) => {
+          (g: HtsjdkGenotype, idx: Int, indices: Array[Int]) =>
+            {
+              fromArrayExtractor(g, id, toFn, idx)
+                .map(kv => (kv._1, kv._2.toString))
+            }
+        }
+        case (false, VCFHeaderLineCount.G) => {
+          (g: HtsjdkGenotype, idx: Int, indices: Array[Int]) =>
+            {
+              arrayFieldExtractor(g, id, toFn, indices.toList)
+                .map(kv => (kv._1, kv._2.mkString(",")))
+            }
+        }
+        case _ => {
+          (g: HtsjdkGenotype, idx: Int, indices: Array[Int]) =>
+            {
+              arrayFieldExtractor(g, id, toFn, List.empty)
+                .map(kv => (kv._1, kv._2.mkString(",")))
+            }
+        }
+      }
+    }
+  }
+
   /**
    *
    */
   private def makeGenotypeConverter(
     headerLines: Seq[VCFHeaderLine]): (HtsjdkGenotype, Int, Option[Int]) => Genotype = {
 
-    val attributeFns: Iterable[HtsjdkGenotype => (String, String)] = headerLines
+    val attributeFns: Iterable[(HtsjdkGenotype, Int, Array[Int]) => Option[(String, String)]] = headerLines
       .flatMap(hl => hl match {
         case fl: VCFFormatHeaderLine => {
 
@@ -589,7 +745,7 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
 
             None
           } else {
-            ???
+            Some(lineToExtractor(fl))
           }
         }
         case _ => None
@@ -633,7 +789,7 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
         (vcab: VariantCallingAnnotations.Builder, fn) => fn(vcab))
 
       // pull out an attribute map
-      val attrMap = attributeFns.map(fn => fn(g))
+      val attrMap = attributeFns.flatMap(fn => fn(g, alleleIdx, indices))
         .toMap
 
       // if the map has kv pairs, attach it
