@@ -566,6 +566,8 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
     formatPhaseInfo(_, _, _, _)
   )
 
+  private val annotationFormatFieldConversionFns: Iterable[(HtsjdkGenotype, VariantCallingAnnotations.Builder, Int, Array[Int]) => VariantCallingAnnotations.Builder] = Iterable()
+
   /**
    *
    */
@@ -601,9 +603,17 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
       // make a variant calling annotation builder
       val vcAnns = VariantCallingAnnotations.newBuilder
 
+      // bind the annotation conversion functions and fold
+      val boundAnnotationFns: Iterable[VariantCallingAnnotations.Builder => VariantCallingAnnotations.Builder] = annotationFormatFieldConversionFns
+        .map(fn => {
+          fn(g, _: VariantCallingAnnotations.Builder, alleleIdx, indices)
+        })
+      val convertedAnnotations = boundAnnotationFns.foldLeft(vcAnns)(
+        (vcab: VariantCallingAnnotations.Builder, fn) => fn(vcab))
+
       // build the annotations and attach
       val gtWithAnnotations = coreWithOptNonRefs
-        .setVariantCallingAnnotations(vcAnns.build)
+        .setVariantCallingAnnotations(convertedAnnotations.build)
 
       // build and return
       gtWithAnnotations.build()
