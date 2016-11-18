@@ -648,24 +648,24 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
     //var seqLengths = Map(sequences.records.toSeq.map(rec => (rec.name, rec.length)): _*)
     //val bins = rdd.context.broadcast(GenomeBins(partitions, seqLengths))
     val regionedRDD = flattenRddByRegions()
-    val rddOfRegions = rdd.flatMap(getReferenceRegions).sortBy(f => f)
-
-    val average = rddOfRegions.mapPartitions(iter => Iterator(iter.size)).collect.sum.toDouble / partitions
-
-    val referenceRegionPartitionMap = rddOfRegions.zipWithIndex.map(f => ((f._2/average).toInt, f._1)).mapPartitions(iter => {
-        val listRepresentation = iter.toList
-        listRepresentation.groupBy(_._1).mapValues(_.map(_._2)).toIterator
-      })
-      .partitionBy(new GenomicPositionRangePartitioner(partitions))
-      .mapPartitions(iter => {
-        val listRepresentation = iter.toList.map(_._2).sortBy(_.head).flatten
-        Iterator((listRepresentation.head, listRepresentation.last))
-      }).collect
-    val partitionedRDD = regionedRDD.mapPartitions(iter => getDestinationPartition(referenceRegionPartitionMap, iter))
-      .partitionBy(new GenomicPositionRangePartitioner(partitions))
-      .mapPartitions(iter => {
-        iter.toList.flatMap(_._2).sortBy(_._1).toIterator
-      }).zipWithIndex
+//    val rddOfRegions = rdd.flatMap(getReferenceRegions).sortBy(f => f)
+//
+//    val average = rddOfRegions.mapPartitions(iter => Iterator(iter.size)).collect.sum.toDouble / partitions
+//
+//    val referenceRegionPartitionMap = rddOfRegions.zipWithIndex.map(f => ((f._2/average).toInt, f._1)).mapPartitions(iter => {
+//        val listRepresentation = iter.toList
+//        listRepresentation.groupBy(_._1).mapValues(_.map(_._2)).toIterator
+//      })
+//      .partitionBy(new GenomicPositionRangePartitioner(partitions))
+//      .mapPartitions(iter => {
+//        val listRepresentation = iter.toList.map(_._2).sortBy(_.head).flatten
+//        Iterator((listRepresentation.head, listRepresentation.last))
+//      }).collect
+//    val partitionedRDD = regionedRDD.mapPartitions(iter => getDestinationPartition(referenceRegionPartitionMap, iter))
+//      .partitionBy(new GenomicPositionRangePartitioner(partitions))
+//      .mapPartitions(iter => {
+//        iter.toList.flatMap(_._2).sortBy(_._1).toIterator
+//      }).zipWithIndex
 
 //    val sample = regionedRDD.sample(false, 0.01, 1337)
 //    // we want to know exactly how much data is on each node
@@ -686,34 +686,7 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
 //        }
 //      }).collect
 
-//    val partitionedRDD = if(false) {
-//      regionedRDD.keyBy(f => (f._1.referenceName, f._1.start, f._1.end))
-//        .mapPartitions(iter => {
-//          val listRepresentation = iter.toList
-//          listRepresentation.sortBy(f => (f._1._1, f._1._2, f._1._3)).toIterator
-//        }).values
-//        .mapPartitions(iter => getDestinationPartition(partitionMap,iter), preservesPartitioning = true)
-//        .partitionBy(new GenomicPositionRangePartitioner(partitions))
-//        .mapPartitions(iter => {
-//          val listRepresentation = iter.toList.map(_._2)
-//          val finalTempList = new ListBuffer[((ReferenceRegion, T))]
-//          while(listRepresentation.exists(_.nonEmpty)) {
-//            val tempList = new ListBuffer[((ReferenceRegion, T), Int)]
-//            for (i <- listRepresentation.indices) {
-//              breakable {
-//                try {
-//                  tempList += ((listRepresentation(i).head, i))
-//                } catch {
-//                  case e: NoSuchElementException => break
-//                }
-//              }
-//            }
-//          }
-//          finalTempList.toIterator
-//        }, preservesPartitioning = true)
-//        .zipWithIndex
-//    } else regionedRDD.sortBy(f => (f._1.referenceName, f._1.start, f._1.end), true, partitions).zipWithIndex
-
+    val partitionedRDD = regionedRDD.sortBy(f => f._1, true, partitions).zipWithIndex
     //.map(f => (bins.value.getStartBin(f._1), (f)))
     //.partitionBy(new GenomicPositionRangePartitioner(partitions, elements.toInt)) //.values
     //.mapPartitions(iter => iter.toArray.sortBy(tuple => (tuple._1.referenceName, tuple._1.start, tuple._1.end)).toIterator).zipWithIndex()
