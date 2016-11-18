@@ -21,12 +21,17 @@ import com.google.common.base.Splitter
 import com.google.common.collect.ImmutableList
 import htsjdk.variant.variantcontext.{
   Allele,
+  Genotype => HtsjdkGenotype,
+  GenotypeBuilder,
   GenotypesContext,
   GenotypeLikelihoods,
   VariantContext => HtsjdkVariantContext,
   VariantContextBuilder
 }
-import htsjdk.variant.vcf.VCFConstants
+import htsjdk.variant.vcf.{
+  VCFConstants,
+  VCFHeaderLine
+}
 import java.util.Collections
 import org.bdgenomics.utils.misc.Logging
 import org.bdgenomics.adam.models.{
@@ -155,28 +160,6 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
   private def jFloat(f: Float): java.lang.Float = f
 
   /**
-   * Mappings between the CHROM names typically used and the more specific
-   * RefSeq accessions.
-   *
-   * @see refSeqToContig
-   */
-  private lazy val contigToRefSeq: Map[String, String] = dict match {
-    case Some(d) => d.records.filter(_.refseq.isDefined).map(r => r.name -> r.refseq.get).toMap
-    case _       => Map.empty
-  }
-
-  /**
-   * Mappings between the specific RefSeq accessions and commonly used CHROM
-   * names.
-   *
-   * @see contigToRefSeq
-   */
-  private lazy val refSeqToContig: Map[String, String] = dict match {
-    case Some(d) => d.records.filter(_.refseq.isDefined).map(r => r.refseq.get -> r.name).toMap
-    case _       => Map.empty
-  }
-
-  /**
    * Converts a single GATK variant into ADAMVariantContext(s).
    *
    * @param vc GATK Variant context to convert.
@@ -232,9 +215,9 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
           require(idx >= 1, "Unexpected index for alternate allele: " + vc.toString)
           vcb.alleles(List(vc.getReference, allele, NON_REF_ALLELE))
 
-          def punchOutGenotype(g: htsjdk.variant.variantcontext.Genotype, idx: Int): htsjdk.variant.variantcontext.Genotype = {
+          def punchOutGenotype(g: HtsjdkGenotype, idx: Int): HtsjdkGenotype = {
 
-            val gb = new htsjdk.variant.variantcontext.GenotypeBuilder(g)
+            val gb = new GenotypeBuilder(g)
 
             if (g.hasAD) {
               val ad = g.getAD
@@ -329,19 +312,6 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
   }
 
   /**
-   * Canonicalizes a contig name.
-   *
-   * Checks for a mapping between a contig and ref seq name. If none is defined,
-   * returns the provided contig name.
-   *
-   * @param vc htsjdk variant context that is mapped to a genomic site.
-   * @return Returns the canonical contig name for this site.
-   */
-  private def createContig(vc: HtsjdkVariantContext): String = {
-    contigToRefSeq.getOrElse(vc.getChr, vc.getChr)
-  }
-
-  /**
    * Split the htsjdk variant context ID field into an array of names.
    *
    * @param vc htsjdk variant context
@@ -382,7 +352,7 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
   private def createADAMVariant(vc: HtsjdkVariantContext, alt: Option[String]): Variant = {
     // VCF CHROM, POS, ID, REF, FORMAT, and ALT
     val builder = Variant.newBuilder
-      .setContigName(createContig(vc))
+      .setContigName(vc.getChr)
       .setStart(vc.getStart - 1 /* ADAM is 0-indexed */ )
       .setEnd(vc.getEnd /* ADAM is 0-indexed, so the 1-indexed inclusive end becomes exclusive */ )
       .setReferenceAllele(vc.getReference.getBaseString)
@@ -432,7 +402,7 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
     vc: HtsjdkVariantContext,
     variant: Variant,
     annotations: VariantCallingAnnotations,
-    setPL: (htsjdk.variant.variantcontext.Genotype, Genotype.Builder) => Unit): Seq[Genotype] = {
+    setPL: (HtsjdkGenotype, Genotype.Builder) => Unit): Seq[Genotype] = {
 
     // dupe variant, get contig name/start/end and null out
     val contigName = variant.getContigName
@@ -445,7 +415,7 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
       .build()
 
     val genotypes: Seq[Genotype] = vc.getGenotypes.map(
-      (g: htsjdk.variant.variantcontext.Genotype) => {
+      (g: HtsjdkGenotype) => {
         val genotype: Genotype.Builder = Genotype.newBuilder
           .setVariant(newVariant)
           .setContigName(contigName)
@@ -482,6 +452,128 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
     genotypes
   }
 
+  private def formatAllelicDepth(g: HtsjdkGenotype,
+                                 gb: Genotype.Builder,
+                                 gIdx: Int,
+                                 gIndices: Array[Int]): Genotype.Builder = {
+
+    // AD is an array type field
+    if (g.hasAD) {
+      val ad = g.getAD
+      gb.setReferenceReadDepth(ad(0))
+        .setAlternateReadDepth(ad(gIdx))
+    } else {
+      gb
+    }
+  }
+
+  private def formatReadDepth(g: HtsjdkGenotype,
+                              gb: Genotype.Builder,
+                              gIdx: Int,
+                              gIndices: Array[Int]): Genotype.Builder = {
+    if (g.hasDP) {
+      gb.setReadDepth(g.getDP)
+    } else {
+      gb
+    }
+  }
+
+  private def formatMinReadDepth(g: HtsjdkGenotype,
+                                 gb: Genotype.Builder,
+                                 gIdx: Int,
+                                 gIndices: Array[Int]): Genotype.Builder = {
+    Option(g.getExtendedAttribute("MIN_DP", null))
+      .map(attr => {
+        gb.setMinReadDepth(attr.asInstanceOf[java.lang.Integer])
+      }).getOrElse(gb)
+  }
+
+  private def formatGenotypeQuality(g: HtsjdkGenotype,
+                                    gb: Genotype.Builder,
+                                    gIdx: Int,
+                                    gIndices: Array[Int]): Genotype.Builder = {
+    if (g.hasGQ) {
+      gb.setGenotypeQuality(g.getGQ)
+    } else {
+      gb
+    }
+  }
+
+  private def formatGenotypeLikelihoods(g: HtsjdkGenotype,
+                                        gb: Genotype.Builder,
+                                        gIdx: Int,
+                                        gIndices: Array[Int]): Genotype.Builder = {
+    if (g.hasPL) {
+      val pl = g.getPL
+      gb.setGenotypeLikelihoods(gIndices.map(idx => {
+        jFloat(PhredUtils.phredToLogProbability(pl(idx)))
+      }).toList)
+    } else {
+      gb
+    }
+  }
+
+  private def formatNonRefGenotypeLikelihoods(g: HtsjdkGenotype,
+                                              gb: Genotype.Builder,
+                                              gIndices: Array[Int]): Genotype.Builder = {
+    if (g.hasPL) {
+      val pl = g.getPL
+      gb.setNonReferenceLikelihoods(gIndices.map(idx => {
+        jFloat(PhredUtils.phredToLogProbability(pl(idx)))
+      }).toList)
+    } else {
+      gb
+    }
+  }
+
+  private def formatStrandBiasComponents(g: HtsjdkGenotype,
+                                         gb: Genotype.Builder,
+                                         gIdx: Int,
+                                         gIndices: Array[Int]): Genotype.Builder = {
+    Option(g.getExtendedAttribute("SB"))
+      .map(attr => {
+        gb.setStrandBiasComponents(attr.asInstanceOf[java.util.List[java.lang.Integer]])
+      }).getOrElse(gb)
+  }
+
+  private def formatPhaseInfo(g: HtsjdkGenotype,
+                              gb: Genotype.Builder,
+                              gIdx: Int,
+                              gIndices: Array[Int]): Genotype.Builder = {
+    if (g.isPhased) {
+      gb.setPhased(true)
+
+      Option(g.getExtendedAttribute(VCFConstants.PHASE_SET_KEY))
+        .map(attr => {
+          gb.setPhaseSetId(attr.asInstanceOf[java.lang.Integer])
+        })
+
+      Option(g.getExtendedAttribute(VCFConstants.PHASE_QUALITY_KEY))
+        .map(attr => {
+          gb.setPhaseQuality(attr.asInstanceOf[java.lang.Integer])
+        })
+    }
+    gb
+  }
+
+  private val coreFormatFieldConversionFns: Iterable[(HtsjdkGenotype, Genotype.Builder, Int, Array[Int]) => Genotype.Builder] = Iterable(
+    formatAllelicDepth(_, _, _, _),
+    formatReadDepth(_, _, _, _),
+    formatMinReadDepth(_, _, _, _),
+    formatGenotypeQuality(_, _, _, _),
+    formatGenotypeLikelihoods(_, _, _, _),
+    formatStrandBiasComponents(_, _, _, _),
+    formatPhaseInfo(_, _, _, _)
+  )
+
+  /**
+   *
+   */
+  private def makeGenotypeConverter(
+    headerLines: Seq[VCFHeaderLine]): (HtsjdkGenotype => Genotype) = {
+    ???
+  }
+
   /**
    * For a given VCF line with ref + alt calls, pulls out the per-sample
    * genotype calls in Avro.
@@ -499,7 +591,7 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
                                            annotations: VariantCallingAnnotations): Seq[Genotype] = {
     assert(vc.isBiallelic)
     extractGenotypes(vc, variant, annotations,
-      (g: htsjdk.variant.variantcontext.Genotype, b: Genotype.Builder) => {
+      (g: HtsjdkGenotype, b: Genotype.Builder) => {
         if (g.hasPL) b.setGenotypeLikelihoods(g.getPL.toList.map(p => jFloat(PhredUtils.phredToLogProbability(p))))
       })
   }
@@ -589,10 +681,7 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
   def convert(vc: ADAMVariantContext): HtsjdkVariantContext = {
     val variant: Variant = vc.variant.variant
     val vcb = new VariantContextBuilder()
-      .chr(refSeqToContig.getOrElse(
-        variant.getContigName,
-        variant.getContigName
-      ))
+      .chr(variant.getContigName)
       .start(variant.getStart + 1 /* Recall ADAM is 0-indexed */ )
       .stop(variant.getStart + variant.getReferenceAllele.length)
       .alleles(VariantContextConverter.convertAlleles(variant))
@@ -620,7 +709,7 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
     // TODO: Extract provenance INFO fields
     try {
       vcb.genotypes(vc.genotypes.map(g => {
-        val gb = new htsjdk.variant.variantcontext.GenotypeBuilder(
+        val gb = new GenotypeBuilder(
           g.getSampleId, VariantContextConverter.convertAlleles(g)
         )
 
