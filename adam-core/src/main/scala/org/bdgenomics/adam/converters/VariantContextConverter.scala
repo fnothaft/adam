@@ -30,6 +30,7 @@ import htsjdk.variant.variantcontext.{
 }
 import htsjdk.variant.vcf.{
   VCFConstants,
+  VCFFormatHeaderLine,
   VCFHeaderLine
 }
 import java.util.Collections
@@ -574,6 +575,26 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
   private def makeGenotypeConverter(
     headerLines: Seq[VCFHeaderLine]): (HtsjdkGenotype, Int, Option[Int]) => Genotype = {
 
+    val attributeFns: Iterable[HtsjdkGenotype => (String, String)] = headerLines
+      .flatMap(hl => hl match {
+        case fl: VCFFormatHeaderLine => {
+
+          // get the id of this line
+          val key = fl.getID
+
+          // filter out the lines that we already support
+          if (SupportedHeaderLines.formatHeaderLines
+            .find(_.getID == key)
+            .isEmpty) {
+
+            None
+          } else {
+            ???
+          }
+        }
+        case _ => None
+      })
+
     def convert(g: HtsjdkGenotype,
                 alleleIdx: Int,
                 nonRefIndex: Option[Int]): Genotype = {
@@ -611,9 +632,20 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
       val convertedAnnotations = boundAnnotationFns.foldLeft(vcAnns)(
         (vcab: VariantCallingAnnotations.Builder, fn) => fn(vcab))
 
+      // pull out an attribute map
+      val attrMap = attributeFns.map(fn => fn(g))
+        .toMap
+
+      // if the map has kv pairs, attach it
+      val convertedAnnotationsWithAttrs = if (attrMap.isEmpty) {
+        convertedAnnotations
+      } else {
+        convertedAnnotations.setAttributes(attrMap)
+      }
+
       // build the annotations and attach
       val gtWithAnnotations = coreWithOptNonRefs
-        .setVariantCallingAnnotations(convertedAnnotations.build)
+        .setVariantCallingAnnotations(convertedAnnotationsWithAttrs.build)
 
       // build and return
       gtWithAnnotations.build()
