@@ -570,8 +570,46 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
    *
    */
   private def makeGenotypeConverter(
-    headerLines: Seq[VCFHeaderLine]): (HtsjdkGenotype => Genotype) = {
-    ???
+    headerLines: Seq[VCFHeaderLine]): (HtsjdkGenotype, Int, Option[Int]) => Genotype = {
+
+    def convert(g: HtsjdkGenotype,
+                alleleIdx: Int,
+                nonRefIndex: Option[Int]): Genotype = {
+
+      // indices
+      val indices = GenotypeLikelihoods.getPLIndecesOfAlleles(0, alleleIdx)
+
+      // create the builder
+      val builder = Genotype.newBuilder()
+
+      // bind the conversion functions and fold
+      val boundFns: Iterable[Genotype.Builder => Genotype.Builder] = coreFormatFieldConversionFns
+        .map(fn => {
+          fn(g, _: Genotype.Builder, alleleIdx, indices)
+        })
+      val convertedCore = boundFns.foldLeft(builder)((gb: Genotype.Builder, fn) => fn(gb))
+
+      // if we have a non-ref allele, fold and build
+      val coreWithOptNonRefs = nonRefIndex.fold(convertedCore)(nonRefAllele => {
+
+        // non-ref pl indices
+        val nrIndices = GenotypeLikelihoods.getPLIndecesOfAlleles(alleleIdx, nonRefAllele)
+
+        formatNonRefGenotypeLikelihoods(g, convertedCore, nrIndices)
+      })
+
+      // make a variant calling annotation builder
+      val vcAnns = VariantCallingAnnotations.newBuilder
+
+      // build the annotations and attach
+      val gtWithAnnotations = coreWithOptNonRefs
+        .setVariantCallingAnnotations(vcAnns.build)
+
+      // build and return
+      gtWithAnnotations.build()
+    }
+
+    convert(_, _, _)
   }
 
   /**
