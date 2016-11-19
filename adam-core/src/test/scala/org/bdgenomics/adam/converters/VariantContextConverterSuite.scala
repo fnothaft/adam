@@ -716,4 +716,123 @@ class VariantContextConverterSuite extends ADAMFunSuite {
     assert(sb(2) === 14)
     assert(sb(3) === 16)
   }
+
+  def buildVca(
+    objMap: Map[String, java.lang.Object],
+    extractor: (HtsjdkGenotype, VariantCallingAnnotations.Builder, Int, Array[Int]) => VariantCallingAnnotations.Builder,
+    fns: Iterable[GenotypeBuilder => GenotypeBuilder] = Iterable.empty): VariantCallingAnnotations = {
+    val htsjdkGenotype = makeGenotype(objMap, fns)
+    extractor(htsjdkGenotype,
+      VariantCallingAnnotations.newBuilder,
+      0,
+      Array(0, 1, 2)).build
+  }
+
+  test("no filters going htsjdk->adam") {
+    val converter = new VariantContextConverter
+    val vca = buildVca(Map.empty,
+      converter.formatFilters,
+      fns = Iterable.empty)
+
+    assert(vca.getFiltersApplied) // sigh
+    assert(vca.getFiltersPassed) // sigh
+  }
+
+  test("filters passed going htsjdk->adam") {
+    val converter = new VariantContextConverter
+    val vca = buildVca(Map.empty,
+      converter.formatFilters,
+      fns = Iterable((gb: GenotypeBuilder) => {
+        gb.filter("PASS")
+      }))
+
+    assert(vca.getFiltersApplied)
+    assert(vca.getFiltersPassed)
+  }
+
+  test("extract single filter going htsjdk->adam") {
+    val converter = new VariantContextConverter
+    val vca = buildVca(Map.empty,
+      converter.formatFilters,
+      fns = Iterable((gb: GenotypeBuilder) => {
+        gb.filter("FAILED_FILTER")
+      }))
+
+    assert(vca.getFiltersApplied)
+    assert(!vca.getFiltersPassed)
+    val failedFilters = vca.getFiltersFailed
+    assert(failedFilters.size === 1)
+    assert(failedFilters(0) === "FAILED_FILTER")
+  }
+
+  test("extract multiple filters going htsjdk->adam") {
+    val converter = new VariantContextConverter
+    val vca = buildVca(Map.empty,
+      converter.formatFilters,
+      fns = Iterable((gb: GenotypeBuilder) => {
+        gb.filters("FAILED_FILTER1", "FAILED_FILTER2", "FAILED_FILTER3")
+      }))
+
+    assert(vca.getFiltersApplied)
+    assert(!vca.getFiltersPassed)
+    val failedFilters = vca.getFiltersFailed
+    assert(failedFilters.size === 3)
+    assert(failedFilters(0) === "FAILED_FILTER1")
+    assert(failedFilters(1) === "FAILED_FILTER2")
+    assert(failedFilters(2) === "FAILED_FILTER3")
+  }
+
+  test("no fisher strand bias going htsjdk->adam") {
+    val converter = new VariantContextConverter
+    val vca = buildVca(Map.empty,
+      converter.formatFisherStrandBias,
+      fns = Iterable.empty)
+
+    assert(vca.getFisherStrandBiasPValue === null)
+  }
+
+  test("extract fisher strand bias going htsjdk->adam") {
+    val converter = new VariantContextConverter
+    val vca = buildVca(Map(("FS" -> (0.25f: java.lang.Float).asInstanceOf[java.lang.Object])),
+      converter.formatFisherStrandBias,
+      fns = Iterable.empty)
+
+    assert(vca.getFisherStrandBiasPValue > 0.249f && vca.getFisherStrandBiasPValue < 0.251f)
+  }
+
+  test("no rms mapping quality going htsjdk->adam") {
+    val converter = new VariantContextConverter
+    val vca = buildVca(Map.empty,
+      converter.formatRmsMapQ,
+      fns = Iterable.empty)
+
+    assert(vca.getRmsMapQ === null)
+  }
+
+  test("extract rms mapping quality going htsjdk->adam") {
+    val converter = new VariantContextConverter
+    val vca = buildVca(Map(("MQ" -> (40.0f: java.lang.Float).asInstanceOf[java.lang.Object])),
+      converter.formatRmsMapQ,
+      fns = Iterable.empty)
+
+    assert(vca.getRmsMapQ > 39.9f && vca.getRmsMapQ < 40.1f)
+  }
+
+  test("no mq0 going htsjdk->adam") {
+    val converter = new VariantContextConverter
+    val vca = buildVca(Map.empty,
+      converter.formatMapQ0,
+      fns = Iterable.empty)
+
+    assert(vca.getMapq0Reads === null)
+  }
+
+  test("extract mq0 going htsjdk->adam") {
+    val converter = new VariantContextConverter
+    val vca = buildVca(Map(("MQ0" -> (100: java.lang.Integer).asInstanceOf[java.lang.Object])),
+      converter.formatMapQ0,
+      fns = Iterable.empty)
+
+    assert(vca.getMapq0Reads === 100)
+  }
 }
