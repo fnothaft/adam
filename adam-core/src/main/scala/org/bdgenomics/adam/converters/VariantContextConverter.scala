@@ -569,6 +569,83 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
     formatPhaseInfo(_, _, _, _)
   )
 
+  private[converters] def extractAllelicDepth(g: Genotype,
+                                              gb: GenotypeBuilder): GenotypeBuilder = {
+    (Option(g.getReferenceReadDepth), Option(g.getAlternateReadDepth)) match {
+      case (Some(ref), Some(alt)) => gb.attribute("AD", Array(ref, alt))
+      case _                      => gb
+    }
+  }
+
+  private[converters] def extractReadDepth(g: Genotype,
+                                           gb: GenotypeBuilder): GenotypeBuilder = {
+    Option(g.getReadDepth).fold(gb.noDP)(dp => gb.DP(dp))
+  }
+
+  private[converters] def extractMinReadDepth(g: Genotype,
+                                              gb: GenotypeBuilder): GenotypeBuilder = {
+    Option(g.getMinReadDepth).fold(gb)(minDp => gb.attribute("MIN_DP", minDp))
+  }
+
+  private[converters] def extractGenotypeQuality(g: Genotype,
+                                                 gb: GenotypeBuilder): GenotypeBuilder = {
+    Option(g.getGenotypeQuality).fold(gb)(gq => gb.GQ(gq))
+  }
+
+  private[converters] def extractGenotypeLikelihoods(g: Genotype,
+                                                     gb: GenotypeBuilder): GenotypeBuilder = {
+    val gls = g.getGenotypeLikelihoods
+
+    if (gls.isEmpty) {
+      gb.noPL
+    } else {
+      gb.PL(gls.map(l => PhredUtils.logProbabilityToPhred(l))
+        .toArray)
+    }
+  }
+
+  private[converters] def extractStrandBiasComponents(g: Genotype,
+                                                      gb: GenotypeBuilder): GenotypeBuilder = {
+
+    val components = g.getStrandBiasComponents
+
+    if (components.isEmpty) {
+      gb
+    } else {
+      require(components.size == 4,
+        "Illegal strand bias components length. Must be empty or 4. In:\n%s".format(g))
+      gb.attribute("SB", components.toArray)
+    }
+  }
+
+  private[converters] def extractPhaseInfo(g: Genotype,
+                                           gb: GenotypeBuilder): GenotypeBuilder = {
+    Option(g.getPhased)
+      .filter(p => p)
+      .map(p => {
+        val setFns: Iterable[Option[(GenotypeBuilder => GenotypeBuilder)]] = Iterable(
+          Option(g.getPhaseSetId).map(ps => {
+            (b: GenotypeBuilder) => b.attribute("PS", ps)
+          }),
+          Option(g.getPhaseQuality).map(pq => {
+            (b: GenotypeBuilder) => b.attribute("PQ", pq)
+          }))
+
+        setFns.flatten
+          .foldLeft(gb.phased(true))((b, fn) => fn(b))
+      }).getOrElse(gb.phased(false))
+  }
+
+  private val coreFormatFieldExtractorFns: Iterable[(Genotype, GenotypeBuilder) => GenotypeBuilder] = Iterable(
+    extractAllelicDepth(_, _),
+    extractReadDepth(_, _),
+    extractMinReadDepth(_, _),
+    extractGenotypeQuality(_, _),
+    extractGenotypeLikelihoods(_, _),
+    extractStrandBiasComponents(_, _),
+    extractPhaseInfo(_, _)
+  )
+
   private[converters] def formatFilters(g: HtsjdkGenotype,
                                         vcab: VariantCallingAnnotations.Builder,
                                         idx: Int,
