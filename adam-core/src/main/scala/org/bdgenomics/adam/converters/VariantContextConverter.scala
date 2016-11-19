@@ -579,7 +579,7 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
       val filtersWereApplied = vcab.setFiltersApplied(true)
       if (g.isFiltered) {
         filtersWereApplied.setFiltersPassed(false)
-          .setFiltersFailed(g.getFilters.split(",").toList)
+          .setFiltersFailed(g.getFilters.split(";").toList)
       } else {
         filtersWereApplied.setFiltersPassed(true)
       }
