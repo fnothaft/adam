@@ -455,25 +455,25 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
     genotypes
   }
 
-  private def formatAllelicDepth(g: HtsjdkGenotype,
-                                 gb: Genotype.Builder,
-                                 gIdx: Int,
-                                 gIndices: Array[Int]): Genotype.Builder = {
+  private[converters] def formatAllelicDepth(g: HtsjdkGenotype,
+                                             gb: Genotype.Builder,
+                                             gIdx: Int,
+                                             gIndices: Array[Int]): Genotype.Builder = {
 
     // AD is an array type field
     if (g.hasAD) {
       val ad = g.getAD
       gb.setReferenceReadDepth(ad(0))
-        .setAlternateReadDepth(ad(gIdx))
+        .setAlternateReadDepth(ad(gIdx + 1))
     } else {
       gb
     }
   }
 
-  private def formatReadDepth(g: HtsjdkGenotype,
-                              gb: Genotype.Builder,
-                              gIdx: Int,
-                              gIndices: Array[Int]): Genotype.Builder = {
+  private[converters] def formatReadDepth(g: HtsjdkGenotype,
+                                          gb: Genotype.Builder,
+                                          gIdx: Int,
+                                          gIndices: Array[Int]): Genotype.Builder = {
     if (g.hasDP) {
       gb.setReadDepth(g.getDP)
     } else {
@@ -481,20 +481,20 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
     }
   }
 
-  private def formatMinReadDepth(g: HtsjdkGenotype,
-                                 gb: Genotype.Builder,
-                                 gIdx: Int,
-                                 gIndices: Array[Int]): Genotype.Builder = {
+  private[converters] def formatMinReadDepth(g: HtsjdkGenotype,
+                                             gb: Genotype.Builder,
+                                             gIdx: Int,
+                                             gIndices: Array[Int]): Genotype.Builder = {
     Option(g.getExtendedAttribute("MIN_DP", null))
       .map(attr => {
         gb.setMinReadDepth(attr.asInstanceOf[java.lang.Integer])
       }).getOrElse(gb)
   }
 
-  private def formatGenotypeQuality(g: HtsjdkGenotype,
-                                    gb: Genotype.Builder,
-                                    gIdx: Int,
-                                    gIndices: Array[Int]): Genotype.Builder = {
+  private[converters] def formatGenotypeQuality(g: HtsjdkGenotype,
+                                                gb: Genotype.Builder,
+                                                gIdx: Int,
+                                                gIndices: Array[Int]): Genotype.Builder = {
     if (g.hasGQ) {
       gb.setGenotypeQuality(g.getGQ)
     } else {
@@ -502,10 +502,10 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
     }
   }
 
-  private def formatGenotypeLikelihoods(g: HtsjdkGenotype,
-                                        gb: Genotype.Builder,
-                                        gIdx: Int,
-                                        gIndices: Array[Int]): Genotype.Builder = {
+  private[converters] def formatGenotypeLikelihoods(g: HtsjdkGenotype,
+                                                    gb: Genotype.Builder,
+                                                    gIdx: Int,
+                                                    gIndices: Array[Int]): Genotype.Builder = {
     if (g.hasPL) {
       val pl = g.getPL
       gb.setGenotypeLikelihoods(gIndices.map(idx => {
@@ -516,9 +516,9 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
     }
   }
 
-  private def formatNonRefGenotypeLikelihoods(g: HtsjdkGenotype,
-                                              gb: Genotype.Builder,
-                                              gIndices: Array[Int]): Genotype.Builder = {
+  private[converters] def formatNonRefGenotypeLikelihoods(g: HtsjdkGenotype,
+                                                          gb: Genotype.Builder,
+                                                          gIndices: Array[Int]): Genotype.Builder = {
     if (g.hasPL) {
       val pl = g.getPL
       gb.setNonReferenceLikelihoods(gIndices.map(idx => {
@@ -529,20 +529,20 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
     }
   }
 
-  private def formatStrandBiasComponents(g: HtsjdkGenotype,
-                                         gb: Genotype.Builder,
-                                         gIdx: Int,
-                                         gIndices: Array[Int]): Genotype.Builder = {
+  private[converters] def formatStrandBiasComponents(g: HtsjdkGenotype,
+                                                     gb: Genotype.Builder,
+                                                     gIdx: Int,
+                                                     gIndices: Array[Int]): Genotype.Builder = {
     Option(g.getExtendedAttribute("SB"))
       .map(attr => {
-        gb.setStrandBiasComponents(attr.asInstanceOf[java.util.List[java.lang.Integer]])
+        gb.setStrandBiasComponents(attr.asInstanceOf[Array[java.lang.Integer]].toList)
       }).getOrElse(gb)
   }
 
-  private def formatPhaseInfo(g: HtsjdkGenotype,
-                              gb: Genotype.Builder,
-                              gIdx: Int,
-                              gIndices: Array[Int]): Genotype.Builder = {
+  private[converters] def formatPhaseInfo(g: HtsjdkGenotype,
+                                          gb: Genotype.Builder,
+                                          gIdx: Int,
+                                          gIndices: Array[Int]): Genotype.Builder = {
     if (g.isPhased) {
       gb.setPhased(true)
 
@@ -569,10 +569,10 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
     formatPhaseInfo(_, _, _, _)
   )
 
-  private def formatFilters(g: HtsjdkGenotype,
-                            vcab: VariantCallingAnnotations.Builder,
-                            idx: Int,
-                            indices: Array[Int]): VariantCallingAnnotations.Builder = {
+  private[converters] def formatFilters(g: HtsjdkGenotype,
+                                        vcab: VariantCallingAnnotations.Builder,
+                                        idx: Int,
+                                        indices: Array[Int]): VariantCallingAnnotations.Builder = {
     // see https://github.com/samtools/htsjdk/issues/741
     val gtFiltersWereApplied = true
     if (gtFiltersWereApplied) {
@@ -588,30 +588,30 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
     }
   }
 
-  private def formatFisherStrandBias(g: HtsjdkGenotype,
-                                     vcab: VariantCallingAnnotations.Builder,
-                                     idx: Int,
-                                     indices: Array[Int]): VariantCallingAnnotations.Builder = {
+  private[converters] def formatFisherStrandBias(g: HtsjdkGenotype,
+                                                 vcab: VariantCallingAnnotations.Builder,
+                                                 idx: Int,
+                                                 indices: Array[Int]): VariantCallingAnnotations.Builder = {
     Option(g.getExtendedAttribute("FS"))
       .map(attr => {
         vcab.setFisherStrandBiasPValue(attr.asInstanceOf[java.lang.Float])
       }).getOrElse(vcab)
   }
 
-  private def formatRmsMapQ(g: HtsjdkGenotype,
-                            vcab: VariantCallingAnnotations.Builder,
-                            idx: Int,
-                            indices: Array[Int]): VariantCallingAnnotations.Builder = {
+  private[converters] def formatRmsMapQ(g: HtsjdkGenotype,
+                                        vcab: VariantCallingAnnotations.Builder,
+                                        idx: Int,
+                                        indices: Array[Int]): VariantCallingAnnotations.Builder = {
     Option(g.getExtendedAttribute("MQ"))
       .map(attr => {
         vcab.setRmsMapQ(attr.asInstanceOf[java.lang.Float])
       }).getOrElse(vcab)
   }
 
-  private def formatMapQ0(g: HtsjdkGenotype,
-                          vcab: VariantCallingAnnotations.Builder,
-                          idx: Int,
-                          indices: Array[Int]): VariantCallingAnnotations.Builder = {
+  private[converters] def formatMapQ0(g: HtsjdkGenotype,
+                                      vcab: VariantCallingAnnotations.Builder,
+                                      idx: Int,
+                                      indices: Array[Int]): VariantCallingAnnotations.Builder = {
     Option(g.getExtendedAttribute("MQ0"))
       .map(attr => {
         vcab.setMapq0Reads(attr.asInstanceOf[java.lang.Integer])
