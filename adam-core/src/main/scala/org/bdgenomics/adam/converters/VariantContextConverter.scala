@@ -702,6 +702,54 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
     formatMapQ0(_, _, _, _)
   )
 
+  private[converters] def extractFilters(vca: VariantCallingAnnotations,
+                                         gb: GenotypeBuilder): GenotypeBuilder = {
+    Option(vca.getFiltersApplied)
+      .filter(ft => ft)
+      .map(applied => {
+        Option(vca.getFiltersPassed).map(passed => {
+          if (passed) {
+            gb.filters("PASS")
+          } else {
+            val failedFilters = vca.getFiltersFailed
+            require(failedFilters.nonEmpty,
+              "Genotype marked as filtered, but no failed filters listed in %s.".format(vca))
+            gb.filters(failedFilters.mkString(";"))
+          }
+        }).getOrElse({
+          throw new IllegalArgumentException("Filters were applied but filters passed is null in %s.".format(vca))
+        })
+      }).getOrElse(gb.unfiltered())
+  }
+
+  private[converters] def extractFisherStrandBias(vca: VariantCallingAnnotations,
+                                                  gb: GenotypeBuilder): GenotypeBuilder = {
+    Option(vca.getFisherStrandBiasPValue).map(fs => {
+      gb.attribute("FS", fs)
+    }).getOrElse(gb)
+  }
+
+  private[converters] def extractRmsMapQ(vca: VariantCallingAnnotations,
+                                         gb: GenotypeBuilder): GenotypeBuilder = {
+    Option(vca.getRmsMapQ).map(mq => {
+      gb.attribute("MQ", mq)
+    }).getOrElse(gb)
+  }
+
+  private[converters] def extractMapQ0(vca: VariantCallingAnnotations,
+                                       gb: GenotypeBuilder): GenotypeBuilder = {
+    Option(vca.getMapq0Reads).map(mq0 => {
+      gb.attribute("MQ0", mq0)
+    }).getOrElse(gb)
+  }
+
+  private val annotationFormatFieldExtractorFns: Iterable[(VariantCallingAnnotations, GenotypeBuilder) => GenotypeBuilder] = Iterable(
+    extractFilters(_, _),
+    extractFisherStrandBias(_, _),
+    extractRmsMapQ(_, _),
+    extractMapQ0(_, _)
+  )
+
   private def toInt(obj: java.lang.Object): Int = {
     obj.asInstanceOf[java.lang.Integer]
   }
