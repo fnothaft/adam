@@ -988,10 +988,142 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
     convert(_, _, _)
   }
 
+  private def extractorFromLine(
+    headerLine: VCFFormatHeaderLine): (Map[String, String]) => Option[(String, java.lang.Object)] = {
+
+    val id = headerLine.getID
+
+    def toCharAndKey(s: String): (String, java.lang.Object) = {
+
+      require(s.length == 1,
+        "Expected character field: %s.".format(id))
+      val javaChar: java.lang.Character = s(0)
+
+      (id, javaChar.asInstanceOf[java.lang.Object])
+    }
+
+    def toFloatAndKey(s: String): (String, java.lang.Object) = {
+      val javaFloat: java.lang.Float = s.toFloat
+
+      (id, javaFloat.asInstanceOf[java.lang.Object])
+    }
+
+    def toIntAndKey(s: String): (String, java.lang.Object) = {
+      val javaInteger: java.lang.Integer = s.toInt
+
+      (id, javaInteger.asInstanceOf[java.lang.Object])
+    }
+
+    if (headerLine.isFixedCount && headerLine.getCount == 1) {
+      headerLine.getType match {
+        case VCFHeaderLineType.Flag => {
+          throw new IllegalArgumentException("Flag is not supported for Format lines: %s".format(
+            headerLine))
+        }
+        case VCFHeaderLineType.Character => {
+          (m: Map[String, String]) =>
+            {
+              m.get(id).map(toCharAndKey)
+            }
+        }
+        case VCFHeaderLineType.Float => {
+          (m: Map[String, String]) =>
+            {
+              m.get(id).map(toFloatAndKey)
+            }
+        }
+        case VCFHeaderLineType.Integer => {
+          (m: Map[String, String]) =>
+            {
+              m.get(id).map(toIntAndKey)
+            }
+        }
+        case VCFHeaderLineType.String => {
+          (m: Map[String, String]) =>
+            {
+              // don't need to force to the java type, as String in scala is
+              // an alias for java.lang.String
+              m.get(id).map(v => (id, v.asInstanceOf[java.lang.Object]))
+            }
+        }
+      }
+    } else {
+
+      headerLine.getType match {
+        case VCFHeaderLineType.Flag => {
+          throw new IllegalArgumentException("Flag is not supported for Format lines: %s".format(
+            headerLine))
+        }
+        case VCFHeaderLineType.Character => {
+          (m: Map[String, String]) =>
+            {
+              m.get(id).map(v => {
+                (id, v.split(",")
+                  .map(c => {
+                    require(c.length == 1,
+                      "Expected character field: %s in %s.".format(id,
+                        m))
+                    c(0): java.lang.Character
+                  }).asInstanceOf[java.lang.Object])
+              })
+            }
+        }
+        case VCFHeaderLineType.Float => {
+          (m: Map[String, String]) =>
+            {
+              m.get(id).map(v => {
+                (id, v.split(",")
+                  .map(f => {
+                    f.toFloat: java.lang.Float
+                  }).asInstanceOf[java.lang.Object])
+              })
+            }
+        }
+        case VCFHeaderLineType.Integer => {
+          (m: Map[String, String]) =>
+            {
+              m.get(id).map(v => {
+                (id, v.split(",")
+                  .map(i => {
+                    i.toInt: java.lang.Integer
+                  }).asInstanceOf[java.lang.Object])
+              })
+            }
+        }
+        case VCFHeaderLineType.String => {
+          (m: Map[String, String]) =>
+            {
+              // don't need to force to the java type, as String in scala is
+              // an alias for java.lang.String
+              m.get(id).map(v => (id, v.split(",").asInstanceOf[java.lang.Object]))
+            }
+        }
+      }
+    }
+  }
+
   private def makeBdgGenotypeConverter(
     headerLines: Seq[VCFHeaderLine]): (Genotype) => HtsjdkGenotype = {
 
-    val attributeFns: Iterable[(Map[String, String]) => Option[(String, java.lang.Object)]] = Iterable.empty
+    val attributeFns: Iterable[(Map[String, String]) => Option[(String, java.lang.Object)]] = headerLines
+      .flatMap(hl => hl match {
+        case fl: VCFFormatHeaderLine => {
+
+          // get the id of this line
+          val key = fl.getID
+
+          // filter out the lines that we already support
+          if (SupportedHeaderLines.formatHeaderLines
+            .find(_.getID == key)
+            .isEmpty) {
+
+            None
+          } else {
+            Some(extractorFromLine(fl))
+          }
+        }
+        case _ => None
+      })
 
     def convert(g: Genotype): HtsjdkGenotype = {
 
