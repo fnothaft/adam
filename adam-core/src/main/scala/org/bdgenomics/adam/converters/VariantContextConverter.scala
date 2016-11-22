@@ -907,7 +907,7 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
   /**
    *
    */
-  private def makeGenotypeConverter(
+  private def makeHtsjdkGenotypeConverter(
     headerLines: Seq[VCFHeaderLine]): (HtsjdkGenotype, Int, Option[Int]) => Genotype = {
 
     val attributeFns: Iterable[(HtsjdkGenotype, Int, Array[Int]) => Option[(String, String)]] = headerLines
@@ -956,7 +956,6 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
         formatNonRefGenotypeLikelihoods(g, convertedCore, nrIndices)
       })
 
-      // make a variant calling annotation builder
       val vcAnns = VariantCallingAnnotations.newBuilder
 
       // bind the annotation conversion functions and fold
@@ -967,7 +966,7 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
       val convertedAnnotations = boundAnnotationFns.foldLeft(vcAnns)(
         (vcab: VariantCallingAnnotations.Builder, fn) => fn(vcab))
 
-      // pull out an attribute map
+      // pull out the attribute map and process
       val attrMap = attributeFns.flatMap(fn => fn(g, alleleIdx, indices))
         .toMap
 
@@ -987,6 +986,46 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
     }
 
     convert(_, _, _)
+  }
+
+  private def makeBdgGenotypeConverter(
+    headerLines: Seq[VCFHeaderLine]): (Genotype) => HtsjdkGenotype = {
+
+    val attributeFns: Iterable[(Map[String, String]) => Option[(String, java.lang.Object)]] = Iterable.empty
+
+    def convert(g: Genotype): HtsjdkGenotype = {
+
+      // create the builder
+      val builder = new GenotypeBuilder()
+
+      // bind the conversion functions and fold
+      val convertedCore = coreFormatFieldExtractorFns.foldLeft(builder)(
+        (gb: GenotypeBuilder, fn) => fn(g, gb))
+
+      // convert the annotations if they exist
+      val gtWithAnnotations = Option(g.getVariantCallingAnnotations)
+        .fold(convertedCore)(vca => {
+
+          // bind the annotation conversion functions and fold
+          val convertedAnnotations = annotationFormatFieldExtractorFns.foldLeft(convertedCore)(
+            (gb: GenotypeBuilder, fn) => fn(vca, gb))
+
+          // get the attribute map
+          val attributes: Map[String, String] = vca.getAttributes.toMap
+
+          // apply the attribute converters and return
+          attributeFns.foldLeft(convertedAnnotations)((gb: GenotypeBuilder, fn) => {
+            val optAttrPair = fn(attributes)
+
+            optAttrPair.fold(gb)(pair => gb.attribute(pair._1, pair._2))
+          })
+        })
+
+      // build and return
+      gtWithAnnotations.make()
+    }
+
+    convert(_)
   }
 
   /**
