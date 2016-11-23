@@ -44,7 +44,9 @@ object VCFInFormatter extends InFormatterCompanion[VariantContext, VariantContex
    *   VCF header.
    */
   def apply(gRdd: VariantContextRDD): VCFInFormatter = {
-    VCFInFormatter(gRdd.sequences, gRdd.samples.map(_.getSampleId), gRdd.headerLines)
+    VCFInFormatter(gRdd.sequences,
+      gRdd.samples.map(_.getSampleId),
+      gRdd.headerLines)
   }
 }
 
@@ -56,7 +58,8 @@ private[variant] case class VCFInFormatter private (
   protected val companion = VCFInFormatter
 
   // make a converter
-  val converter = new VariantContextConverter(Some(sequences))
+  val converter = new VariantContextConverter()
+  val convFn = converter.makeBdgGenotypeConverter(headerLines)
 
   /**
    * Writes variant contexts to an output stream in VCF format.
@@ -79,8 +82,10 @@ private[variant] case class VCFInFormatter private (
 
     // write the records
     iter.foreach(r => {
-      val vc = converter.convert(r)
-      writer.add(vc)
+      val optVc = converter.convert(r, convFn)
+      optVc.foreach(vc => {
+        writer.add(vc)
+      })
     })
 
     // close the writer, else stream may be defective
