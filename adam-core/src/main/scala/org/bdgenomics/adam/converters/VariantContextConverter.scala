@@ -371,7 +371,11 @@ private[adam] class VariantContextConverter extends Serializable with Logging {
                                              gIndices: Array[Int]): Genotype.Builder = {
     Option(g.getExtendedAttribute("MIN_DP", null))
       .map(attr => {
-        gb.setMinReadDepth(attr.asInstanceOf[java.lang.Integer])
+        tryAndCatchStringCast(attr, attribute => {
+          gb.setMinReadDepth(attribute.asInstanceOf[java.lang.Integer])
+        }, attribute => {
+          gb.setMinReadDepth(attribute.toInt)
+        })
       }).getOrElse(gb)
   }
 
@@ -413,13 +417,44 @@ private[adam] class VariantContextConverter extends Serializable with Logging {
     }
   }
 
+  private def tryAndCatchStringCast[T](attr: java.lang.Object,
+                                       tryFn: (java.lang.Object) => T,
+                                       catchFn: (String) => T): T = {
+    try {
+      tryFn(attr)
+    } catch {
+      case cce: ClassCastException => {
+
+        // is this a string? if so, parse...
+        if (attr.getClass.isAssignableFrom(classOf[String])) {
+          catchFn(attr.asInstanceOf[String])
+        } else {
+          throw cce
+        }
+      }
+      case t: Throwable => throw t
+    }
+  }
+
   private[converters] def formatStrandBiasComponents(g: HtsjdkGenotype,
                                                      gb: Genotype.Builder,
                                                      gIdx: Int,
                                                      gIndices: Array[Int]): Genotype.Builder = {
     Option(g.getExtendedAttribute("SB"))
       .map(attr => {
-        gb.setStrandBiasComponents(attr.asInstanceOf[Array[java.lang.Integer]].toList)
+        tryAndCatchStringCast(
+          attr,
+          attribute => {
+            gb.setStrandBiasComponents(attribute.asInstanceOf[Array[java.lang.Integer]].toSeq)
+          }, attribute => {
+            val components = attribute.split(",")
+            require(components.size == 4,
+              "Strand bias components must have 4 entries. Saw %s in %s.".format(
+                attr, g))
+
+            gb.setStrandBiasComponents(components.map(e => e.toInt: java.lang.Integer)
+              .toSeq)
+          })
       }).getOrElse(gb)
   }
 
@@ -432,12 +467,20 @@ private[adam] class VariantContextConverter extends Serializable with Logging {
 
       Option(g.getExtendedAttribute(VCFConstants.PHASE_SET_KEY))
         .map(attr => {
-          gb.setPhaseSetId(attr.asInstanceOf[java.lang.Integer])
+          tryAndCatchStringCast(attr, attribute => {
+            gb.setPhaseSetId(attribute.asInstanceOf[java.lang.Integer])
+          }, attribute => {
+            gb.setPhaseSetId(attribute.toInt)
+          })
         })
 
       Option(g.getExtendedAttribute(VCFConstants.PHASE_QUALITY_KEY))
         .map(attr => {
-          gb.setPhaseQuality(attr.asInstanceOf[java.lang.Integer])
+          tryAndCatchStringCast(attr, attribute => {
+            gb.setPhaseQuality(attribute.asInstanceOf[java.lang.Integer])
+          }, attribute => {
+            gb.setPhaseQuality(attribute.toInt)
+          })
         })
     }
     gb
@@ -561,7 +604,11 @@ private[adam] class VariantContextConverter extends Serializable with Logging {
                                                  indices: Array[Int]): VariantCallingAnnotations.Builder = {
     Option(g.getExtendedAttribute("FS"))
       .map(attr => {
-        vcab.setFisherStrandBiasPValue(attr.asInstanceOf[java.lang.Float])
+        tryAndCatchStringCast(attr, attribute => {
+          vcab.setFisherStrandBiasPValue(attribute.asInstanceOf[java.lang.Float])
+        }, attribute => {
+          vcab.setFisherStrandBiasPValue(attribute.toFloat)
+        })
       }).getOrElse(vcab)
   }
 
@@ -571,7 +618,11 @@ private[adam] class VariantContextConverter extends Serializable with Logging {
                                         indices: Array[Int]): VariantCallingAnnotations.Builder = {
     Option(g.getExtendedAttribute("MQ"))
       .map(attr => {
-        vcab.setRmsMapQ(attr.asInstanceOf[java.lang.Float])
+        tryAndCatchStringCast(attr, attribute => {
+          vcab.setRmsMapQ(attribute.asInstanceOf[java.lang.Float])
+        }, attribute => {
+          vcab.setRmsMapQ(attribute.toFloat)
+        })
       }).getOrElse(vcab)
   }
 
@@ -581,7 +632,11 @@ private[adam] class VariantContextConverter extends Serializable with Logging {
                                       indices: Array[Int]): VariantCallingAnnotations.Builder = {
     Option(g.getExtendedAttribute("MQ0"))
       .map(attr => {
-        vcab.setMapq0Reads(attr.asInstanceOf[java.lang.Integer])
+        tryAndCatchStringCast(attr, attribute => {
+          vcab.setMapq0Reads(attribute.asInstanceOf[java.lang.Integer])
+        }, attribute => {
+          vcab.setMapq0Reads(attribute.toInt)
+        })
       }).getOrElse(vcab)
   }
 
@@ -641,15 +696,24 @@ private[adam] class VariantContextConverter extends Serializable with Logging {
   )
 
   private def toInt(obj: java.lang.Object): Int = {
-    obj.asInstanceOf[java.lang.Integer]
+    tryAndCatchStringCast(obj, o => {
+      o.asInstanceOf[java.lang.Integer]
+    }, o => o.toInt)
   }
 
   private def toChar(obj: java.lang.Object): Char = {
-    obj.asInstanceOf[java.lang.Character]
+    tryAndCatchStringCast(obj, o => {
+      o.asInstanceOf[java.lang.Character]
+    }, o => {
+      require(o.length == 1, "Expected character to have length 1.")
+      o(0)
+    })
   }
 
   private def toFloat(obj: java.lang.Object): Float = {
-    obj.asInstanceOf[java.lang.Float]
+    tryAndCatchStringCast(obj, o => {
+      o.asInstanceOf[java.lang.Float]
+    }, o => o.toFloat)
   }
 
   // don't shadow toString
@@ -658,23 +722,40 @@ private[adam] class VariantContextConverter extends Serializable with Logging {
   }
 
   private def toIntArray(obj: java.lang.Object): Array[Int] = {
-    obj.asInstanceOf[Array[java.lang.Integer]]
-      .map(i => i: Int)
+    tryAndCatchStringCast(obj, o => {
+      o.asInstanceOf[Array[java.lang.Integer]]
+        .map(i => i: Int)
+    }, o => {
+      o.split(",").map(_.toInt)
+    })
   }
 
   private def toCharArray(obj: java.lang.Object): Array[Char] = {
-    obj.asInstanceOf[Array[java.lang.Character]]
-      .map(c => c: Char)
+    tryAndCatchStringCast(obj, o => {
+      o.asInstanceOf[Array[java.lang.Character]]
+        .map(c => c: Char)
+    }, o => {
+      o.split(",").map(s => {
+        require(s.length == 1, "Expected character to have length 1.")
+        s(0)
+      })
+    })
   }
 
   private def toFloatArray(obj: java.lang.Object): Array[Float] = {
-    obj.asInstanceOf[Array[java.lang.Float]]
-      .map(f => f: Float)
+    tryAndCatchStringCast(obj, o => {
+      o.asInstanceOf[Array[java.lang.Float]]
+        .map(f => f: Float)
+    }, o => {
+      o.split(",").map(_.toFloat)
+    })
   }
 
   private def toStringArray(obj: java.lang.Object): Array[String] = {
-    obj.asInstanceOf[Array[java.lang.String]]
-      .map(s => s: String)
+    tryAndCatchStringCast(obj, o => {
+      o.asInstanceOf[Array[java.lang.String]]
+        .map(s => s: String)
+    }, o => o.split(","))
   }
 
   private def filterArray[T](array: Array[T],
