@@ -691,7 +691,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
     assert(smallRecords === newRecords)
   }
 
-  ignore("read vcf from alignment record pipe") {
+  sparkTest("read vcf from alignment record pipe") {
     val readsPath = testFile("small.1.sam")
     val vcfPath = testFile("small.vcf")
     val scriptPath = testFile("test_command.sh")

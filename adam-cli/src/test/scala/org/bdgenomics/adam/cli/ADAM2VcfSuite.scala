@@ -21,7 +21,7 @@ import org.bdgenomics.adam.util.ADAMFunSuite
 
 class ADAM2VcfSuite extends ADAMFunSuite {
 
-  ignore("save a file sorted by contig index") {
+  sparkTest("save a file sorted by contig index") {
     val inputPath = copyResource("random.vcf")
     val intermediatePath = tmpFile("variants.adam")
     val outputPath = tmpFile("sorted.vcf")
@@ -35,7 +35,7 @@ class ADAM2VcfSuite extends ADAMFunSuite {
     checkFiles(outputPath, copyResource("sorted.vcf"))
   }
 
-  ignore("save a lexicographically sorted file") {
+  sparkTest("save a lexicographically sorted file") {
     val inputPath = copyResource("random.vcf")
     val intermediatePath = tmpFile("variants.lex.adam")
     val outputPath = tmpFile("sorted.lex.vcf")
