@@ -836,4 +836,370 @@ class VariantContextConverterSuite extends ADAMFunSuite {
 
     assert(vca.getMapq0Reads === 100)
   }
+
+  def emptyGt: Genotype = Genotype.newBuilder.build
+  def newGb: GenotypeBuilder = new GenotypeBuilder
+
+  test("no allelic depth going adam->htsjdk") {
+    val converter = new VariantContextConverter
+    val g = converter.extractAllelicDepth(emptyGt, newGb)
+      .make
+
+    assert(!g.hasAD)
+  }
+
+  test("extract allelic depth going adam->htsjdk") {
+    val converter = new VariantContextConverter
+    val g = converter.extractAllelicDepth(Genotype.newBuilder
+      .setReferenceReadDepth(10)
+      .setAlternateReadDepth(15)
+      .build, newGb)
+      .make
+
+    assert(g.hasAD)
+    val attr = g.getAD
+    assert(attr.length === 2)
+    assert(attr(0) === 10)
+    assert(attr(1) === 15)
+  }
+
+  test("throw iae if missing one component of allelic depth going adam->htsjdk") {
+    val converter = new VariantContextConverter
+
+    intercept[IllegalArgumentException] {
+      val g = converter.extractAllelicDepth(Genotype.newBuilder
+        .setAlternateReadDepth(15)
+        .build, newGb)
+    }
+
+    intercept[IllegalArgumentException] {
+      val g = converter.extractAllelicDepth(Genotype.newBuilder
+        .setReferenceReadDepth(10)
+        .build, newGb)
+    }
+  }
+
+  test("no depth going adam->htsjdk") {
+    val converter = new VariantContextConverter
+    val g = converter.extractReadDepth(emptyGt, newGb)
+      .make
+
+    assert(!g.hasDP)
+  }
+
+  test("extract depth going adam->htsjdk") {
+    val converter = new VariantContextConverter
+    val g = converter.extractReadDepth(Genotype.newBuilder
+      .setReadDepth(100)
+      .build, newGb)
+      .make
+
+    assert(g.hasDP)
+    assert(g.getDP === 100)
+  }
+
+  test("no min depth going adam->htsjdk") {
+    val converter = new VariantContextConverter
+    val g = converter.extractMinReadDepth(emptyGt, newGb)
+      .make
+
+    assert(!g.hasExtendedAttribute("MIN_DP"))
+  }
+
+  test("extract min depth going adam->htsjdk") {
+    val converter = new VariantContextConverter
+    val g = converter.extractMinReadDepth(Genotype.newBuilder
+      .setMinReadDepth(1234)
+      .build, newGb)
+      .make
+
+    assert(g.hasExtendedAttribute("MIN_DP"))
+    val attr = g.getExtendedAttribute("MIN_DP")
+      .asInstanceOf[java.lang.Integer]
+    assert(attr === 1234)
+  }
+
+  test("no quality going adam->htsjdk") {
+    val converter = new VariantContextConverter
+    val g = converter.extractGenotypeQuality(emptyGt, newGb)
+      .make
+
+    assert(!g.hasGQ)
+  }
+
+  test("extract quality going adam->htsjdk") {
+    val converter = new VariantContextConverter
+    val g = converter.extractGenotypeQuality(Genotype.newBuilder
+      .setGenotypeQuality(10)
+      .build, newGb)
+      .make
+
+    assert(g.hasGQ)
+    assert(g.getGQ === 10)
+  }
+
+  test("no genotype likelihoods going adam->htsjdk") {
+    val converter = new VariantContextConverter
+    val g = converter.extractGenotypeLikelihoods(emptyGt, newGb)
+      .make
+
+    assert(!g.hasPL)
+  }
+
+  test("extract genotype likelihoods going adam->htsjdk") {
+    val converter = new VariantContextConverter
+    val g = converter.extractGenotypeLikelihoods(Genotype.newBuilder
+      .setGenotypeLikelihoods(Seq(-0.1f, -0.001f, -0.000001f)
+        .map(f => f: java.lang.Float))
+      .build, newGb)
+      .make
+
+    assert(g.hasPL)
+    val pls = g.getPL
+    assert(pls.size === 3)
+    assert(pls(0) <= 11 && pls(0) >= 9)
+    assert(pls(1) <= 31 && pls(1) >= 29)
+    assert(pls(2) <= 61 && pls(2) >= 59)
+  }
+
+  test("no strand bias going adam->htsjdk") {
+    val converter = new VariantContextConverter
+    val g = converter.extractStrandBiasComponents(emptyGt, newGb)
+      .make
+
+    assert(!g.hasExtendedAttribute("SB"))
+  }
+
+  test("malformed strand bias going adam->htsjdk") {
+    val converter = new VariantContextConverter
+
+    intercept[IllegalArgumentException] {
+      val g = converter.extractStrandBiasComponents(Genotype.newBuilder
+        .setStrandBiasComponents(Seq(0, 10)
+          .map(i => i: java.lang.Integer))
+        .build, newGb)
+    }
+  }
+
+  test("extract strand bias going adam->htsjdk") {
+    val converter = new VariantContextConverter
+    val g = converter.extractStrandBiasComponents(Genotype.newBuilder
+      .setStrandBiasComponents(Seq(0, 10, 5, 3)
+        .map(i => i: java.lang.Integer))
+      .build, newGb)
+      .make
+
+    assert(g.hasExtendedAttribute("SB"))
+    val sb = g.getExtendedAttribute("SB").asInstanceOf[Array[Int]]
+    assert(sb.length === 4)
+    assert(sb(0) === 0)
+    assert(sb(1) === 10)
+    assert(sb(2) === 5)
+    assert(sb(3) === 3)
+  }
+
+  test("no phasing info going adam->htsjdk") {
+    val converter = new VariantContextConverter
+    val g = converter.extractPhaseInfo(emptyGt, newGb)
+      .make
+
+    assert(!g.isPhased)
+  }
+
+  test("unphased going adam->htsjdk") {
+    val converter = new VariantContextConverter
+    val g = converter.extractPhaseInfo(Genotype.newBuilder
+      .setPhased(false)
+      .build, newGb)
+      .make
+
+    assert(!g.isPhased)
+  }
+
+  test("phased but no ps/pq going adam->htsjdk") {
+    val converter = new VariantContextConverter
+    val g = converter.extractPhaseInfo(Genotype.newBuilder
+      .setPhased(true)
+      .build, newGb)
+      .make
+
+    assert(g.isPhased)
+    assert(!g.hasExtendedAttribute("PS"))
+    assert(!g.hasExtendedAttribute("PQ"))
+  }
+
+  test("phased but no pq going adam->htsjdk") {
+    val converter = new VariantContextConverter
+    val g = converter.extractPhaseInfo(Genotype.newBuilder
+      .setPhased(true)
+      .setPhaseSetId(54321)
+      .build, newGb)
+      .make
+
+    assert(g.isPhased)
+    assert(g.hasExtendedAttribute("PS"))
+    assert(g.getExtendedAttribute("PS").asInstanceOf[java.lang.Integer] === 54321)
+    assert(!g.hasExtendedAttribute("PQ"))
+  }
+
+  test("phased but no ps going adam->htsjdk") {
+    val converter = new VariantContextConverter
+    val g = converter.extractPhaseInfo(Genotype.newBuilder
+      .setPhased(true)
+      .setPhaseQuality(65)
+      .build, newGb)
+      .make
+
+    assert(g.isPhased)
+    assert(!g.hasExtendedAttribute("PS"))
+    assert(g.hasExtendedAttribute("PQ"))
+    assert(g.getExtendedAttribute("PQ").asInstanceOf[java.lang.Integer] === 65)
+  }
+
+  test("phased going adam->htsjdk") {
+    val converter = new VariantContextConverter
+    val g = converter.extractPhaseInfo(Genotype.newBuilder
+      .setPhased(true)
+      .setPhaseSetId(4444)
+      .setPhaseQuality(10)
+      .build, newGb)
+      .make
+
+    assert(g.isPhased)
+    assert(g.hasExtendedAttribute("PS"))
+    assert(g.getExtendedAttribute("PS").asInstanceOf[java.lang.Integer] === 4444)
+    assert(g.hasExtendedAttribute("PS"))
+    assert(g.getExtendedAttribute("PQ").asInstanceOf[java.lang.Integer] === 10)
+  }
+
+  def emptyVca = VariantCallingAnnotations.newBuilder.build
+
+  test("no filter info going adam->htsjdk") {
+    val converter = new VariantContextConverter
+    val g = converter.extractFilters(emptyVca, newGb)
+      .make
+
+    assert(!g.isFiltered)
+  }
+
+  test("if filters applied, must set passed/failed going adam->htsjdk") {
+    val converter = new VariantContextConverter
+
+    intercept[IllegalArgumentException] {
+      val g = converter.extractFilters(VariantCallingAnnotations.newBuilder
+        .setFiltersApplied(true)
+        .build, newGb)
+        .make
+    }
+  }
+
+  test("filters passed going adam->htsjdk") {
+    val converter = new VariantContextConverter
+    val g = converter.extractFilters(VariantCallingAnnotations.newBuilder
+      .setFiltersApplied(true)
+      .setFiltersPassed(true)
+      .build, newGb)
+      .make
+
+    assert(!g.isFiltered)
+    // yahtzee! should be "PASS", but htsjdk has weird conventions.
+    assert(g.getFilters === null)
+  }
+
+  test("if filters failed, must set filters failed going adam->htsjdk") {
+    val converter = new VariantContextConverter
+
+    intercept[IllegalArgumentException] {
+      val g = converter.extractFilters(VariantCallingAnnotations.newBuilder
+        .setFiltersApplied(true)
+        .setFiltersPassed(false)
+        .build, newGb)
+        .make
+    }
+  }
+
+  test("single filter failed going adam->htsjdk") {
+    val converter = new VariantContextConverter
+    val g = converter.extractFilters(VariantCallingAnnotations.newBuilder
+      .setFiltersApplied(true)
+      .setFiltersPassed(false)
+      .setFiltersFailed(Seq("lowmq"))
+      .build, newGb)
+      .make
+
+    assert(g.isFiltered)
+    assert(g.getFilters === "lowmq")
+  }
+
+  test("multiple filters failed going adam->htsjdk") {
+    val converter = new VariantContextConverter
+    val g = converter.extractFilters(VariantCallingAnnotations.newBuilder
+      .setFiltersApplied(true)
+      .setFiltersPassed(false)
+      .setFiltersFailed(Seq("lowmq", "lowdp"))
+      .build, newGb)
+      .make
+
+    assert(g.isFiltered)
+    assert(g.getFilters === "lowmq;lowdp")
+  }
+
+  test("no fisher strand bias going adam->htsjdk") {
+    val converter = new VariantContextConverter
+    val g = converter.extractFisherStrandBias(emptyVca, newGb)
+      .make
+
+    assert(!g.hasExtendedAttribute("FS"))
+  }
+
+  test("extract fisher strand bias going adam->htsjdk") {
+    val converter = new VariantContextConverter
+    val g = converter.extractFisherStrandBias(VariantCallingAnnotations.newBuilder
+      .setFisherStrandBiasPValue(20.0f)
+      .build, newGb)
+      .make
+
+    assert(g.hasExtendedAttribute("FS"))
+    val fs = g.getExtendedAttribute("FS").asInstanceOf[java.lang.Float]
+    assert(fs > 19.9f && fs < 20.1f)
+  }
+
+  test("no rms mapping quality going adam->htsjdk") {
+    val converter = new VariantContextConverter
+    val g = converter.extractRmsMapQ(emptyVca, newGb)
+      .make
+
+    assert(!g.hasExtendedAttribute("MQ"))
+  }
+
+  test("extract rms mapping quality going adam->htsjdk") {
+    val converter = new VariantContextConverter
+    val g = converter.extractRmsMapQ(VariantCallingAnnotations.newBuilder
+      .setRmsMapQ(40.0f)
+      .build, newGb)
+      .make
+
+    assert(g.hasExtendedAttribute("MQ"))
+    val mq = g.getExtendedAttribute("MQ").asInstanceOf[java.lang.Float]
+    assert(mq > 39.9f && mq < 40.1f)
+  }
+
+  test("no mapping quality 0 reads going adam->htsjdk") {
+    val converter = new VariantContextConverter
+    val g = converter.extractMapQ0(emptyVca, newGb)
+      .make
+
+    assert(!g.hasExtendedAttribute("MQ0"))
+  }
+
+  test("extract mapping quality 0 reads going adam->htsjdk") {
+    val converter = new VariantContextConverter
+    val g = converter.extractMapQ0(VariantCallingAnnotations.newBuilder
+      .setMapq0Reads(5)
+      .build, newGb)
+      .make
+
+    assert(g.hasExtendedAttribute("MQ0"))
+    assert(g.getExtendedAttribute("MQ0").asInstanceOf[java.lang.Integer] === 5)
+  }
 }

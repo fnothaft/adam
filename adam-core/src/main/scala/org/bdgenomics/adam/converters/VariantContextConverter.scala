@@ -572,8 +572,14 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
   private[converters] def extractAllelicDepth(g: Genotype,
                                               gb: GenotypeBuilder): GenotypeBuilder = {
     (Option(g.getReferenceReadDepth), Option(g.getAlternateReadDepth)) match {
-      case (Some(ref), Some(alt)) => gb.attribute("AD", Array(ref, alt))
-      case _                      => gb
+      case (Some(ref), Some(alt)) => gb.AD(Array(ref, alt))
+      case (Some(_), None) => {
+        throw new IllegalArgumentException("Had reference depth but no alternate depth in %s.".format(g))
+      }
+      case (None, Some(_)) => {
+        throw new IllegalArgumentException("Had alternate depth but no reference depth in %s.".format(g))
+      }
+      case _ => gb.noAD
     }
   }
 
@@ -589,7 +595,7 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
 
   private[converters] def extractGenotypeQuality(g: Genotype,
                                                  gb: GenotypeBuilder): GenotypeBuilder = {
-    Option(g.getGenotypeQuality).fold(gb)(gq => gb.GQ(gq))
+    Option(g.getGenotypeQuality).fold(gb.noGQ)(gq => gb.GQ(gq))
   }
 
   private[converters] def extractGenotypeLikelihoods(g: Genotype,
@@ -614,7 +620,7 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
     } else {
       require(components.size == 4,
         "Illegal strand bias components length. Must be empty or 4. In:\n%s".format(g))
-      gb.attribute("SB", components.toArray)
+      gb.attribute("SB", components.map(i => i: Int).toArray)
     }
   }
 
