@@ -721,12 +721,23 @@ private[adam] class VariantContextConverter extends Serializable with Logging {
     obj.asInstanceOf[java.lang.String]
   }
 
+  private def splitAndCheckForEmptyArray(s: String): Array[String] = {
+    val array = s.split(",")
+    if (array.forall(_ == ".")) {
+      Array.empty
+    } else {
+      require(array.forall(_ != "."),
+        "Array must either be fully defined or fully undefined.")
+      array
+    }
+  }
+
   private def toIntArray(obj: java.lang.Object): Array[Int] = {
     tryAndCatchStringCast(obj, o => {
       o.asInstanceOf[Array[java.lang.Integer]]
         .map(i => i: Int)
     }, o => {
-      o.split(",").map(_.toInt)
+      splitAndCheckForEmptyArray(o).map(_.toInt)
     })
   }
 
@@ -735,7 +746,7 @@ private[adam] class VariantContextConverter extends Serializable with Logging {
       o.asInstanceOf[Array[java.lang.Character]]
         .map(c => c: Char)
     }, o => {
-      o.split(",").map(s => {
+      splitAndCheckForEmptyArray(o).map(s => {
         require(s.length == 1, "Expected character to have length 1.")
         s(0)
       })
@@ -747,7 +758,7 @@ private[adam] class VariantContextConverter extends Serializable with Logging {
       o.asInstanceOf[Array[java.lang.Float]]
         .map(f => f: Float)
     }, o => {
-      o.split(",").map(_.toFloat)
+      splitAndCheckForEmptyArray(o).map(_.toFloat)
     })
   }
 
@@ -755,7 +766,7 @@ private[adam] class VariantContextConverter extends Serializable with Logging {
     tryAndCatchStringCast(obj, o => {
       o.asInstanceOf[Array[java.lang.String]]
         .map(s => s: String)
-    }, o => o.split(","))
+    }, o => splitAndCheckForEmptyArray(o))
   }
 
   private def filterArray[T](array: Array[T],
@@ -773,6 +784,7 @@ private[adam] class VariantContextConverter extends Serializable with Logging {
                                   indices: List[Int]): Option[(String, List[String])] = {
     Option(g.getExtendedAttribute(id))
       .map(toFn)
+      .filter(_.nonEmpty)
       .map(filterArray(_, indices))
       .map(v => (id, v))
   }
@@ -783,6 +795,7 @@ private[adam] class VariantContextConverter extends Serializable with Logging {
                                  idx: Int): Option[(String, String)] = {
     Option(g.getExtendedAttribute(id))
       .map(toFn)
+      .filter(_.nonEmpty)
       .map(array => (id, array(idx)))
   }
 
@@ -893,9 +906,9 @@ private[adam] class VariantContextConverter extends Serializable with Logging {
             .find(_.getID == key)
             .isEmpty) {
 
-            None
-          } else {
             Some(lineToExtractor(fl))
+          } else {
+            None
           }
         }
         case _ => None
