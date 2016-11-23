@@ -127,7 +127,7 @@ class VariantContextRDDSuite extends ADAMFunSuite {
     val records = rdd.rdd.count
 
     implicit val tFormatter = VCFInFormatter
-    implicit val uFormatter = new VCFOutFormatter
+    implicit val uFormatter = new VCFOutFormatter(rdd.headerLines)
 
     val pipedRdd: VariantContextRDD = rdd.pipe[VariantContext, VariantContextRDD, VCFInFormatter]("tee /dev/null")
       .transform(_.cache())

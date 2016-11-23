@@ -167,15 +167,15 @@ private[adam] class VariantContextConverter extends Serializable with Logging {
    * @param vc GATK Variant context to convert.
    * @return ADAM variant contexts
    */
-  def convert(vc: HtsjdkVariantContext): Seq[ADAMVariantContext] = {
-
-    // INFO field variant calling annotations, e.g. MQ
-    lazy val calling_annotations: VariantCallingAnnotations = extractVariantCallingAnnotations(vc)
+  def convert(vc: HtsjdkVariantContext,
+              convFn: (HtsjdkGenotype, Variant, Allele, Int, Option[Int], Boolean) => Genotype): Seq[ADAMVariantContext] = {
 
     vc.getAlternateAlleles.toList match {
       case List(NON_REF_ALLELE) => {
         val variant = createADAMVariant(vc, None /* No alternate allele */ )
-        val genotypes = extractReferenceGenotypes(vc, variant, calling_annotations)
+        val genotypes = vc.getGenotypes.map(g => {
+          convFn(g, variant, NON_REF_ALLELE, 0, Some(1), false)
+        })
         return Seq(ADAMVariantContext(variant, genotypes, None))
       }
       case List(allele) => {
@@ -184,7 +184,9 @@ private[adam] class VariantContextConverter extends Serializable with Logging {
           "Assertion failed when converting: " + vc.toString
         )
         val variant = createADAMVariant(vc, Some(allele.getDisplayString))
-        val genotypes = extractReferenceModelGenotypes(vc, variant, calling_annotations)
+        val genotypes = vc.getGenotypes.map(g => {
+          convFn(g, variant, allele, 1, None, false)
+        })
         return Seq(ADAMVariantContext(variant, genotypes, None))
       }
       case List(allele, NON_REF_ALLELE) => {
@@ -193,7 +195,9 @@ private[adam] class VariantContextConverter extends Serializable with Logging {
           "Assertion failed when converting: " + vc.toString
         )
         val variant = createADAMVariant(vc, Some(allele.getDisplayString))
-        val genotypes = extractReferenceModelGenotypes(vc, variant, calling_annotations)
+        val genotypes = vc.getGenotypes.map(g => {
+          convFn(g, variant, allele, 1, Some(2), false)
+        })
         return Seq(ADAMVariantContext(variant, genotypes, None))
       }
       case _ => {
@@ -202,11 +206,11 @@ private[adam] class VariantContextConverter extends Serializable with Logging {
         // is the last allele the non-ref allele?
         val alleles = vc.getAlternateAlleles.toSeq
         val referenceModelIndex = if (alleles.nonEmpty && alleles.last == NON_REF_ALLELE) {
-          alleles.length - 1
+          Some(alleles.length - 1)
         } else {
-          -1
+          None
         }
-        val altAlleles = if (referenceModelIndex > 0) {
+        val altAlleles = if (referenceModelIndex.isDefined) {
           alleles.dropRight(1)
         } else {
           alleles
@@ -215,63 +219,13 @@ private[adam] class VariantContextConverter extends Serializable with Logging {
         return altAlleles.flatMap(allele => {
           val idx = vc.getAlleleIndex(allele)
           require(idx >= 1, "Unexpected index for alternate allele: " + vc.toString)
-          vcb.alleles(List(vc.getReference, allele, NON_REF_ALLELE))
+          val variant = createADAMVariant(vc, Some(allele.getDisplayString))
 
-          def punchOutGenotype(g: HtsjdkGenotype, idx: Int): HtsjdkGenotype = {
-
-            val gb = new GenotypeBuilder(g)
-
-            if (g.hasAD) {
-              val ad = g.getAD
-              gb.AD(Array(ad(0), ad(idx)))
-            }
-
-            // Recompute PLs as needed to reflect stripped alleles.
-            // TODO: Collapse other alternate alleles into a single set of probabilities.
-            if (g.hasPL) {
-              val oldPLs = g.getPL
-              val maxIdx = oldPLs.length
-
-              def extractPls(idx0: Int, idx1: Int): Array[Int] = {
-                GenotypeLikelihoods.getPLIndecesOfAlleles(0, idx).map(idx => {
-                  require(idx < maxIdx, "Got out-of-range index (%d) for allele %s in %s.".format(
-                    idx, allele, vc))
-                  oldPLs(idx)
-                })
-              }
-
-              val newPLs = extractPls(0, idx)
-              val referencePLs = if (referenceModelIndex > 0) {
-                try {
-                  extractPls(idx, referenceModelIndex)
-                } catch {
-                  case iae: IllegalArgumentException => {
-                    log.warn("Caught exception (%s) when trying to build reference model for allele %s at %s. Ignoring...".format(
-                      iae.getMessage, allele, g))
-                    Array.empty
-                  }
-                }
-              } else {
-                Array.empty
-              }
-              gb.PL(newPLs ++ referencePLs)
-            }
-            gb.make
-          }
-
-          // We purposely retain "invalid" genotype alleles, that will eventually become
-          // "OtherAlt" entries, but won't validate against the reduced VariantContext
-          val gc = GenotypesContext.create // Fixup genotypes
-          gc.addAll(vc.getGenotypes.map(punchOutGenotype(_, idx)))
-          vcb.genotypesNoValidation(gc)
-
-          // Recursively convert now bi-allelic VariantContexts, setting any multi-allelic
-          // specific fields afterwards
-          val adamVCs = convert(vcb.make)
-          adamVCs.flatMap(_.genotypes).foreach(g => g.put(splitFromMultiAllelicField.pos, true))
-          adamVCs
+          val genotypes = vc.getGenotypes.map(g => {
+            convFn(g, variant, allele, idx, referenceModelIndex, true)
+          })
+          Seq(ADAMVariantContext(variant, genotypes, None))
         })
-
       }
     }
   }
@@ -385,75 +339,6 @@ private[adam] class VariantContextConverter extends Serializable with Logging {
     ???
   }
 
-  /**
-   * For a given VCF line, pulls out the per-sample genotype calls in Avro.
-   *
-   * @param vc htsjdk variant context representing a VCF line.
-   * @param variant Avro description for the called site.
-   * @param annotations The variant calling annotations for this site.
-   * @param setPL A function that maps across Genotype.Builders and sets the
-   *   phred-based likelihood for a genotype called at a site.
-   * @return Returns a seq containing all of the genotypes called at a single
-   *   variant site.
-   *
-   * @see extractReferenceGenotypes
-   * @see extractNonReferenceGenotypes
-   * @see extractReferenceModelGenotypes
-   */
-  private def extractGenotypes(
-    vc: HtsjdkVariantContext,
-    variant: Variant,
-    annotations: VariantCallingAnnotations,
-    setPL: (HtsjdkGenotype, Genotype.Builder) => Unit): Seq[Genotype] = {
-
-    // dupe variant, get contig name/start/end and null out
-    val contigName = variant.getContigName
-    val start = variant.getStart
-    val end = variant.getEnd
-    val newVariant = Variant.newBuilder(variant)
-      .setContigName(null)
-      .setStart(null)
-      .setEnd(null)
-      .build()
-
-    val genotypes: Seq[Genotype] = vc.getGenotypes.map(
-      (g: HtsjdkGenotype) => {
-        val genotype: Genotype.Builder = Genotype.newBuilder
-          .setVariant(newVariant)
-          .setContigName(contigName)
-          .setStart(start)
-          .setEnd(end)
-          .setSampleId(g.getSampleName)
-          .setAlleles(g.getAlleles.map(VariantContextConverter.convertAllele(vc, _)))
-          .setPhased(g.isPhased)
-
-        // copy variant calling annotations to update filter attributes
-        // (because the htsjdk Genotype is not available when build is called upstream)
-        val copy = VariantCallingAnnotations.newBuilder(annotations)
-        // htsjdk does not provide a field filtersWereApplied for genotype as it does in VariantContext
-        copy.setFiltersApplied(true)
-        copy.setFiltersPassed(!g.isFiltered)
-        if (g.isFiltered) {
-          copy.setFiltersFailed(Splitter.on(";").splitToList(g.getFilters))
-        }
-        genotype.setVariantCallingAnnotations(copy.build())
-
-        if (g.hasGQ) genotype.setGenotypeQuality(g.getGQ)
-        if (g.hasDP) genotype.setReadDepth(g.getDP)
-
-        if (g.hasAD) {
-          val ad = g.getAD
-          genotype.setReferenceReadDepth(ad(0)).setAlternateReadDepth(ad(1))
-        }
-        setPL(g, genotype)
-
-        ???
-      }
-    ).toSeq
-
-    genotypes
-  }
-
   private[converters] def formatAllelicDepth(g: HtsjdkGenotype,
                                              gb: Genotype.Builder,
                                              gIdx: Int,
@@ -463,7 +348,7 @@ private[adam] class VariantContextConverter extends Serializable with Logging {
     if (g.hasAD) {
       val ad = g.getAD
       gb.setReferenceReadDepth(ad(0))
-        .setAlternateReadDepth(ad(gIdx + 1))
+        .setAlternateReadDepth(ad(gIdx))
     } else {
       gb
     }
@@ -912,8 +797,8 @@ private[adam] class VariantContextConverter extends Serializable with Logging {
   /**
    *
    */
-  private def makeHtsjdkGenotypeConverter(
-    headerLines: Seq[VCFHeaderLine]): (HtsjdkGenotype, Int, Option[Int]) => Genotype = {
+  def makeHtsjdkGenotypeConverter(
+    headerLines: Seq[VCFHeaderLine]): (HtsjdkGenotype, Variant, Allele, Int, Option[Int], Boolean) => Genotype = {
 
     val attributeFns: Iterable[(HtsjdkGenotype, Int, Array[Int]) => Option[(String, String)]] = headerLines
       .flatMap(hl => hl match {
@@ -936,14 +821,42 @@ private[adam] class VariantContextConverter extends Serializable with Logging {
       })
 
     def convert(g: HtsjdkGenotype,
+                variant: Variant,
+                allele: Allele,
                 alleleIdx: Int,
-                nonRefIndex: Option[Int]): Genotype = {
-
-      // indices
-      val indices = GenotypeLikelihoods.getPLIndecesOfAlleles(0, alleleIdx)
+                nonRefIndex: Option[Int],
+                wasSplit: Boolean): Genotype = {
 
       // create the builder
       val builder = Genotype.newBuilder()
+        .setVariant(variant)
+        .setContigName(variant.getContigName)
+        .setStart(variant.getStart)
+        .setEnd(variant.getEnd)
+        .setSampleId(g.getSampleName)
+        .setAlleles(g.getAlleles.map(gtAllele => {
+          if (gtAllele.isReference) {
+            GenotypeAllele.REF
+          } else if (gtAllele.isNoCall) {
+            GenotypeAllele.NO_CALL
+          } else if (gtAllele.equals(allele, true)) {
+            GenotypeAllele.ALT
+          } else {
+            GenotypeAllele.OTHER_ALT
+          }
+        }))
+
+      // was this split?
+      if (wasSplit) {
+        builder.setSplitFromMultiAllelic(true)
+      }
+
+      // get array indices
+      val indices = if (alleleIdx > 0) {
+        GenotypeLikelihoods.getPLIndecesOfAlleles(0, alleleIdx)
+      } else {
+        Array.empty[Int]
+      }
 
       // bind the conversion functions and fold
       val boundFns: Iterable[Genotype.Builder => Genotype.Builder] = coreFormatFieldConversionFns
@@ -990,7 +903,7 @@ private[adam] class VariantContextConverter extends Serializable with Logging {
       gtWithAnnotations.build()
     }
 
-    convert(_, _, _)
+    convert(_, _, _, _, _, _)
   }
 
   private def extractorFromLine(
@@ -1167,74 +1080,6 @@ private[adam] class VariantContextConverter extends Serializable with Logging {
     }
 
     convert(_)
-  }
-
-  /**
-   * For a given VCF line with ref + alt calls, pulls out the per-sample
-   * genotype calls in Avro.
-   *
-   * @param vc htsjdk variant context representing a VCF line.
-   * @param variant Avro description for the called site.
-   * @param annotations The variant calling annotations for this site.
-   * @return Returns a seq containing all of the genotypes called at a single
-   *   variant site.
-   *
-   * @see extractGenotypes
-   */
-  private def extractNonReferenceGenotypes(vc: HtsjdkVariantContext,
-                                           variant: Variant,
-                                           annotations: VariantCallingAnnotations): Seq[Genotype] = {
-    assert(vc.isBiallelic)
-    extractGenotypes(vc, variant, annotations,
-      (g: HtsjdkGenotype, b: Genotype.Builder) => {
-        if (g.hasPL) b.setGenotypeLikelihoods(g.getPL.toList.map(p => jFloat(PhredUtils.phredToLogProbability(p))))
-      })
-  }
-
-  /**
-   * For a given VCF line with reference calls, pulls out the per-sample
-   * genotype calls in Avro.
-   *
-   * @param vc htsjdk variant context representing a VCF line.
-   * @param variant Avro description for the called site.
-   * @param annotations The variant calling annotations for this site.
-   * @return Returns a seq containing all of the genotypes called at a single
-   *   variant site.
-   *
-   * @see extractGenotypes
-   */
-  private def extractReferenceGenotypes(vc: HtsjdkVariantContext,
-                                        variant: Variant,
-                                        annotations: VariantCallingAnnotations): Seq[Genotype] = {
-    assert(vc.isBiallelic)
-    extractGenotypes(vc, variant, annotations, (g, b) => {
-      if (g.hasPL) b.setNonReferenceLikelihoods(g.getPL.toList.map(p => jFloat(PhredUtils.phredToLogProbability(p))))
-    })
-  }
-
-  /**
-   * For a given VCF line with symbolic alleles (a la gVCF), pulls out the
-   * per-sample genotype calls in Avro.
-   *
-   * @param vc htsjdk variant context representing a VCF line.
-   * @param variant Avro description for the called site.
-   * @param annotations The variant calling annotations for this site.
-   * @return Returns a seq containing all of the genotypes called at a single
-   *   variant site.
-   *
-   * @see extractGenotypes
-   */
-  private def extractReferenceModelGenotypes(vc: HtsjdkVariantContext,
-                                             variant: Variant,
-                                             annotations: VariantCallingAnnotations): Seq[Genotype] = {
-    extractGenotypes(vc, variant, annotations, (g, b) => {
-      if (g.hasPL) {
-        val pls = g.getPL.map(p => jFloat(PhredUtils.phredToLogProbability(p)))
-        val splitAt: Int = g.getPloidy + 1
-        b.setGenotypeLikelihoods(pls.slice(0, splitAt).toList)
-        b.setNonReferenceLikelihoods(pls.slice(splitAt, pls.length).toList)
-      }
-    })
   }
 
   /**

@@ -134,7 +134,7 @@ private[adam] object SupportedHeaderLines {
     "Phase set ID")
   lazy val phaseQuality = new VCFFormatHeaderLine(VCFConstants.PHASE_QUALITY_KEY,
     1,
-    VCFHeaderLineType.Float,
+    VCFHeaderLineType.Integer,
     "Read-backed phasing quality")
   lazy val genotypeFilter = VCFStandardHeaderLines.getFormatLine(
     VCFConstants.GENOTYPE_FILTER_KEY)
