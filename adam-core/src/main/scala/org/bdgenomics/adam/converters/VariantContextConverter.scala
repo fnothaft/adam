@@ -19,6 +19,7 @@ package org.bdgenomics.adam.converters
 
 import com.google.common.base.Splitter
 import com.google.common.collect.ImmutableList
+import htsjdk.samtools.ValidationStringency
 import htsjdk.variant.variantcontext.{
   Allele,
   Genotype => HtsjdkGenotype,
@@ -148,10 +149,8 @@ private[adam] object VariantContextConverter {
  * If a genotype annotation has a corresponding set of fields in the VCF standard,
  * a conversion to/from the htsjdk VariantContext should be implemented in this
  * class.
- *
- * @param dict An optional sequence dictionary to use for populating sequence metadata on conversion.
  */
-private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = None) extends Serializable with Logging {
+private[adam] class VariantContextConverter extends Serializable with Logging {
   import VariantContextConverter._
 
   /**
@@ -1108,7 +1107,10 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
     }
   }
 
-  private def makeBdgGenotypeConverter(
+  /**
+   *
+   */
+  def makeBdgGenotypeConverter(
     headerLines: Seq[VCFHeaderLine]): (Genotype) => HtsjdkGenotype = {
 
     val attributeFns: Iterable[(Map[String, String]) => Option[(String, java.lang.Object)]] = headerLines
@@ -1134,7 +1136,8 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
     def convert(g: Genotype): HtsjdkGenotype = {
 
       // create the builder
-      val builder = new GenotypeBuilder()
+      val builder = new GenotypeBuilder(g.getSampleId,
+        VariantContextConverter.convertAlleles(g))
 
       // bind the conversion functions and fold
       val convertedCore = coreFormatFieldExtractorFns.foldLeft(builder)(
@@ -1270,7 +1273,10 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
    * @param vc
    * @return GATK VariantContext
    */
-  def convert(vc: ADAMVariantContext): HtsjdkVariantContext = {
+  def convert(
+    vc: ADAMVariantContext,
+    convFn: (Genotype) => HtsjdkGenotype,
+    stringency: ValidationStringency = ValidationStringency.LENIENT): Option[HtsjdkVariantContext] = {
     val variant: Variant = vc.variant.variant
     val vcb = new VariantContextBuilder()
       .chr(variant.getContigName)
@@ -1298,54 +1304,23 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
       vcb.attribute("SOMATIC", true)
     }
 
-    // TODO: Extract provenance INFO fields
+    // attach genotypes
     try {
-      vcb.genotypes(vc.genotypes.map(g => {
-        val gb = new GenotypeBuilder(
-          g.getSampleId, VariantContextConverter.convertAlleles(g)
-        )
-
-        Option(g.getPhased).foreach(gb.phased(_))
-        Option(g.getGenotypeQuality).foreach(gb.GQ(_))
-        Option(g.getReadDepth).foreach(gb.DP(_))
-
-        // strand bias components should have length 4 or length 0
-        val strandBiasComponents = g.getStrandBiasComponents
-        if (strandBiasComponents.length == 4) {
-          gb.attribute("SB", strandBiasComponents)
-        } else if (!strandBiasComponents.isEmpty) {
-          log.warn("Ignoring bad strand bias components (%s) at %s.".format(
-            strandBiasComponents.mkString(","), variant))
-        }
-
-        if (g.getReferenceReadDepth != null && g.getAlternateReadDepth != null)
-          gb.AD(Array(g.getReferenceReadDepth, g.getAlternateReadDepth))
-
-        if (g.getVariantCallingAnnotations != null) {
-          val callAnnotations = g.getVariantCallingAnnotations()
-          if (callAnnotations.getFiltersPassed() != null && !callAnnotations.getFiltersPassed()) {
-            gb.filters(callAnnotations.getFiltersFailed())
-          }
-        }
-
-        if (g.getGenotypeLikelihoods != null && !g.getGenotypeLikelihoods.isEmpty)
-          gb.PL(g.getGenotypeLikelihoods.map(p => PhredUtils.logProbabilityToPhred(p)).toArray)
-
-        gb.make
-      }))
-      // if only one sample then we putting stuff into vc info fields
-      if (vc.genotypes.size == 1) {
-        vcb.attributes(extractADAMInfoFields(vc.genotypes.toList(0)))
-      }
-
-      vcb.make
+      Some(vcb.genotypes(vc.genotypes.map(g => convFn(g)))
+        .make)
     } catch {
       case t: Throwable => {
-        log.error("Encountered error when converting variant context with variant: \n" +
-          vc.variant.variant + "\n" +
-          "and genotypes: \n" +
-          vc.genotypes.mkString("\n"))
-        throw t
+        if (stringency == ValidationStringency.STRICT) {
+          throw t
+        } else {
+          if (stringency == ValidationStringency.LENIENT) {
+            log.error("Encountered error when converting variant context with variant: \n" +
+              vc.variant.variant + "\n" +
+              "and genotypes: \n" +
+              vc.genotypes.mkString("\n"))
+          }
+          None
+        }
       }
     }
   }
