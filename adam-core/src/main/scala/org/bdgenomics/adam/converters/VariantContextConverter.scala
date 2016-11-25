@@ -339,6 +339,303 @@ private[adam] class VariantContextConverter(
     ???
   }
 
+  // variant conversion functions
+
+  private[converters] def formatNames(
+    vc: HtsjdkVariantContext,
+    vb: Variant.Builder): Variant.Builder = {
+
+    splitIds(vc).foreach(vb.setNames(_))
+    vb
+  }
+
+  private[converters] def formatFilters(
+    vc: HtsjdkVariantContext,
+    vb: Variant.Builder): Variant.Builder = {
+
+    vb.setFiltersApplied(vc.filtersWereApplied)
+    if (vc.filtersWereApplied) {
+      vb.setFiltersPassed(!vc.isFiltered)
+    }
+    if (vc.isFiltered) {
+      vb.setFiltersFailed(new java.util.ArrayList(vc.getFilters));
+    }
+    vb
+  }
+
+  private[converters] def formatSomatic(
+    vc: HtsjdkVariantContext,
+    vb: Variant.Builder): Variant.Builder = {
+
+    Option(vc.getAttribute("SOMATIC").asInstanceOf[java.lang.Boolean]).foreach(vb.setSomatic(_))
+    vb
+  }
+
+  private val variantConversionFns: Iterable[(HtsjdkVariantContext, Variant.Builder) => Variant.Builder] = Iterable(
+    formatNames(_, _),
+    formatFilters(_, _),
+    formatSomatic(_, _)
+  )
+
+  private[converters] def extractNames(
+    v: Variant,
+    vcb: VariantContextBuilder): VariantContextBuilder = {
+
+    joinNames(v) match {
+      case None    => vcb.noID()
+      case Some(s) => vcb.id(s)
+    }
+    vcb
+  }
+
+  private[converters] def extractFilters(
+    v: Variant,
+    vcb: VariantContextBuilder): VariantContextBuilder = {
+
+    val filtersApplied = Option(v.getFiltersApplied).getOrElse(false)
+    val filtersPassed = Option(v.getFiltersPassed).getOrElse(false)
+
+    (filtersApplied, filtersPassed) match {
+      case (false, false) => vcb.unfiltered
+      case (false, true)  => vcb.passFilters // log warning?
+      case (true, false)  => vcb.filters(new java.util.HashSet(v.getFiltersFailed()))
+      case (true, true)   => vcb.passFilters
+    }
+    vcb
+  }
+
+  private[converters] def extractSomatic(
+    v: Variant,
+    vcb: VariantContextBuilder): VariantContextBuilder = {
+
+    val somatic: java.lang.Boolean = Option(v.getSomatic).getOrElse(false)
+    if (somatic) {
+      vcb.attribute("SOMATIC", true)
+    }
+    vcb
+  }
+
+  private val variantExtractionFns: Iterable[(Variant, VariantContextBuilder) => VariantContextBuilder] = Iterable(
+    extractNames(_, _),
+    extractFilters(_, _),
+    extractSomatic(_, _)
+  )
+
+  // variant annotation conversion functions
+
+  private[converters] def formatAncestralAllele(
+    vc: HtsjdkVariantContext,
+    vab: VariantAnnotation.Builder,
+    v: Variant,
+    index: Int): VariantAnnotation.Builder = {
+
+    Option(vc.getAttributeAsString("AA", null)).foreach(vab.setAncestralAllele(_))
+    vab
+  }
+
+  private[converters] def formatDbSnp(
+    vc: HtsjdkVariantContext,
+    vab: VariantAnnotation.Builder,
+    v: Variant,
+    index: Int): VariantAnnotation.Builder = {
+
+    Option(vc.getAttribute("DB").asInstanceOf[java.lang.Boolean]).foreach(vab.setDbSnp(_))
+    vab
+  }
+
+  private[converters] def formatHapMap2(
+    vc: HtsjdkVariantContext,
+    vab: VariantAnnotation.Builder,
+    v: Variant,
+    index: Int): VariantAnnotation.Builder = {
+
+    Option(vc.getAttribute("H2").asInstanceOf[java.lang.Boolean]).foreach(vab.setHapMap2(_))
+    vab
+  }
+
+  private[converters] def formatHapMap3(
+    vc: HtsjdkVariantContext,
+    vab: VariantAnnotation.Builder,
+    v: Variant,
+    index: Int): VariantAnnotation.Builder = {
+
+    Option(vc.getAttribute("H3").asInstanceOf[java.lang.Boolean]).foreach(vab.setHapMap3(_))
+    vab
+  }
+
+  private[converters] def formatValidated(
+    vc: HtsjdkVariantContext,
+    vab: VariantAnnotation.Builder,
+    v: Variant,
+    index: Int): VariantAnnotation.Builder = {
+
+    Option(vc.getAttribute("VALIDATED").asInstanceOf[java.lang.Boolean]).foreach(vab.setValidated(_))
+    vab
+  }
+
+  private[converters] def formatThousandGenomes(
+    vc: HtsjdkVariantContext,
+    vab: VariantAnnotation.Builder,
+    v: Variant,
+    index: Int): VariantAnnotation.Builder = {
+
+    Option(vc.getAttribute("1000G").asInstanceOf[java.lang.Boolean]).foreach(vab.setThousandGenomes(_))
+    vab
+  }
+
+  private[converters] def formatAlleleCount(
+    vc: HtsjdkVariantContext,
+    vab: VariantAnnotation.Builder,
+    v: Variant,
+    index: Int): VariantAnnotation.Builder = {
+
+    val ac = vc.getAttributeAsList("AC")
+    if (ac.size > index) {
+      vab.setAlleleCount(ac.get(index).asInstanceOf[java.lang.Integer])
+    }
+    vab
+  }
+
+  private[converters] def formatAlleleFrequency(
+    vc: HtsjdkVariantContext,
+    vab: VariantAnnotation.Builder,
+    v: Variant,
+    index: Int): VariantAnnotation.Builder = {
+
+    val af = vc.getAttributeAsList("AF")
+    if (af.size > index) {
+      vab.setAlleleFrequency(af.get(index).asInstanceOf[java.lang.Float])
+    }
+    vab
+  }
+
+  private[converters] def formatCigar(
+    vc: HtsjdkVariantContext,
+    vab: VariantAnnotation.Builder,
+    v: Variant,
+    index: Int): VariantAnnotation.Builder = {
+
+    val cigar = vc.getAttributeAsList("CIGAR")
+    if (cigar.size > index) {
+      vab.setCigar(cigar.get(index).asInstanceOf[java.lang.String])
+    }
+    vab
+  }
+
+  private[converters] def formatReadDepth(
+    vc: HtsjdkVariantContext,
+    vab: VariantAnnotation.Builder,
+    v: Variant,
+    index: Int): VariantAnnotation.Builder = {
+
+    val ad = vc.getAttributeAsList("AD")
+    if (ad.size > (index + 1)) {
+      vab.setReadDepth(ad.get(index + 1).asInstanceOf[java.lang.Integer])
+    }
+    vab
+  }
+
+  private[converters] def formatForwardReadDepth(
+    vc: HtsjdkVariantContext,
+    vab: VariantAnnotation.Builder,
+    v: Variant,
+    index: Int): VariantAnnotation.Builder = {
+
+    val adf = vc.getAttributeAsList("ADF")
+    if (adf.size > (index + 1)) {
+      vab.setForwardReadDepth(adf.get(index + 1).asInstanceOf[java.lang.Integer])
+    }
+    vab
+  }
+
+  private[converters] def formatReverseReadDepth(
+    vc: HtsjdkVariantContext,
+    vab: VariantAnnotation.Builder,
+    v: Variant,
+    index: Int): VariantAnnotation.Builder = {
+
+    val adr = vc.getAttributeAsList("ADR")
+    if (adr.size > (index + 1)) {
+      vab.setReverseReadDepth(adr.get(index + 1).asInstanceOf[java.lang.Integer])
+    }
+    vab
+  }
+
+  private[converters] def formatTranscriptEffects(
+    vc: HtsjdkVariantContext,
+    vab: VariantAnnotation.Builder,
+    v: Variant,
+    index: Int): VariantAnnotation.Builder = {
+
+    TranscriptEffectConverter.convertToTranscriptEffects(v, vc).foreach(vab.setTranscriptEffects(_))
+    vab
+  }
+
+  private val variantAnnotationConversionFns: Iterable[(HtsjdkVariantContext, VariantAnnotation.Builder, Variant, Int) => VariantAnnotation.Builder] = Iterable(
+    formatAncestralAllele(_, _, _, _),
+    formatDbSnp(_, _, _, _),
+    formatHapMap2(_, _, _, _),
+    formatHapMap3(_, _, _, _),
+    formatThousandGenomes(_, _, _, _),
+    formatCigar(_, _, _, _),
+    formatAlleleCount(_, _, _, _),
+    formatAlleleFrequency(_, _, _, _),
+    formatReadDepth(_, _, _, _),
+    formatForwardReadDepth(_, _, _, _),
+    formatReverseReadDepth(_, _, _, _),
+    formatTranscriptEffects(_, _, _, _)
+  )
+
+  private[converters] def extractAncestralAllele(
+    va: VariantAnnotation,
+    vcb: VariantContextBuilder): VariantContextBuilder = {
+
+    Option(va.getAncestralAllele).foreach(vcb.attribute("AA", _))
+    vcb
+  }
+
+  private[converters] def extractDbSnp(
+    va: VariantAnnotation,
+    vcb: VariantContextBuilder): VariantContextBuilder = {
+
+    Option(va.getDbSnp).foreach(vcb.attribute("DB", _))
+    vcb
+  }
+
+  private[converters] def extractHapMap2(
+    va: VariantAnnotation,
+    vcb: VariantContextBuilder): VariantContextBuilder = {
+
+    Option(va.getHapMap2).foreach(vcb.attribute("H2", _))
+    vcb
+  }
+
+  private[converters] def extractHapMap3(
+    va: VariantAnnotation,
+    vcb: VariantContextBuilder): VariantContextBuilder = {
+
+    Option(va.getHapMap3).foreach(vcb.attribute("H3", _))
+    vcb
+  }
+
+  private[converters] def extractThousandGenomes(
+    va: VariantAnnotation,
+    vcb: VariantContextBuilder): VariantContextBuilder = {
+
+    Option(va.getThousandGenomes).foreach(vcb.attribute("1000G", _))
+    vcb
+  }
+
+  private val variantAnnotationExtractionFns: Iterable[(VariantAnnotation, VariantContextBuilder) => VariantContextBuilder] = Iterable(
+    extractAncestralAllele(_, _),
+    extractDbSnp(_, _),
+    extractHapMap2(_, _),
+    extractHapMap3(_, _),
+    extractThousandGenomes(_, _)
+  )
+
+  // genotype conversion functions
+
   private[converters] def formatAllelicDepth(g: HtsjdkGenotype,
                                              gb: Genotype.Builder,
                                              gIdx: Int,
@@ -578,6 +875,8 @@ private[adam] class VariantContextConverter(
     extractStrandBiasComponents(_, _),
     extractPhaseInfo(_, _)
   )
+
+  // genotype annotation conversion functions
 
   private[converters] def formatFilters(g: HtsjdkGenotype,
                                         vcab: VariantCallingAnnotations.Builder,
