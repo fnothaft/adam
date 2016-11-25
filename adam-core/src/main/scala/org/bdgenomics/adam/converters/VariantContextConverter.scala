@@ -626,12 +626,82 @@ private[adam] class VariantContextConverter(
     vcb
   }
 
+  private[converters] def extractCigar(
+    va: VariantAnnotation,
+    vcb: VariantContextBuilder): VariantContextBuilder = {
+
+    Option(va.getCigar).foreach(vcb.attribute("CIGAR", _))
+    vcb
+  }
+
+  private[converters] def extractAlleleCount(
+    va: VariantAnnotation,
+    vcb: VariantContextBuilder): VariantContextBuilder = {
+
+    Option(va.getAlleleCount).foreach(vcb.attribute("AC", _))
+    vcb
+  }
+
+  private[converters] def extractAlleleFrequency(
+    va: VariantAnnotation,
+    vcb: VariantContextBuilder): VariantContextBuilder = {
+
+    Option(va.getAlleleCount).foreach(vcb.attribute("AF", _))
+    vcb
+  }
+
+  private[converters] def extractReadDepth(
+    va: VariantAnnotation,
+    vcb: VariantContextBuilder): VariantContextBuilder = {
+
+    Option(va.getReadDepth).foreach(rd => vcb.attribute("AD", prependDefaultReferenceValue(rd)))
+    vcb
+  }
+
+  private[converters] def extractForwardReadDepth(
+    va: VariantAnnotation,
+    vcb: VariantContextBuilder): VariantContextBuilder = {
+
+    Option(va.getForwardReadDepth).foreach(frd => vcb.attribute("ADF", prependDefaultReferenceValue(frd)))
+    vcb
+  }
+
+  private[converters] def extractReverseReadDepth(
+    va: VariantAnnotation,
+    vcb: VariantContextBuilder): VariantContextBuilder = {
+
+    Option(va.getReverseReadDepth).foreach(rrd => vcb.attribute("ADR", prependDefaultReferenceValue(rrd)))
+    vcb
+  }
+
+  private[converters] def extractTranscriptEffects(
+    va: VariantAnnotation,
+    vcb: VariantContextBuilder): VariantContextBuilder = {
+
+    if (!va.getTranscriptEffects.isEmpty) {
+      vcb.attribute("ANN", TranscriptEffectConverter.convertToVcfInfoAnnValue(va.getTranscriptEffects))
+    }
+    vcb
+  }
+
+  // reference value is missing for Number=R VCF INFO attributes
+  private[converters] def prependDefaultReferenceValue(v: Int): String = {
+    "-1," + v
+  }
+
   private val variantAnnotationExtractionFns: Iterable[(VariantAnnotation, VariantContextBuilder) => VariantContextBuilder] = Iterable(
     extractAncestralAllele(_, _),
     extractDbSnp(_, _),
     extractHapMap2(_, _),
     extractHapMap3(_, _),
-    extractThousandGenomes(_, _)
+    extractThousandGenomes(_, _),
+    extractCigar(_, _),
+    extractAlleleCount(_, _),
+    extractAlleleFrequency(_, _),
+    extractReadDepth(_, _),
+    extractForwardReadDepth(_, _),
+    extractReverseReadDepth(_, _),
+    extractTranscriptEffects(_, _)
   )
 
   // genotype conversion functions
