@@ -27,8 +27,8 @@ object SortedGenomicRDD {
    * @param o The object to be Mixed-In
    * @return A new Mixed-In object
    */
-  def addSortedTrait[T, U <: GenomicRDD[T, U]](o: U, indexedReferenceRegions: Seq[ReferenceRegion], partitionMap: Array[(Long, Long)]) =
-    new SortedGenomicRDDMixIn[T, U](o, indexedReferenceRegions, partitionMap)
+  def addSortedTrait[T, U <: GenomicRDD[T, U]](o: U, partitionMap: Array[(ReferenceRegion, ReferenceRegion)]) =
+    new SortedGenomicRDDMixIn[T, U](o, partitionMap)
 
   /**
    * This class is how we tell that a given object (that extends GenomicRDD) is sorted. We can perform multiple
@@ -38,9 +38,8 @@ object SortedGenomicRDD {
    * @param obj The object to Mix-In to the SortedGenomicRDD trait.
    */
   final case class SortedGenomicRDDMixIn[T, U <: GenomicRDD[T, U]] private[SortedGenomicRDD] (private[SortedGenomicRDD] val obj: U,
-                                                                                              val indexedReferenceRegions: Seq[ReferenceRegion],
-                                                                                              val partitionMap: Array[(Long, Long)])
-      extends SortedGenomicRDD[T, U] {
+                                                                                              val partitionMap: Array[(ReferenceRegion, ReferenceRegion)])
+                                                                                              extends SortedGenomicRDD[T, U] {
     override val rdd: RDD[T] = innerObj(this).rdd
     override val sequences: SequenceDictionary = innerObj(this).sequences
     override protected[rdd] def replaceRdd(newRdd: RDD[T]): U = innerObj(this).replaceRdd(newRdd)
@@ -66,8 +65,8 @@ object SortedGenomicRDD {
       // but we want to move it in blocks to maintain order
       // zipWithIndex seems to be the cheapest way to guarantee this
       val finalPartitionedRDD = rdd.zipWithIndex
-        .mapPartitions(iter => {
-          getBalancedPartitionNumber(iter.map(_.swap), average)
+        .mapPartitionsWithIndex((idx, iter) => {
+          getBalancedPartitionNumber(iter.map(_.swap), partitionMap(idx), average)
         }, preservesPartitioning = true).partitionBy(new GenomicPositionRangePartitioner(partitions)) //should we make a new partitioner for this trait?
         .mapPartitions(iter => {
           // trying to avoid iterator access issues
@@ -81,11 +80,11 @@ object SortedGenomicRDD {
           // and like magic, our partition is sorted
           sortedList.flatten.toIterator
         }, preservesPartitioning = true)
-      val partitionMap = finalPartitionedRDD.mapPartitions((iter) => {
-        val listRepresentation = iter.toList
-        Iterator((listRepresentation.head._1, listRepresentation.last._1))
-      }).collect
-      addSortedTrait(replaceRdd(finalPartitionedRDD.map(_._2)), indexedReferenceRegions, partitionMap)
+      //val partitionMap = finalPartitionedRDD.mapPartitions((iter) => {
+      //  val listRepresentation = iter.toList
+      //  Iterator((listRepresentation.head._1, listRepresentation.last._1))
+      //}).collect
+      addSortedTrait(replaceRdd(finalPartitionedRDD.map(_._2)), partitionMap)
     }
 
     /**
@@ -98,9 +97,16 @@ object SortedGenomicRDD {
      * @return grouped lists keyed with the destination partition number. These lists maintain
      *         their original order
      */
-    private def getBalancedPartitionNumber(iter: Iterator[(Long, T)], average: Double): Iterator[(Int, List[(Long, T)])] = {
+    private def getBalancedPartitionNumber(iter: Iterator[(Long, T)], partitionMap: (ReferenceRegion, ReferenceRegion), average: Double): Iterator[(Int, List[(Long, ((ReferenceRegion, ReferenceRegion), T))])] = {
       // converting to list so we can package data that is going to the same node with a groupBy
-      val listRepresentation = iter.toList
+      var listRepresentation = iter.toList.map(f => (f._1, (getReferenceRegions(f._2).filter(g => List(g, partitionMap._1).sorted.head == partitionMap._1 && List(g, partitionMap._2).sorted.last == g).sorted, f._2)))
+
+      for(i <- listRepresentation.indices) {
+        if(i == 0) {
+          listRepresentation(i) = (listRepresentation(i)._1, (listRepresentation(i)._2._1.head, listRepresentation(i)._2._2))
+        }
+      }
+
       // simple division to get the partition number
       listRepresentation.map(f => ((f._1 / average).asInstanceOf[Int], (f._1, f._2)))
         // groupBy will preserve our value order, but we don't want a map
