@@ -17,9 +17,10 @@ class SortedGenomicRDDSuite extends SparkFunSuite {
     result
   }
 
-  def isSorted(list: Seq[ReferenceRegion]): Boolean = {
-    val test = list.drop(1)
-    !list.dropRight(1).zip(test).exists(f => f._1.start > f._2.start && f._1.end > f._2.end && f._1.referenceName > f._2.referenceName)
+  def isSorted(list: Seq[(ReferenceRegion, ReferenceRegion)]): Boolean = {
+    val test = list.drop(1).map(_._1)
+    val test2 = list.dropRight(1).map(_._2)
+    !test2.zip(test).exists(f => f._1.start > f._2.start && f._1.end > f._2.end && f._1.referenceName > f._2.referenceName)
   }
 
   sparkTest("testing partitioner") {
@@ -28,11 +29,11 @@ class SortedGenomicRDDSuite extends SparkFunSuite {
       val x = sc.loadBam(ClassLoader.getSystemClassLoader.getResource("bqsr1.sam").getFile)
       println(x.rdd.partitions.length)
       val y = x.repartitionAndSortByGenomicCoordinate(16)
-      assert(isSorted(y.indexedReferenceRegions.toList))
+      assert(isSorted(y.partitionMap))
       println("Uneven: " + y.rdd.mapPartitions(f => Iterator(f.size)).collect.mkString(","))
       println("Partitions of Uneven: " + y.rdd.partitions.length)
       val z = x.wellBalancedRepartitionByGenomicCoordinate(16)
-      assert(isSorted(z.indexedReferenceRegions.toList))
+      assert(isSorted(z.partitionMap))
       val arrayRepresentationOfZ = z.rdd.collect
       //verify sort worked
       for (currentArray <- List(y.rdd.collect, z.rdd.collect)) {
@@ -52,9 +53,9 @@ class SortedGenomicRDDSuite extends SparkFunSuite {
 
       val partitionTupleCounts: Array[Int] = z.rdd.mapPartitions(f => Iterator(f.size)).collect
       println(partitionTupleCounts.mkString(","))
-      val d = x.shuffleRegionJoinAndGroupByLeft(y)
-      d.rdd.count
-      println(d.rdd.first)
+//      val d = x.shuffleRegionJoinAndGroupByLeft(y)
+//      d.rdd.count
+//      println(d.rdd.first)
       val a = z.evenlyRepartition(200)
       val partitionTupleCounts2: Array[Int] = a.rdd.mapPartitions(f => Iterator(f.size)).collect
       println(partitionTupleCounts2.mkString(","))

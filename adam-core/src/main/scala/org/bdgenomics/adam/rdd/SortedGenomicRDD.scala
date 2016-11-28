@@ -5,7 +5,7 @@ import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.{ ReferenceRegion, SequenceDictionary }
 import org.bdgenomics.adam.rdd.SortedGenomicRDD.SortedGenomicRDDMixIn
 import org.bdgenomics.formats.avro.Sample
-import scala.collection.mutable.ArrayBuffer
+import scala.collection.mutable.{ListBuffer, ArrayBuffer}
 import scala.reflect.ClassTag
 
 /**
@@ -64,27 +64,40 @@ object SortedGenomicRDD {
       // we already have a sorted rdd, so let's just move the data
       // but we want to move it in blocks to maintain order
       // zipWithIndex seems to be the cheapest way to guarantee this
-      val finalPartitionedRDD = rdd.zipWithIndex
+      val finalPartitionedRDD1 = rdd.zipWithIndex
         .mapPartitionsWithIndex((idx, iter) => {
           getBalancedPartitionNumber(iter.map(_.swap), partitionMap(idx), average)
-        }, preservesPartitioning = true).partitionBy(new GenomicPositionRangePartitioner(partitions)) //should we make a new partitioner for this trait?
+        }, preservesPartitioning = true)
+        .partitionBy(new GenomicPositionRangePartitioner(partitions)) //should we make a new partitioner for this trait?
+      val finalPartitionedRDD = finalPartitionedRDD1
         .mapPartitions(iter => {
           // trying to avoid iterator access issues
-          val listRepresentation = iter.map(_._2).toList
-          var sortedList = new ArrayBuffer[List[(Long, T)]]()
-          // we are sorting by the zipped index of the head of the list
-          // this is how we maintain the sorted order
-          for (listBlock <- listRepresentation.sortBy(_.head._1)) {
-            sortedList += listBlock
-          }
-          // and like magic, our partition is sorted
-          sortedList.flatten.toIterator
+          val listRepresentation = iter.map(_._2).toList.sortBy(_._2.head._1)
+          Iterator(((listRepresentation.head._1._1, listRepresentation.last._1._2), listRepresentation.map(f => f._2)))
         }, preservesPartitioning = true)
-      //val partitionMap = finalPartitionedRDD.mapPartitions((iter) => {
-      //  val listRepresentation = iter.toList
-      //  Iterator((listRepresentation.head._1, listRepresentation.last._1))
-      //}).collect
-      addSortedTrait(replaceRdd(finalPartitionedRDD.map(_._2)), partitionMap)
+      val updatedPartitionMap = finalPartitionedRDD.keys.collect
+      addSortedTrait(replaceRdd(finalPartitionedRDD.flatMap(f => f._2.flatten.map(f => f._2))), updatedPartitionMap)
+    }
+
+    def inferCorrectReferenceRegionsForPartition(iter: Iterator[(Long, T)], partitionMap: (ReferenceRegion, ReferenceRegion)): Iterator[(Long, (ReferenceRegion, T))] = {
+      val listRepresentation = iter.toList.map(f => (f._1, (getReferenceRegions(f._2)/*.filter(g => List(g, partitionMap._1).sorted.head == partitionMap._1 && List(g, partitionMap._2).sorted.last == g)*/.sorted, f._2)))
+      val listBuffer = new ListBuffer[(Long, (ReferenceRegion, T))]
+      for(i <- listRepresentation.indices) {
+        try {
+          if (i == 0) listBuffer += ((listRepresentation(i)._1, (listRepresentation(i)._2._1.head, listRepresentation(i)._2._2)))
+          else {
+            val previousReferenceRegion = listBuffer.last._2._1
+            var j = 0
+            while (List(listRepresentation(i)._2._1(j), previousReferenceRegion).sorted.head != previousReferenceRegion) {
+              j += 1
+            }
+            listBuffer += ((listRepresentation(i)._1, (listRepresentation(i)._2._1(j), listRepresentation(i)._2._2)))
+          }
+        } catch {
+          case e: Exception =>
+        }
+      }
+      listBuffer.toIterator
     }
 
     /**
@@ -97,21 +110,10 @@ object SortedGenomicRDD {
      * @return grouped lists keyed with the destination partition number. These lists maintain
      *         their original order
      */
-    private def getBalancedPartitionNumber(iter: Iterator[(Long, T)], partitionMap: (ReferenceRegion, ReferenceRegion), average: Double): Iterator[(Int, List[(Long, ((ReferenceRegion, ReferenceRegion), T))])] = {
+    def getBalancedPartitionNumber(iter: Iterator[(Long, T)], partitionMap: (ReferenceRegion, ReferenceRegion), average: Double): Iterator[(Int, ((ReferenceRegion, ReferenceRegion), List[(Long, T)]))] = {
       // converting to list so we can package data that is going to the same node with a groupBy
-      var listRepresentation = iter.toList.map(f => (f._1, (getReferenceRegions(f._2).filter(g => List(g, partitionMap._1).sorted.head == partitionMap._1 && List(g, partitionMap._2).sorted.last == g).sorted, f._2)))
-
-      for(i <- listRepresentation.indices) {
-        if(i == 0) {
-          listRepresentation(i) = (listRepresentation(i)._1, (listRepresentation(i)._2._1.head, listRepresentation(i)._2._2))
-        }
-      }
-
-      // simple division to get the partition number
-      listRepresentation.map(f => ((f._1 / average).asInstanceOf[Int], (f._1, f._2)))
-        // groupBy will preserve our value order, but we don't want a map
-        // so we convert it back to an iterator
-        .groupBy(_._1).mapValues(f => f.map(_._2)).toIterator
+      val correctPartition = inferCorrectReferenceRegionsForPartition(iter, partitionMap)
+      correctPartition.map(f => ((f._1/average).toInt, f)).toList.groupBy(_._1).mapValues(f => f.map(_._2)).map(f => (f._1, ((f._2.head._2._1, f._2.last._2._1), f._2.map(g => (g._1,g._2._2))))).toIterator
     }
 
     /**
@@ -132,38 +134,27 @@ object SortedGenomicRDD {
      * @return returns the newly repartitioned rdd that is co-partitioned with rddToCoPartitionWith
      */
     def coPartitionByGenomicRegion(rddToCoPartitionWith: SortedGenomicRDDMixIn[T, U])(implicit tTag: ClassTag[T]): SortedGenomicRDDMixIn[T, U] = {
-      val destinationPartitionIndexRange = rddToCoPartitionWith.partitionMap.map(f =>
-        (rddToCoPartitionWith.indexedReferenceRegions(f._1.toInt).start, rddToCoPartitionWith.indexedReferenceRegions.slice(f._1.toInt, f._2.toInt + 1).map(_.end).max))
       val partitions = rddToCoPartitionWith.partitionMap.length
-      val finalPartitionedRDD = rdd.zipWithIndex.mapPartitionsWithIndex((idx, iter) => {
-        val listRepresentation = iter.toList
-        for (partition <- destinationPartitionIndexRange.zipWithIndex) yield {
-          (partition._2, listRepresentation.map(f => (indexedReferenceRegions(f._2.toInt), f._1)).filter(f => (f._1.start >= partition._1._1 && f._1.start <= partition._1._2) ||
-            (f._1.end >= partition._1._1 && f._1.end <= partition._1._2)).toArray)
+      val finalPartitionedRDD1 = rdd.zipWithIndex.mapPartitionsWithIndex((idx, iter) => {
+        val listRepresentation = inferCorrectReferenceRegionsForPartition(iter.map(_.swap), partitionMap(idx)).toList
+        for(partition <- rddToCoPartitionWith.partitionMap.zipWithIndex) yield {
+          (partition._2, listRepresentation.filter(f => List(f._2._1, partition._1._1).sorted.head == partition._1._1 && List(f._2._1, partition._1._2).sorted.head == f._2._1))
         }
       }.toIterator.filter(_._2.nonEmpty), preservesPartitioning = true)
+        val finalPartitionedRDD = finalPartitionedRDD1
         .partitionBy(new GenomicPositionRangePartitioner(partitions))
         .mapPartitions(iter => {
-          var sortedList = new ArrayBuffer[Array[(ReferenceRegion, T)]]()
-          val listRepresentation = iter.toArray.filter(_._2.nonEmpty).sortBy(_._2.head._1.start)
-          // we are sorting by the zipped index of the head of the list
-          // this is how we maintain the sorted order
-          for (listBlock <- listRepresentation) {
-            sortedList += listBlock._2
-          }
-          // and like magic, our partition is sorted
-          sortedList.flatten.toIterator
+          iter.toList.sortBy(_._2.head._1).flatMap(_._2).toIterator
         }, preservesPartitioning = true)
 
-      val partitionMap = finalPartitionedRDD.zipWithIndex.mapPartitions((iter) => {
+      val newPartitionMap = finalPartitionedRDD.zipWithIndex.mapPartitions((iter) => {
         if (iter.isEmpty) Iterator()
         else {
           val listRepresentation = iter.toList
-          Iterator((listRepresentation.head._2, listRepresentation.last._2))
+          Iterator((listRepresentation.head._1._2._1, listRepresentation.last._1._2._1))
         }
       }).collect
-
-      addSortedTrait(replaceRdd(finalPartitionedRDD.values), finalPartitionedRDD.keys.collect, partitionMap)
+      addSortedTrait(replaceRdd(finalPartitionedRDD.values.values), newPartitionMap)
     }
 
     /**
@@ -202,22 +193,27 @@ object SortedGenomicRDD {
             println("This is sorted, but that is not")
             genomicRdd.repartitionAndSortByGenomicCoordinate(partitions).coPartitionByGenomicRegion(leftRdd.asInstanceOf[SortedGenomicRDDMixIn[X, Y]])
         }
-
+      //    val leftRddReadyToJoin = leftRdd.rdd.zipWithIndex.mapPartitionsWithIndex((idx, iter) => {
+      //      iter.map(f => ((leftRdd.indexedReferenceRegions(f._2.toInt), idx), f._1))
+      //    })
       val leftRddReadyToJoin = leftRdd.rdd.zipWithIndex.mapPartitionsWithIndex((idx, iter) => {
-        iter.map(f => ((leftRdd.indexedReferenceRegions(f._2.toInt), idx), f._1))
-      }, preservesPartitioning = true)
-      val rightRddReadytoJoin = rightRdd.rdd.zipWithIndex.mapPartitionsWithIndex((idx, iter) => {
-        iter.map(f => ((rightRdd.indexedReferenceRegions(f._2.toInt), idx), f._1))
-      }, preservesPartitioning = true)
+        leftRdd.inferCorrectReferenceRegionsForPartition(iter.map(_.swap), leftRdd.partitionMap(idx)).map(f => ((f._2._1, f._1.toInt), f._2._2))
+      })
+      //    val rightRddReadytoJoin = rightRdd.rdd.zipWithIndex.mapPartitionsWithIndex((idx, iter) => {
+      //      iter.map(f => ((rightRdd.indexedReferenceRegions(f._2.toInt), idx), f._1))
+      //    })
+      val rightRddReadyToJoin = rightRdd.rdd.zipWithIndex.mapPartitionsWithIndex((idx, iter) => {
+        rightRdd.inferCorrectReferenceRegionsForPartition(iter.map(_.swap), rightRdd.partitionMap(idx)).map(f => ((f._2._1, f._1.toInt), f._2._2))
+      })
 
-      assert(leftRddReadyToJoin.partitions.length == rightRddReadytoJoin.partitions.length)
+      assert(leftRddReadyToJoin.partitions.length == rightRddReadyToJoin.partitions.length)
 
       // what sequences do we wind up with at the end?
       val endSequences = sequences ++ genomicRdd.sequences
 
       // as sorted
       GenericGenomicRDD[(T, X)](
-        InnerShuffleRegionJoin[T, X](endSequences, partitions, rdd.context).joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadytoJoin),
+        InnerShuffleRegionJoin[T, X](endSequences, partitions, rdd.context).joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadyToJoin),
         endSequences,
         kv => { getReferenceRegions(kv._1) ++ rightRdd.getReferenceRegions(kv._2) })
         .asInstanceOf[GenomicRDD[(T, X), Z]]

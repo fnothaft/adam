@@ -360,7 +360,6 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
     // if no, take the max partition count from our rdds
     val partitions = optPartitions.getOrElse(Seq(rdd.partitions.length,
       genomicRdd.rdd.partitions.length).max)
-
     val leftRdd = repartitionAndSortByGenomicCoordinate(partitions).evenlyRepartition(partitions)
     val rightRdd = {
       genomicRdd match {
@@ -373,18 +372,24 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
       }
     }
 
+//    val leftRddReadyToJoin = leftRdd.rdd.zipWithIndex.mapPartitionsWithIndex((idx, iter) => {
+//      iter.map(f => ((leftRdd.indexedReferenceRegions(f._2.toInt), idx), f._1))
+//    })
     val leftRddReadyToJoin = leftRdd.rdd.zipWithIndex.mapPartitionsWithIndex((idx, iter) => {
-      iter.map(f => ((leftRdd.indexedReferenceRegions(f._2.toInt), idx), f._1))
+      leftRdd.inferCorrectReferenceRegionsForPartition(iter.map(_.swap), leftRdd.partitionMap(idx)).map(f => ((f._2._1, f._1.toInt), f._2._2))
     })
-    val rightRddReadytoJoin = rightRdd.rdd.zipWithIndex.mapPartitionsWithIndex((idx, iter) => {
-      iter.map(f => ((rightRdd.indexedReferenceRegions(f._2.toInt), idx), f._1))
+//    val rightRddReadytoJoin = rightRdd.rdd.zipWithIndex.mapPartitionsWithIndex((idx, iter) => {
+//      iter.map(f => ((rightRdd.indexedReferenceRegions(f._2.toInt), idx), f._1))
+//    })
+    val rightRddReadyToJoin = rightRdd.rdd.zipWithIndex.mapPartitionsWithIndex((idx, iter) => {
+      rightRdd.inferCorrectReferenceRegionsForPartition(iter.map(_.swap), rightRdd.partitionMap(idx)).map(f => ((f._2._1, f._1.toInt), f._2._2))
     })
     // what sequences do we wind up with at the end?
     val endSequences = sequences ++ genomicRdd.sequences
 
     // key the RDDs and join
     GenericGenomicRDD[(T, X)](
-      InnerShuffleRegionJoin[T, X](endSequences, partitions, rdd.context).joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadytoJoin),
+      InnerShuffleRegionJoin[T, X](endSequences, partitions, rdd.context).joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadyToJoin),
       endSequences,
       kv => { getReferenceRegions(kv._1) ++ rightRdd.getReferenceRegions(kv._2) })
       .asInstanceOf[GenomicRDD[(T, X), Z]]
@@ -552,18 +557,24 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
       }
     }
 
+    //    val leftRddReadyToJoin = leftRdd.rdd.zipWithIndex.mapPartitionsWithIndex((idx, iter) => {
+    //      iter.map(f => ((leftRdd.indexedReferenceRegions(f._2.toInt), idx), f._1))
+    //    })
     val leftRddReadyToJoin = leftRdd.rdd.zipWithIndex.mapPartitionsWithIndex((idx, iter) => {
-      iter.map(f => ((leftRdd.indexedReferenceRegions(f._2.toInt), idx), f._1))
+      leftRdd.inferCorrectReferenceRegionsForPartition(iter.map(_.swap), leftRdd.partitionMap(idx)).map(f => ((f._2._1, f._1.toInt), f._2._2))
     })
-    val rightRddReadytoJoin = rightRdd.rdd.zipWithIndex.mapPartitionsWithIndex((idx, iter) => {
-      iter.map(f => ((rightRdd.indexedReferenceRegions(f._2.toInt), idx), f._1))
+    //    val rightRddReadytoJoin = rightRdd.rdd.zipWithIndex.mapPartitionsWithIndex((idx, iter) => {
+    //      iter.map(f => ((rightRdd.indexedReferenceRegions(f._2.toInt), idx), f._1))
+    //    })
+    val rightRddReadyToJoin = rightRdd.rdd.zipWithIndex.mapPartitionsWithIndex((idx, iter) => {
+      rightRdd.inferCorrectReferenceRegionsForPartition(iter.map(_.swap), rightRdd.partitionMap(idx)).map(f => ((f._2._1, f._1.toInt), f._2._2))
     })
     // what sequences do we wind up with at the end?
     val endSequences = sequences ++ genomicRdd.sequences
     println("Preparing for partitionMap")
     val joinedRDD = InnerShuffleRegionJoin[T, X](endSequences,
       partitions,
-      rdd.context).joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadytoJoin).mapPartitionsWithIndex((idx, iter) => {
+      rdd.context).joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadyToJoin).mapPartitionsWithIndex((idx, iter) => {
         if (iter.isEmpty) Iterator()
         else {
           val listRepresentation = iter.toList
@@ -686,35 +697,29 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
     //        }
     //      }).collect
 
-    val partitionedRDD = regionedRDD.sortBy(f => f._1, true, partitions).zipWithIndex
+    val partitionedRDD = regionedRDD.sortBy(f => f._1, ascending = true, partitions)
     //.map(f => (bins.value.getStartBin(f._1), (f)))
     //.partitionBy(new GenomicPositionRangePartitioner(partitions, elements.toInt)) //.values
     //.mapPartitions(iter => iter.toArray.sortBy(tuple => (tuple._1.referenceName, tuple._1.start, tuple._1.end)).toIterator).zipWithIndex()
 
-    addSortedTrait(replaceRdd(partitionedRDD.keys.values), partitionedRDD.keys.keys.collect,
-      partitionedRDD.values.mapPartitions(iter => {
+    addSortedTrait(replaceRdd(partitionedRDD.values),
+      partitionedRDD.mapPartitions(iter => {
         if (iter.isEmpty) Iterator()
         else {
           val listRepresentation = iter.toList
-          Iterator((listRepresentation.head, listRepresentation.last))
+          Iterator((listRepresentation.head._1, listRepresentation.last._1))
         }
       }).collect)
   }
 
   def doesBelonginPartition(partition: (ReferenceRegion, ReferenceRegion), assign: (ReferenceRegion, T)): Boolean = {
-    if (assign._1.referenceName >= partition._1.referenceName) {
-      if (assign._1.start >= partition._1.start) {
-        if (assign._1.end >= partition._1.end) {
-          if (assign._1.referenceName <= partition._2.referenceName) {
-            if (assign._1.start <= partition._2.start) {
-              if (assign._1.end <= partition._2.end) {
-                true
-              } else false
-            } else false
-          } else false
-        } else false
-      } else false
-    } else false
+    if(assign._1.referenceName >= partition._1.referenceName &&
+      assign._1.start >= partition._1.start &&
+      assign._1.end >= partition._1.end &&
+      assign._1.referenceName <= partition._2.referenceName &&
+      assign._1.start <= partition._2.start &&
+      assign._1.end <= partition._2.end) true
+    else false
   }
 
   def getDestinationPartition(partitionMap: Seq[(ReferenceRegion, ReferenceRegion)], iter: Iterator[(ReferenceRegion, T)]): Iterator[(Int, List[(ReferenceRegion, T)])] = {
