@@ -242,43 +242,6 @@ private[adam] class VariantContextConverter(
   }
 
   /**
-   * Extracts a variant annotation from a htsjdk VariantContext.
-   *
-   * @param vc htsjdk variant context to extract annotations from.
-   * @return The variant annotations in Avro format.
-   */
-  def convertToVariantAnnotation(vc: HtsjdkVariantContext): VariantAnnotation = {
-    val variant = vc.getAlternateAlleles.toList match {
-      case List(NON_REF_ALLELE) => {
-        createADAMVariant(vc, None /* No alternate allele */ )
-      }
-      case List(allele) => {
-        require(
-          allele.isNonReference,
-          "Assertion failed when converting: " + vc.toString
-        )
-        createADAMVariant(vc, Some(allele.getDisplayString))
-      }
-      case List(allele, NON_REF_ALLELE) => {
-        require(
-          allele.isNonReference,
-          "Assertion failed when converting: " + vc.toString
-        )
-        createADAMVariant(vc, Some(allele.getDisplayString))
-      }
-      case alleles :+ NON_REF_ALLELE => {
-        throw new IllegalArgumentException("Multi-allelic site with non-ref symbolic allele " +
-          vc.toString)
-      }
-      case _ => {
-        throw new IllegalArgumentException("Multi-allelic site " + vc.toString)
-      }
-    }
-
-    extractVariantAnnotation(variant, vc)
-  }
-
-  /**
    * Split the htsjdk variant context ID field into an array of names.
    *
    * @param vc htsjdk variant context
@@ -306,45 +269,6 @@ private[adam] class VariantContextConverter(
     } else {
       None
     }
-  }
-
-  /**
-   * Builds an avro Variant for a site with a defined alt allele.
-   *
-   * @param vc htsjdk variant context to use for building the site.
-   * @param alt The alternate allele to use for the site. If not provided, no
-   *   alternate allele will be defined.
-   * @return Returns an Avro description of the genotyped site.
-   */
-  private def createADAMVariant(vc: HtsjdkVariantContext, alt: Option[String]): Variant = {
-    // VCF CHROM, POS, ID, REF, FORMAT, and ALT
-    val builder = Variant.newBuilder
-      .setContigName(vc.getChr)
-      .setStart(vc.getStart - 1 /* ADAM is 0-indexed */ )
-      .setEnd(vc.getEnd /* ADAM is 0-indexed, so the 1-indexed inclusive end becomes exclusive */ )
-      .setReferenceAllele(vc.getReference.getBaseString)
-    alt.foreach(builder.setAlternateAllele(_))
-    splitIds(vc).foreach(builder.setNames(_))
-    builder.setFiltersApplied(vc.filtersWereApplied)
-    if (vc.filtersWereApplied) {
-      builder.setFiltersPassed(!vc.isFiltered)
-    }
-    if (vc.isFiltered) {
-      builder.setFiltersFailed(new java.util.ArrayList(vc.getFilters))
-    }
-    builder.build
-  }
-
-  /**
-   * Populates a variant annotation from an htsjdk variant context.
-   *
-   * @param variant Avro variant representation for the site.
-   * @param vc htsjdk representation of the VCF line.
-   * @return Returns the Avro representation of the variant annotations at this site.
-   */
-  private def extractVariantAnnotation(variant: Variant,
-                                       vc: HtsjdkVariantContext): VariantAnnotation = {
-    ???
   }
 
   // variant conversion functions
@@ -1924,37 +1848,6 @@ private[adam] class VariantContextConverter(
     }
 
     convert(_)
-  }
-
-  /**
-   * Extracts annotations from a site.
-   *
-   * @param vc htsjdk variant context representing this site to extract
-   *   annotations from.
-   * @return Returns a variant calling annotation with the filters applied to
-   *   this site.
-   */
-  private def extractVariantCallingAnnotations(vc: HtsjdkVariantContext): VariantCallingAnnotations = {
-    ???
-  }
-
-  /**
-   * Extracts VCF info fields from Avro formatted genotype.
-   *
-   * @param g Genotype record with possible info fields.
-   * @return Mapping between VCF info fields and values from genotype record.
-   */
-  private def extractADAMInfoFields(g: Genotype): HashMap[String, Object] = {
-    val infoFields = new HashMap[String, Object]();
-    val annotations = g.getVariantCallingAnnotations
-    if (annotations != null) {
-      Option(annotations.getFisherStrandBiasPValue).foreach(infoFields.put("FS", _))
-      Option(annotations.getRmsMapQ).foreach(infoFields.put("MQ", _))
-      Option(annotations.getMapq0Reads).foreach(infoFields.put("MQ0", _))
-      Option(annotations.getMqRankSum).foreach(infoFields.put("MQRankSum", _))
-      Option(annotations.getReadPositionRankSum).foreach(infoFields.put("ReadPosRankSum", _))
-    }
-    infoFields
   }
 
   /**
