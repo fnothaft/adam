@@ -28,7 +28,11 @@ class SortedGenomicRDDSuite extends SparkFunSuite {
       //val x = sc.loadBam("/data/recompute/alignments/NA12878.bam.aln.bam")
       val x = sc.loadBam(ClassLoader.getSystemClassLoader.getResource("bqsr1.sam").getFile)
       println(x.rdd.partitions.length)
+      println(x.rdd.count)
+      println(x.flattenRddByRegions.sortBy(_._1).count)
       val y = x.repartitionAndSortByGenomicCoordinate(16)
+      println(y.rdd.count)
+
       assert(isSorted(y.partitionMap))
       println("Uneven: " + y.rdd.mapPartitions(f => Iterator(f.size)).collect.mkString(","))
       println("Partitions of Uneven: " + y.rdd.partitions.length)
@@ -53,9 +57,9 @@ class SortedGenomicRDDSuite extends SparkFunSuite {
 
       val partitionTupleCounts: Array[Int] = z.rdd.mapPartitions(f => Iterator(f.size)).collect
       println(partitionTupleCounts.mkString(","))
-//      val d = x.shuffleRegionJoinAndGroupByLeft(y)
-//      d.rdd.count
-//      println(d.rdd.first)
+      //      val d = x.shuffleRegionJoinAndGroupByLeft(y)
+      //      d.rdd.count
+      //      println(d.rdd.first)
       val a = z.evenlyRepartition(200)
       val partitionTupleCounts2: Array[Int] = a.rdd.mapPartitions(f => Iterator(f.size)).collect
       println(partitionTupleCounts2.mkString(","))
@@ -64,7 +68,7 @@ class SortedGenomicRDDSuite extends SparkFunSuite {
 
       val b = z.shuffleRegionJoin(x, Some(1)).rdd.collect
       val c = x.shuffleRegionJoin(z).rdd.collect
-      println("B length: " + b.length + "\t" + "C length: " + c.length)
+      println("X length: " + x.rdd.collect.length + "\tB length: " + b.length + "\t" + "C length: " + c.length)
       //      assert(b.length == c.length)
 
       //      for (i <- b.indices) {
