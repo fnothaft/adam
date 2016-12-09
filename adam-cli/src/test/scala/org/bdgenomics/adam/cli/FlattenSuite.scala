@@ -26,7 +26,7 @@ import org.bdgenomics.utils.misc.HadoopUtil
 
 class FlattenSuite extends ADAMFunSuite {
 
-  sparkTest("can flatten a simple VCF file") {
+  ignore("can flatten a simple VCF file") {
 
     val loader = Thread.currentThread().getContextClassLoader
     val inputPath = loader.getResource("small.vcf").getPath
@@ -64,5 +64,4 @@ class FlattenSuite extends ADAMFunSuite {
     assert(flatRecords(0).get("start") === 14396L)
     assert(flatRecords(0).get("end") === 14400L)
   }
-
 }
