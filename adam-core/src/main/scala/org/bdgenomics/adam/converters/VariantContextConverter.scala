@@ -150,8 +150,12 @@ private[adam] object VariantContextConverter {
  * a conversion to/from the htsjdk VariantContext should be implemented in this
  * class.
  */
-private[adam] class VariantContextConverter extends Serializable with Logging {
+private[adam] class VariantContextConverter(
+    headerLines: Seq[VCFHeaderLine]) extends Serializable with Logging {
   import VariantContextConverter._
+
+  private val htsjdkConvFn = makeHtsjdkGenotypeConverter(headerLines)
+  private val bdgConvFn = makeBdgGenotypeConverter(headerLines)
 
   /**
    * Converts a Scala float to a Java float.
@@ -167,14 +171,13 @@ private[adam] class VariantContextConverter extends Serializable with Logging {
    * @param vc GATK Variant context to convert.
    * @return ADAM variant contexts
    */
-  def convert(vc: HtsjdkVariantContext,
-              convFn: (HtsjdkGenotype, Variant, Allele, Int, Option[Int], Boolean) => Genotype): Seq[ADAMVariantContext] = {
+  def convert(vc: HtsjdkVariantContext): Seq[ADAMVariantContext] = {
 
     vc.getAlternateAlleles.toList match {
       case List(NON_REF_ALLELE) => {
         val variant = createADAMVariant(vc, None /* No alternate allele */ )
         val genotypes = vc.getGenotypes.map(g => {
-          convFn(g, variant, NON_REF_ALLELE, 0, Some(1), false)
+          htsjdkConvFn(g, variant, NON_REF_ALLELE, 0, Some(1), false)
         })
         return Seq(ADAMVariantContext(variant, genotypes, None))
       }
@@ -185,7 +188,7 @@ private[adam] class VariantContextConverter extends Serializable with Logging {
         )
         val variant = createADAMVariant(vc, Some(allele.getDisplayString))
         val genotypes = vc.getGenotypes.map(g => {
-          convFn(g, variant, allele, 1, None, false)
+          htsjdkConvFn(g, variant, allele, 1, None, false)
         })
         return Seq(ADAMVariantContext(variant, genotypes, None))
       }
@@ -196,7 +199,7 @@ private[adam] class VariantContextConverter extends Serializable with Logging {
         )
         val variant = createADAMVariant(vc, Some(allele.getDisplayString))
         val genotypes = vc.getGenotypes.map(g => {
-          convFn(g, variant, allele, 1, Some(2), false)
+          htsjdkConvFn(g, variant, allele, 1, Some(2), false)
         })
         return Seq(ADAMVariantContext(variant, genotypes, None))
       }
@@ -222,7 +225,7 @@ private[adam] class VariantContextConverter extends Serializable with Logging {
           val variant = createADAMVariant(vc, Some(allele.getDisplayString))
 
           val genotypes = vc.getGenotypes.map(g => {
-            convFn(g, variant, allele, idx, referenceModelIndex, true)
+            htsjdkConvFn(g, variant, allele, idx, referenceModelIndex, true)
           })
           Seq(ADAMVariantContext(variant, genotypes, None))
         })
@@ -888,10 +891,7 @@ private[adam] class VariantContextConverter extends Serializable with Logging {
     }
   }
 
-  /**
-   *
-   */
-  def makeHtsjdkGenotypeConverter(
+  private[converters] def makeHtsjdkGenotypeConverter(
     headerLines: Seq[VCFHeaderLine]): (HtsjdkGenotype, Variant, Allele, Int, Option[Int], Boolean) => Genotype = {
 
     val attributeFns: Iterable[(HtsjdkGenotype, Int, Array[Int]) => Option[(String, String)]] = headerLines
@@ -1114,10 +1114,7 @@ private[adam] class VariantContextConverter extends Serializable with Logging {
     }
   }
 
-  /**
-   *
-   */
-  def makeBdgGenotypeConverter(
+  private[converters] def makeBdgGenotypeConverter(
     headerLines: Seq[VCFHeaderLine]): (Genotype) => HtsjdkGenotype = {
 
     val attributeFns: Iterable[(Map[String, String]) => Option[(String, java.lang.Object)]] = headerLines
@@ -1214,7 +1211,6 @@ private[adam] class VariantContextConverter extends Serializable with Logging {
    */
   def convert(
     vc: ADAMVariantContext,
-    convFn: (Genotype) => HtsjdkGenotype,
     stringency: ValidationStringency = ValidationStringency.LENIENT): Option[HtsjdkVariantContext] = {
     val variant: Variant = vc.variant.variant
     val vcb = new VariantContextBuilder()
@@ -1245,7 +1241,7 @@ private[adam] class VariantContextConverter extends Serializable with Logging {
 
     // attach genotypes
     try {
-      Some(vcb.genotypes(vc.genotypes.map(g => convFn(g)))
+      Some(vcb.genotypes(vc.genotypes.map(g => bdgConvFn(g)))
         .make)
     } catch {
       case t: Throwable => {

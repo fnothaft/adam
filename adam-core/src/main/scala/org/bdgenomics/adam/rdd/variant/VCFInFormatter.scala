@@ -58,8 +58,7 @@ private[variant] case class VCFInFormatter private (
   protected val companion = VCFInFormatter
 
   // make a converter
-  val converter = new VariantContextConverter()
-  val convFn = converter.makeBdgGenotypeConverter(headerLines)
+  val converter = new VariantContextConverter(headerLines)
 
   /**
    * Writes variant contexts to an output stream in VCF format.
@@ -82,7 +81,7 @@ private[variant] case class VCFInFormatter private (
 
     // write the records
     iter.foreach(r => {
-      val optVc = converter.convert(r, convFn)
+      val optVc = converter.convert(r)
       optVc.foreach(vc => {
         writer.add(vc)
       })
