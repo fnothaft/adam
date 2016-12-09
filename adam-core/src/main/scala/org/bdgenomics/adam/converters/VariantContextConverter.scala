@@ -155,8 +155,11 @@ private[adam] class VariantContextConverter(
     headerLines: Seq[VCFHeaderLine]) extends Serializable with Logging {
   import VariantContextConverter._
 
-  private val htsjdkConvFn = makeHtsjdkGenotypeConverter(headerLines)
-  private val bdgConvFn = makeBdgGenotypeConverter(headerLines)
+  // format fns gatk --> bdg, extract fns bdg --> gatk
+  private val variantFormatFn = makeVariantFormatFn(headerLines)
+  private val variantExtractFn = makeVariantExtractFn(headerLines)
+  private val genotypeFormatFn = makeGenotypeFormatFn(headerLines)
+  private val genotypeExtractFn = makeGenotypeExtractFn(headerLines)
 
   /**
    * Converts a Scala float to a Java float.
@@ -167,47 +170,45 @@ private[adam] class VariantContextConverter(
   private def jFloat(f: Float): java.lang.Float = f
 
   /**
-   * Converts a single GATK variant into ADAMVariantContext(s).
+   * Converts a GATK variant context into one or more ADAM variant context(s).
    *
-   * @param vc GATK Variant context to convert.
-   * @return ADAM variant contexts
+   * @param vc GATK variant context to convert.
+   * @param stringency Validation stringency.
+   * @return The specified GATK variant context converted into one or more ADAM variant context(s)
    */
-  def convert(vc: HtsjdkVariantContext,
-              variantAnnotationConvFn: (HtsjdkVariantContext, Option[String], Int) => VariantAnnotation,
-              genotypeConvFn: (HtsjdkGenotype, Variant, Allele, Int, Option[Int], Boolean) => Genotype): Seq[ADAMVariantContext] = {
+  def convert(
+    vc: HtsjdkVariantContext,
+    stringency: ValidationStringency): Seq[ADAMVariantContext] = {
 
     vc.getAlternateAlleles.toList match {
       case List(NON_REF_ALLELE) => {
-        val variantAnnotation = variantAnnotationConvFn(vc, None, 0)
-        val variant = variantAnnotation.variant
+        val variant = variantFormatFn(vc, None, 0)
         val genotypes = vc.getGenotypes.map(g => {
-          genotypeConvFn(g, variant, NON_REF_ALLELE, 0, Some(1), false)
+          genotypeFormatFn(g, variant, NON_REF_ALLELE, 0, Some(1), false)
         })
-        return Seq(ADAMVariantContext(variant, genotypes, Some(variantAnnotation)))
+        return Seq(ADAMVariantContext(variant, genotypes, Some(variant.getAnnotation)))
       }
       case List(allele) => {
         require(
           allele.isNonReference,
           "Assertion failed when converting: " + vc.toString
         )
-        val variantAnnotation = variantAnnotationConvFn(vc, Some(allele.getDisplayString), 0)
-        val variant = variantAnnotation.variant
+        val variant = variantFormatFn(vc, Some(allele.getDisplayString), 0)
         val genotypes = vc.getGenotypes.map(g => {
-          genotypeConvFn(g, variant, allele, 1, None, false)
+          genotypeFormatFn(g, variant, allele, 1, None, false)
         })
-        return Seq(ADAMVariantContext(variant, genotypes, Some(variantAnnotation)))
+        return Seq(ADAMVariantContext(variant, genotypes, Some(variant.getAnnotation)))
       }
       case List(allele, NON_REF_ALLELE) => {
         require(
           allele.isNonReference,
           "Assertion failed when converting: " + vc.toString
         )
-        val variantAnnotation = variantAnnotationConvFn(vc, Some(allele.getDisplayString), 0)
-        val variant = variantAnnotation.variant
+        val variant = variantFormatFn(vc, Some(allele.getDisplayString), 0)
         val genotypes = vc.getGenotypes.map(g => {
-          genotypeConvFn(g, variant, allele, 1, Some(2), false)
+          genotypeFormatFn(g, variant, allele, 1, Some(2), false)
         })
-        return Seq(ADAMVariantContext(variant, genotypes, Some(variantAnnotation)))
+        return Seq(ADAMVariantContext(variant, genotypes, Some(variant.getAnnotation)))
       }
       case _ => {
         val vcb = new VariantContextBuilder(vc)
@@ -229,13 +230,11 @@ private[adam] class VariantContextConverter(
           val idx = vc.getAlleleIndex(allele)
           require(idx >= 1, "Unexpected index for alternate allele: " + vc.toString)
 
-          val variantAnnotation = variantAnnotationConvFn(vc, Some(allele.getDisplayString), idx)
-          val variant = variantAnnotation.variant
-
+          val variant = variantFormatFn(vc, Some(allele.getDisplayString), idx)
           val genotypes = vc.getGenotypes.map(g => {
-            genotypeConvFn(g, variant, allele, idx, referenceModelIndex, true)
+            genotypeFormatFn(g, variant, allele, idx, referenceModelIndex, true)
           })
-          Seq(ADAMVariantContext(variant, genotypes, Some(variantAnnotation)))
+          Seq(ADAMVariantContext(variant, genotypes, Some(variant.getAnnotation)))
         })
       }
     }
@@ -271,7 +270,7 @@ private[adam] class VariantContextConverter(
     }
   }
 
-  // variant conversion functions
+  // htsjdk --> variant format functions
 
   private[converters] def formatNames(
     vc: HtsjdkVariantContext,
@@ -294,19 +293,12 @@ private[adam] class VariantContextConverter(
     vb
   }
 
-  private[converters] def formatSomatic(
-    vc: HtsjdkVariantContext,
-    vb: Variant.Builder): Variant.Builder = {
-
-    Option(vc.getAttribute("SOMATIC").asInstanceOf[java.lang.Boolean])
-      .fold(vb)(vb.setSomatic(_))
-  }
-
-  private val variantConversionFns: Iterable[(HtsjdkVariantContext, Variant.Builder) => Variant.Builder] = Iterable(
+  private val variantFormatFns: Iterable[(HtsjdkVariantContext, Variant.Builder) => Variant.Builder] = Iterable(
     formatNames(_, _),
-    formatFilters(_, _),
-    formatSomatic(_, _)
+    formatFilters(_, _)
   )
+
+  // variant --> htsjdk extract functions
 
   private[converters] def extractNames(
     v: Variant,
@@ -337,24 +329,12 @@ private[adam] class VariantContextConverter(
       }).getOrElse(vcb.unfiltered)
   }
 
-  private[converters] def extractSomatic(
-    v: Variant,
-    vcb: VariantContextBuilder): VariantContextBuilder = {
-
-    val somatic: java.lang.Boolean = Option(v.getSomatic).getOrElse(false)
-    if (somatic) {
-      vcb.attribute("SOMATIC", true)
-    }
-    vcb
-  }
-
-  private val variantExtractorFns: Iterable[(Variant, VariantContextBuilder) => VariantContextBuilder] = Iterable(
+  private val variantExtractFns: Iterable[(Variant, VariantContextBuilder) => VariantContextBuilder] = Iterable(
     extractNames(_, _),
-    extractFilters(_, _),
-    extractSomatic(_, _)
+    extractFilters(_, _)
   )
 
-  // variant annotation conversion functions
+  // htsjdk --> variant annotation format functions
 
   private[converters] def formatAncestralAllele(
     vc: HtsjdkVariantContext,
@@ -414,6 +394,16 @@ private[adam] class VariantContextConverter(
 
     Option(vc.getAttribute("1000G").asInstanceOf[java.lang.Boolean])
       .fold(vab)(vab.setThousandGenomes(_))
+  }
+
+  private[converters] def formatSomatic(
+    vc: HtsjdkVariantContext,
+    vab: VariantAnnotation.Builder,
+    v: Variant,
+    index: Int): VariantAnnotation.Builder = {
+
+    Option(vc.getAttribute("SOMATIC").asInstanceOf[java.lang.Boolean])
+      .fold(vab)(vab.setSomatic(_))
   }
 
   private[converters] def formatAlleleCount(
@@ -504,20 +494,23 @@ private[adam] class VariantContextConverter(
       .fold(vab)(vab.setTranscriptEffects(_))
   }
 
-  private val variantAnnotationConversionFns: Iterable[(HtsjdkVariantContext, VariantAnnotation.Builder, Variant, Int) => VariantAnnotation.Builder] = Iterable(
+  private val variantAnnotationFormatFns: Iterable[(HtsjdkVariantContext, VariantAnnotation.Builder, Variant, Int) => VariantAnnotation.Builder] = Iterable(
     formatAncestralAllele(_, _, _, _),
     formatDbSnp(_, _, _, _),
     formatHapMap2(_, _, _, _),
     formatHapMap3(_, _, _, _),
     formatThousandGenomes(_, _, _, _),
-    formatCigar(_, _, _, _),
+    formatSomatic(_, _, _, _),
     formatAlleleCount(_, _, _, _),
     formatAlleleFrequency(_, _, _, _),
+    formatCigar(_, _, _, _),
     formatReadDepth(_, _, _, _),
     formatForwardReadDepth(_, _, _, _),
     formatReverseReadDepth(_, _, _, _),
     formatTranscriptEffects(_, _, _, _)
   )
+
+  // variant annotation --> htsjdk extract functions
 
   private[converters] def extractAncestralAllele(
     va: VariantAnnotation,
@@ -554,11 +547,11 @@ private[adam] class VariantContextConverter(
     Option(va.getThousandGenomes).fold(vcb)(vcb.attribute("1000G", _))
   }
 
-  private[converters] def extractCigar(
+  private[converters] def extractSomatic(
     va: VariantAnnotation,
     vcb: VariantContextBuilder): VariantContextBuilder = {
 
-    Option(va.getCigar).fold(vcb)(vcb.attribute("CIGAR", _))
+    Option(va.getSomatic).fold(vcb)(vcb.attribute("SOMATIC", _))
   }
 
   private[converters] def extractAlleleCount(
@@ -573,6 +566,13 @@ private[adam] class VariantContextConverter(
     vcb: VariantContextBuilder): VariantContextBuilder = {
 
     Option(va.getAlleleCount).fold(vcb)(vcb.attribute("AF", _))
+  }
+
+  private[converters] def extractCigar(
+    va: VariantAnnotation,
+    vcb: VariantContextBuilder): VariantContextBuilder = {
+
+    Option(va.getCigar).fold(vcb)(vcb.attribute("CIGAR", _))
   }
 
   private[converters] def extractReadDepth(
@@ -614,22 +614,23 @@ private[adam] class VariantContextConverter(
     "-1," + v
   }
 
-  private val variantAnnotationExtractorFns: Iterable[(VariantAnnotation, VariantContextBuilder) => VariantContextBuilder] = Iterable(
+  private val variantAnnotationExtractFns: Iterable[(VariantAnnotation, VariantContextBuilder) => VariantContextBuilder] = Iterable(
     extractAncestralAllele(_, _),
     extractDbSnp(_, _),
     extractHapMap2(_, _),
     extractHapMap3(_, _),
     extractThousandGenomes(_, _),
-    extractCigar(_, _),
+    extractSomatic(_, _),
     extractAlleleCount(_, _),
     extractAlleleFrequency(_, _),
+    extractCigar(_, _),
     extractReadDepth(_, _),
     extractForwardReadDepth(_, _),
     extractReverseReadDepth(_, _),
     extractTranscriptEffects(_, _)
   )
 
-  // genotype conversion functions
+  // htsjdk --> genotype format functions
 
   private[converters] def formatAllelicDepth(g: HtsjdkGenotype,
                                              gb: Genotype.Builder,
@@ -778,7 +779,7 @@ private[adam] class VariantContextConverter(
     gb
   }
 
-  private val coreFormatFieldConversionFns: Iterable[(HtsjdkGenotype, Genotype.Builder, Int, Array[Int]) => Genotype.Builder] = Iterable(
+  private val genotypeFormatFns: Iterable[(HtsjdkGenotype, Genotype.Builder, Int, Array[Int]) => Genotype.Builder] = Iterable(
     formatAllelicDepth(_, _, _, _),
     formatReadDepth(_, _, _, _),
     formatMinReadDepth(_, _, _, _),
@@ -787,6 +788,8 @@ private[adam] class VariantContextConverter(
     formatStrandBiasComponents(_, _, _, _),
     formatPhaseInfo(_, _, _, _)
   )
+
+  // genotype --> htsjdk extract functions
 
   private[converters] def extractAllelicDepth(g: Genotype,
                                               gb: GenotypeBuilder): GenotypeBuilder = {
@@ -861,7 +864,7 @@ private[adam] class VariantContextConverter(
       }).getOrElse(gb.phased(false))
   }
 
-  private val coreFormatFieldExtractorFns: Iterable[(Genotype, GenotypeBuilder) => GenotypeBuilder] = Iterable(
+  private val genotypeExtractFns: Iterable[(Genotype, GenotypeBuilder) => GenotypeBuilder] = Iterable(
     extractAllelicDepth(_, _),
     extractReadDepth(_, _),
     extractMinReadDepth(_, _),
@@ -871,7 +874,7 @@ private[adam] class VariantContextConverter(
     extractPhaseInfo(_, _)
   )
 
-  // genotype annotation conversion functions
+  // htsjdk --> genotype annotation format functions
 
   private[converters] def formatFilters(g: HtsjdkGenotype,
                                         vcab: VariantCallingAnnotations.Builder,
@@ -934,12 +937,14 @@ private[adam] class VariantContextConverter(
       }).getOrElse(vcab)
   }
 
-  private val annotationFormatFieldConversionFns: Iterable[(HtsjdkGenotype, VariantCallingAnnotations.Builder, Int, Array[Int]) => VariantCallingAnnotations.Builder] = Iterable(
+  private val genotypeAnnotationFormatFns: Iterable[(HtsjdkGenotype, VariantCallingAnnotations.Builder, Int, Array[Int]) => VariantCallingAnnotations.Builder] = Iterable(
     formatFilters(_, _, _, _),
     formatFisherStrandBias(_, _, _, _),
     formatRmsMapQ(_, _, _, _),
     formatMapQ0(_, _, _, _)
   )
+
+  // genotype annotation --> htsjdk extract functions
 
   private[converters] def extractFilters(vca: VariantCallingAnnotations,
                                          gb: GenotypeBuilder): GenotypeBuilder = {
@@ -982,12 +987,14 @@ private[adam] class VariantContextConverter(
     }).getOrElse(gb)
   }
 
-  private val annotationFormatFieldExtractorFns: Iterable[(VariantCallingAnnotations, GenotypeBuilder) => GenotypeBuilder] = Iterable(
+  private val genotypeAnnotationExtractFns: Iterable[(VariantCallingAnnotations, GenotypeBuilder) => GenotypeBuilder] = Iterable(
     extractFilters(_, _),
     extractFisherStrandBias(_, _),
     extractRmsMapQ(_, _),
     extractMapQ0(_, _)
   )
+
+  // safe type conversions
 
   private def toBoolean(obj: java.lang.Object): Boolean = {
     tryAndCatchStringCast(obj, o => {
@@ -1303,8 +1310,8 @@ private[adam] class VariantContextConverter(
     }
   }
 
-  def makeHtsjdkVariantContextConverter(
-    headerLines: Seq[VCFHeaderLine]): (HtsjdkVariantContext, Option[String], Int) => VariantAnnotation = {
+  def makeVariantFormatFn(
+    headerLines: Seq[VCFHeaderLine]): (HtsjdkVariantContext, Option[String], Int) => Variant = {
 
     val attributeFns: Iterable[(HtsjdkVariantContext, Int, Array[Int]) => Option[(String, String)]] = headerLines
       .flatMap(hl => hl match {
@@ -1327,7 +1334,7 @@ private[adam] class VariantContextConverter(
 
     def convert(vc: HtsjdkVariantContext,
                 alt: Option[String],
-                alleleIdx: Int): VariantAnnotation = {
+                alleleIdx: Int): Variant = {
 
       // create the builder
       val variantBuilder = Variant.newBuilder
@@ -1339,7 +1346,7 @@ private[adam] class VariantContextConverter(
       alt.foreach(variantBuilder.setAlternateAllele(_))
 
       // bind the conversion functions and fold
-      val boundFns: Iterable[Variant.Builder => Variant.Builder] = variantConversionFns
+      val boundFns: Iterable[Variant.Builder => Variant.Builder] = variantFormatFns
         .map(fn => {
           fn(vc, _: Variant.Builder)
         })
@@ -1347,9 +1354,8 @@ private[adam] class VariantContextConverter(
 
       val variant = variantBuilder.build
       val variantAnnotationBuilder = VariantAnnotation.newBuilder
-        .setVariant(variant)
 
-      val boundAnnotationFns: Iterable[VariantAnnotation.Builder => VariantAnnotation.Builder] = variantAnnotationConversionFns
+      val boundAnnotationFns: Iterable[VariantAnnotation.Builder => VariantAnnotation.Builder] = variantAnnotationFormatFns
         .map(fn => {
           fn(vc, _: VariantAnnotation.Builder, variant, alleleIdx)
         })
@@ -1370,16 +1376,14 @@ private[adam] class VariantContextConverter(
         convertedAnnotation.setAttributes(attrMap)
       }
 
-      convertedAnnotationWithAttrs.build
+      variant.setAnnotation(convertedAnnotationWithAttrs.build)
+      variant
     }
 
     convert(_, _, _)
   }
 
-  /**
-   *
-   */
-  def makeHtsjdkGenotypeConverter(
+  def makeGenotypeFormatFn(
     headerLines: Seq[VCFHeaderLine]): (HtsjdkGenotype, Variant, Allele, Int, Option[Int], Boolean) => Genotype = {
 
     val attributeFns: Iterable[(HtsjdkGenotype, Int, Array[Int]) => Option[(String, String)]] = headerLines
@@ -1441,7 +1445,7 @@ private[adam] class VariantContextConverter(
       }
 
       // bind the conversion functions and fold
-      val boundFns: Iterable[Genotype.Builder => Genotype.Builder] = coreFormatFieldConversionFns
+      val boundFns: Iterable[Genotype.Builder => Genotype.Builder] = genotypeFormatFns
         .map(fn => {
           fn(g, _: Genotype.Builder, alleleIdx, indices)
         })
@@ -1459,7 +1463,7 @@ private[adam] class VariantContextConverter(
       val vcAnns = VariantCallingAnnotations.newBuilder
 
       // bind the annotation conversion functions and fold
-      val boundAnnotationFns: Iterable[VariantCallingAnnotations.Builder => VariantCallingAnnotations.Builder] = annotationFormatFieldConversionFns
+      val boundAnnotationFns: Iterable[VariantCallingAnnotations.Builder => VariantCallingAnnotations.Builder] = genotypeAnnotationFormatFns
         .map(fn => {
           fn(g, _: VariantCallingAnnotations.Builder, alleleIdx, indices)
         })
@@ -1730,7 +1734,7 @@ private[adam] class VariantContextConverter(
     }
   }
 
-  def makeBdgVariantContextConverter(
+  def makeVariantExtractFn(
     headerLines: Seq[VCFHeaderLine]): (ADAMVariantContext) => HtsjdkVariantContext = {
 
     val attributeFns: Iterable[(Map[String, String]) => Option[(String, java.lang.Object)]] = headerLines
@@ -1762,13 +1766,13 @@ private[adam] class VariantContextConverter(
         .alleles(VariantContextConverter.convertAlleles(v))
 
       // bind the conversion functions and fold
-      val convertedWithVariants = variantExtractorFns.foldLeft(builder)(
+      val convertedWithVariants = variantExtractFns.foldLeft(builder)(
         (vcb: VariantContextBuilder, fn) => fn(v, vcb))
 
       // extract from annotations, if present
       val convertedWithAttrs = vc.annotations
         .fold(convertedWithVariants)(va => {
-          val convertedWithAnnotations = variantAnnotationExtractorFns
+          val convertedWithAnnotations = variantAnnotationExtractFns
             .foldLeft(convertedWithVariants)((vcb: VariantContextBuilder, fn) => fn(va, vcb))
 
           // get the attribute map
@@ -1788,10 +1792,7 @@ private[adam] class VariantContextConverter(
     convert(_)
   }
 
-  /**
-   *
-   */
-  def makeBdgGenotypeConverter(
+  def makeGenotypeExtractFn(
     headerLines: Seq[VCFHeaderLine]): (Genotype) => HtsjdkGenotype = {
 
     val attributeFns: Iterable[(Map[String, String]) => Option[(String, java.lang.Object)]] = headerLines
@@ -1821,7 +1822,7 @@ private[adam] class VariantContextConverter(
         VariantContextConverter.convertAlleles(g))
 
       // bind the conversion functions and fold
-      val convertedCore = coreFormatFieldExtractorFns.foldLeft(builder)(
+      val convertedCore = genotypeExtractFns.foldLeft(builder)(
         (gb: GenotypeBuilder, fn) => fn(g, gb))
 
       // convert the annotations if they exist
@@ -1829,7 +1830,7 @@ private[adam] class VariantContextConverter(
         .fold(convertedCore)(vca => {
 
           // bind the annotation conversion functions and fold
-          val convertedAnnotations = annotationFormatFieldExtractorFns.foldLeft(convertedCore)(
+          val convertedAnnotations = genotypeAnnotationExtractFns.foldLeft(convertedCore)(
             (gb: GenotypeBuilder, fn) => fn(vca, gb))
 
           // get the attribute map
@@ -1851,22 +1852,21 @@ private[adam] class VariantContextConverter(
   }
 
   /**
-   * Convert an ADAMVariantContext into the equivalent GATK VariantContext
-   * @param vc
-   * @return GATK VariantContext
+   * Convert an ADAM variant context into a GATK variant context.
+   *
+   * @param vc ADAM variant context to convert.
+   * @param stringency Validation stringency.
+   * @return The specified ADAM variant context converted into a GATK variant context.
    */
   def convert(
     vc: ADAMVariantContext,
-    variantConvFn: (ADAMVariantContext) => HtsjdkVariantContext,
-    genotypeConvFn: (Genotype) => HtsjdkGenotype,
-    stringency: ValidationStringency = ValidationStringency.LENIENT): Option[HtsjdkVariantContext] = {
+    stringency: ValidationStringency): Option[HtsjdkVariantContext] = {
 
-    // todo:  should variantConvFn return builder?
-    val vcb = new VariantContextBuilder(variantConvFn(vc))
+    val vcb = new VariantContextBuilder(variantExtractFn(vc))
 
     // attach genotypes
     try {
-      Some(vcb.genotypes(vc.genotypes.map(g => genotypeConvFn(g)))
+      Some(vcb.genotypes(vc.genotypes.map(g => genotypeExtractFn(g)))
         .make)
     } catch {
       case t: Throwable => {

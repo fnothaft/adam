@@ -17,6 +17,7 @@
  */
 package org.bdgenomics.adam.models
 
+import htsjdk.samtools.ValidationStringency
 import htsjdk.variant.variantcontext.{
   Allele,
   GenotypeBuilder,
@@ -452,7 +453,7 @@ class ReferenceRegionSuite extends FunSuite {
     val vc = vcb.genotypes(GenotypeBuilder.create("NA12878",
       vcb.getAlleles(),
       Map.empty[String, java.lang.Object])).make()
-    val gts = converter.convert(vc).flatMap(_.genotypes)
+    val gts = converter.convert(vc, ValidationStringency.LENIENT).flatMap(_.genotypes)
     assert(gts.size === 1)
     val gt = gts.head
 
