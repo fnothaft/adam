@@ -25,6 +25,7 @@ import htsjdk.variant.variantcontext.{
   Genotype => HtsjdkGenotype,
   GenotypeBuilder,
   GenotypeType,
+  VariantContext => HtsjdkVariantContext,
   VariantContextBuilder
 }
 import java.io.File
@@ -456,6 +457,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
     val htsjdkVC = optHtsjdkVC.get
     assert(htsjdkVC.filtersWereApplied)
     assert(htsjdkVC.isFiltered)
+    assert(htsjdkVC.getFilters.size === 2)
     assert(htsjdkVC.getFilters.contains("FILTER1"))
     assert(htsjdkVC.getFilters.contains("FILTER2"))
   }
@@ -1082,5 +1084,582 @@ class VariantContextConverterSuite extends ADAMFunSuite {
 
     assert(g.hasExtendedAttribute("MQ0"))
     assert(g.getExtendedAttribute("MQ0").asInstanceOf[java.lang.Integer] === 5)
+  }
+
+  def makeVariant(variantAttributes: Map[String, java.lang.Object],
+                  fns: Iterable[VariantContextBuilder => VariantContextBuilder]): HtsjdkVariantContext = {
+    val vcb = fns.foldLeft(htsjdkSNVBuilder)((bldr, fn) => {
+      fn(bldr)
+    })
+    variantAttributes.foreach(kv => vcb.attribute(kv._1, kv._2))
+    vcb.make
+  }
+
+  def buildVariant(
+    objMap: Map[String, java.lang.Object],
+    extractor: (HtsjdkVariantContext, Variant.Builder) => Variant.Builder,
+    fns: Iterable[VariantContextBuilder => VariantContextBuilder] = Iterable.empty): Variant = {
+    val vc = makeVariant(objMap, fns)
+    extractor(vc,
+      Variant.newBuilder).build
+  }
+
+  test("no names set going htsjdk->adam") {
+    val v = buildVariant(Map.empty,
+      converter.formatNames,
+      fns = Iterable((vcb: VariantContextBuilder) => {
+        vcb.noID
+      }))
+    assert(v.getNames.isEmpty)
+  }
+
+  test("single name set going htsjdk->adam") {
+    val v = buildVariant(Map.empty,
+      converter.formatNames,
+      fns = Iterable((vcb: VariantContextBuilder) => {
+        vcb.id("singleName")
+      }))
+    assert(v.getNames.length === 1)
+    assert(v.getNames.get(0) === "singleName")
+  }
+
+  test("multiple names set going htsjdk->adam") {
+    val v = buildVariant(Map.empty,
+      converter.formatNames,
+      fns = Iterable((vcb: VariantContextBuilder) => {
+        vcb.id("firstName;secondName")
+      }))
+    assert(v.getNames.length === 2)
+    assert(v.getNames.get(0) === "firstName")
+    assert(v.getNames.get(1) === "secondName")
+  }
+
+  test("no filters applied going htsjdk->adam") {
+    val v = buildVariant(Map.empty,
+      converter.formatFilters,
+      fns = Iterable((vcb: VariantContextBuilder) => {
+        vcb.unfiltered
+      }))
+    assert(!v.getFiltersApplied)
+  }
+
+  test("filters applied and passed going htsjdk->adam") {
+    val v = buildVariant(Map.empty,
+      converter.formatFilters,
+      fns = Iterable((vcb: VariantContextBuilder) => {
+        vcb.passFilters
+      }))
+    assert(v.getFiltersApplied)
+    assert(v.getFiltersPassed)
+    assert(v.getFiltersFailed.isEmpty)
+  }
+
+  test("single filter applied and failed going htsjdk->adam") {
+    val v = buildVariant(Map.empty,
+      converter.formatFilters,
+      fns = Iterable((vcb: VariantContextBuilder) => {
+        vcb.filter("FAILED")
+      }))
+    assert(v.getFiltersApplied)
+    assert(!v.getFiltersPassed)
+    assert(v.getFiltersFailed.size === 1)
+    assert(v.getFiltersFailed.get(0) === "FAILED")
+  }
+
+  test("multiple filters applied and failed going htsjdk->adam") {
+    val v = buildVariant(Map.empty,
+      converter.formatFilters,
+      fns = Iterable((vcb: VariantContextBuilder) => {
+        vcb.filters(Set("FAILED1", "FAILED2", "FAILED3"))
+      }))
+    assert(v.getFiltersApplied)
+    assert(!v.getFiltersPassed)
+    assert(v.getFiltersFailed.size === 3)
+    val failedSet = v.getFiltersFailed.toSet
+    assert(failedSet("FAILED1"))
+    assert(failedSet("FAILED2"))
+    assert(failedSet("FAILED3"))
+  }
+
+  val emptyV = Variant.newBuilder
+    .build
+
+  test("no names set adam->htsjdk") {
+    val vc = converter.extractNames(emptyV, htsjdkSNVBuilder)
+      .make
+
+    assert(!vc.hasID)
+  }
+
+  test("set a single name adam->htsjdk") {
+    val vc = converter.extractNames(Variant.newBuilder
+      .setNames(Seq("name"))
+      .build, htsjdkSNVBuilder)
+      .make
+
+    assert(vc.hasID)
+    assert(vc.getID === "name")
+  }
+
+  test("set multiple names adam->htsjdk") {
+    val vc = converter.extractNames(Variant.newBuilder
+      .setNames(Seq("name1", "name2"))
+      .build, htsjdkSNVBuilder)
+      .make
+
+    assert(vc.hasID)
+    assert(vc.getID === "name1;name2")
+  }
+
+  test("no filters applied adam->htsjdk") {
+    val vc = converter.extractFilters(Variant.newBuilder
+      .setFiltersApplied(false)
+      .build, htsjdkSNVBuilder)
+      .make
+
+    assert(!vc.filtersWereApplied)
+  }
+
+  test("null filters applied adam->htsjdk") {
+    val vc = converter.extractFilters(Variant.newBuilder
+      .setFiltersApplied(null)
+      .build, htsjdkSNVBuilder)
+      .make
+
+    assert(!vc.filtersWereApplied)
+  }
+
+  test("filters passed adam->htsjdk") {
+    val vc = converter.extractFilters(Variant.newBuilder
+      .setFiltersApplied(true)
+      .setFiltersPassed(true)
+      .build, htsjdkSNVBuilder)
+      .make
+
+    assert(vc.filtersWereApplied)
+    assert(vc.isNotFiltered)
+  }
+
+  test("if filter failed, must have filters adam->htsjdk") {
+    intercept[IllegalArgumentException] {
+      converter.extractFilters(Variant.newBuilder
+        .setFiltersApplied(true)
+        .setFiltersPassed(false)
+        .build, htsjdkSNVBuilder)
+        .make
+    }
+  }
+
+  test("single filter failed adam->htsjdk") {
+    val vc = converter.extractFilters(Variant.newBuilder
+      .setFiltersApplied(true)
+      .setFiltersPassed(false)
+      .setFiltersFailed(Seq("FAILED"))
+      .build, htsjdkSNVBuilder)
+      .make
+
+    assert(vc.filtersWereApplied)
+    assert(vc.isFiltered)
+    assert(vc.getFilters.size === 1)
+    assert(vc.getFilters.contains("FAILED"))
+  }
+
+  test("multiple filters failed adam->htsjdk") {
+    val vc = converter.extractFilters(Variant.newBuilder
+      .setFiltersApplied(true)
+      .setFiltersPassed(false)
+      .setFiltersFailed(Seq("FAILED1", "FAILED2"))
+      .build, htsjdkSNVBuilder)
+      .make
+
+    assert(vc.filtersWereApplied)
+    assert(vc.isFiltered)
+    assert(vc.getFilters.size === 2)
+    assert(vc.getFilters.contains("FAILED1"))
+    assert(vc.getFilters.contains("FAILED2"))
+  }
+
+  def buildVariantAnnotation(
+    objMap: Map[String, java.lang.Object],
+    extractor: (HtsjdkVariantContext, VariantAnnotation.Builder, Variant, Int) => VariantAnnotation.Builder,
+    fns: Iterable[VariantContextBuilder => VariantContextBuilder] = Iterable.empty,
+    idx: Int = 0): VariantAnnotation = {
+    val vc = makeVariant(objMap, fns)
+    extractor(vc,
+      VariantAnnotation.newBuilder,
+      emptyV,
+      idx).build
+  }
+
+  test("no ancestral allele set going htsjdk->adam") {
+    val va = buildVariantAnnotation(Map.empty,
+      converter.formatAncestralAllele)
+    assert(va.getAncestralAllele === null)
+  }
+
+  test("ancestral allele set going htsjdk->adam") {
+    val va = buildVariantAnnotation(Map(("AA" -> "ABCD")),
+      converter.formatAncestralAllele)
+    assert(va.getAncestralAllele === "ABCD")
+  }
+
+  test("no dbsnp membership set going htsjdk->adam") {
+    val va = buildVariantAnnotation(Map.empty,
+      converter.formatDbSnp)
+    assert(va.getDbSnp === null)
+  }
+
+  test("dbsnp membership set going htsjdk->adam") {
+    val va = buildVariantAnnotation(Map(("DB", true: java.lang.Boolean)),
+      converter.formatDbSnp)
+    assert(va.getDbSnp)
+  }
+
+  test("no hapmap2 membership set going htsjdk->adam") {
+    val va = buildVariantAnnotation(Map.empty,
+      converter.formatHapMap2)
+    assert(va.getHapMap2 === null)
+  }
+
+  test("hapmap2 membership set going htsjdk->adam") {
+    val va = buildVariantAnnotation(Map(("H2", true: java.lang.Boolean)),
+      converter.formatHapMap2)
+    assert(va.getHapMap2)
+  }
+
+  test("no hapmap3 membership set going htsjdk->adam") {
+    val va = buildVariantAnnotation(Map.empty,
+      converter.formatHapMap3)
+    assert(va.getHapMap3 === null)
+  }
+
+  test("hapmap3 membership set going htsjdk->adam") {
+    val va = buildVariantAnnotation(Map(("H3", true: java.lang.Boolean)),
+      converter.formatHapMap3)
+    assert(va.getHapMap3)
+  }
+
+  test("no 1000G membership set going htsjdk->adam") {
+    val va = buildVariantAnnotation(Map.empty,
+      converter.formatThousandGenomes)
+    assert(va.getThousandGenomes === null)
+  }
+
+  test("1000G membership set going htsjdk->adam") {
+    val va = buildVariantAnnotation(Map(("1000G", true: java.lang.Boolean)),
+      converter.formatThousandGenomes)
+    assert(va.getThousandGenomes)
+  }
+
+  test("not somatic going htsjdk->adam") {
+    val va = buildVariantAnnotation(Map.empty,
+      converter.formatSomatic)
+    assert(!va.getSomatic)
+  }
+
+  test("somatic going htsjdk->adam") {
+    val va = buildVariantAnnotation(Map(("SOMATIC", true: java.lang.Boolean)),
+      converter.formatSomatic)
+    assert(va.getSomatic)
+  }
+
+  test("no allele count going htsjdk->adam") {
+    val va = buildVariantAnnotation(Map.empty,
+      converter.formatAlleleCount)
+    assert(va.getAlleleCount === null)
+  }
+
+  test("single allele count going htsjdk->adam") {
+    val acList: java.util.List[java.lang.Integer] = List(
+      10).map(i => i: java.lang.Integer)
+    val va = buildVariantAnnotation(Map(("AC", acList)),
+      converter.formatAlleleCount)
+    assert(va.getAlleleCount === 10)
+  }
+
+  test("multiple allele counts going htsjdk->adam") {
+    val acList: java.util.List[java.lang.Integer] = List(
+      10, 13, 16).map(i => i: java.lang.Integer)
+    val va = buildVariantAnnotation(Map(("AC", acList)),
+      converter.formatAlleleCount,
+      idx = 2)
+    assert(va.getAlleleCount === 16)
+  }
+
+  test("no allele frequency going htsjdk->adam") {
+    val va = buildVariantAnnotation(Map.empty,
+      converter.formatAlleleFrequency)
+    assert(va.getAlleleFrequency === null)
+  }
+
+  test("single allele frequency going htsjdk->adam") {
+    val acList: java.util.List[java.lang.Float] = List(
+      0.1f).map(i => i: java.lang.Float)
+    val va = buildVariantAnnotation(Map(("AF", acList)),
+      converter.formatAlleleFrequency)
+    assert(va.getAlleleFrequency > 0.09f && va.getAlleleFrequency < 0.11f)
+  }
+
+  test("multiple allele frequencies going htsjdk->adam") {
+    val acList: java.util.List[java.lang.Float] = List(
+      0.1f, 0.01f, 0.001f).map(i => i: java.lang.Float)
+    val va = buildVariantAnnotation(Map(("AF", acList)),
+      converter.formatAlleleFrequency,
+      idx = 2)
+    assert(va.getAlleleFrequency < 0.0011f && va.getAlleleFrequency > 0.0009f)
+  }
+
+  test("no CIGAR going htsjdk->adam") {
+    val va = buildVariantAnnotation(Map.empty,
+      converter.formatCigar)
+    assert(va.getCigar === null)
+  }
+
+  test("single CIGAR going htsjdk->adam") {
+    val acList: java.util.List[String] = List("10D90M")
+    val va = buildVariantAnnotation(Map(("CIGAR", acList)),
+      converter.formatCigar)
+    assert(va.getCigar === "10D90M")
+  }
+
+  test("multiple CIGARs going htsjdk->adam") {
+    val acList: java.util.List[String] = List("10D90M", "100M", "90M10D")
+    val va = buildVariantAnnotation(Map(("CIGAR", acList)),
+      converter.formatCigar,
+      idx = 2)
+    assert(va.getCigar === "90M10D")
+  }
+
+  test("no allele depth going htsjdk->adam") {
+    val va = buildVariantAnnotation(Map.empty,
+      converter.formatReadDepth)
+    assert(va.getReadDepth === null)
+  }
+
+  test("single allele depth going htsjdk->adam") {
+    val acList: java.util.List[java.lang.Integer] = List(
+      5, 10).map(i => i: java.lang.Integer)
+    val va = buildVariantAnnotation(Map(("AD", acList)),
+      converter.formatReadDepth)
+    assert(va.getReadDepth === 10)
+  }
+
+  test("multiple allele depths going htsjdk->adam") {
+    val acList: java.util.List[java.lang.Integer] = List(
+      5, 10, 13, 16).map(i => i: java.lang.Integer)
+    val va = buildVariantAnnotation(Map(("AD", acList)),
+      converter.formatReadDepth,
+      idx = 2)
+    assert(va.getReadDepth === 16)
+  }
+
+  test("no forward allele depth going htsjdk->adam") {
+    val va = buildVariantAnnotation(Map.empty,
+      converter.formatForwardReadDepth)
+    assert(va.getForwardReadDepth === null)
+  }
+
+  test("single forward allele depth going htsjdk->adam") {
+    val acList: java.util.List[java.lang.Integer] = List(
+      5, 10).map(i => i: java.lang.Integer)
+    val va = buildVariantAnnotation(Map(("ADF", acList)),
+      converter.formatForwardReadDepth)
+    assert(va.getForwardReadDepth === 10)
+  }
+
+  test("multiple forward allele depths going htsjdk->adam") {
+    val acList: java.util.List[java.lang.Integer] = List(
+      5, 10, 13, 16).map(i => i: java.lang.Integer)
+    val va = buildVariantAnnotation(Map(("ADF", acList)),
+      converter.formatForwardReadDepth,
+      idx = 2)
+    assert(va.getForwardReadDepth === 16)
+  }
+
+  test("no reverse allele depth going htsjdk->adam") {
+    val va = buildVariantAnnotation(Map.empty,
+      converter.formatReverseReadDepth)
+    assert(va.getReverseReadDepth === null)
+  }
+
+  test("single reverse allele depth going htsjdk->adam") {
+    val acList: java.util.List[java.lang.Integer] = List(
+      5, 10).map(i => i: java.lang.Integer)
+    val va = buildVariantAnnotation(Map(("ADR", acList)),
+      converter.formatReverseReadDepth)
+    assert(va.getReverseReadDepth === 10)
+  }
+
+  test("multiple reverse allele depths going htsjdk->adam") {
+    val acList: java.util.List[java.lang.Integer] = List(
+      5, 10, 13, 16).map(i => i: java.lang.Integer)
+    val va = buildVariantAnnotation(Map(("ADR", acList)),
+      converter.formatReverseReadDepth,
+      idx = 2)
+    assert(va.getReverseReadDepth === 16)
+  }
+
+  val emptyVa = VariantAnnotation.newBuilder
+    .build
+
+  test("no ancestral allele set adam->htsjdk") {
+    val vc = converter.extractAncestralAllele(emptyVa, htsjdkSNVBuilder)
+      .make
+
+    assert(!vc.hasAttribute("AA"))
+  }
+
+  test("ancestral allele set adam->htsjdk") {
+    val vc = converter.extractAncestralAllele(VariantAnnotation.newBuilder
+      .setAncestralAllele("ACGT")
+      .build, htsjdkSNVBuilder)
+      .make
+
+    assert(vc.hasAttribute("AA"))
+    assert(vc.getAttributeAsString("AA", null) === "ACGT")
+  }
+
+  test("no dbsnp membership set adam->htsjdk") {
+    val vc = converter.extractDbSnp(emptyVa, htsjdkSNVBuilder)
+      .make
+
+    assert(!vc.hasAttribute("DB"))
+  }
+
+  test("dbsnp membership set adam->htsjdk") {
+    val vc = converter.extractDbSnp(VariantAnnotation.newBuilder
+      .setDbSnp(true)
+      .build, htsjdkSNVBuilder)
+      .make
+
+    assert(vc.hasAttribute("DB"))
+    assert(vc.getAttributeAsBoolean("DB", false))
+  }
+
+  test("no hapmap2 membership set adam->htsjdk") {
+    val vc = converter.extractHapMap2(emptyVa, htsjdkSNVBuilder)
+      .make
+
+    assert(!vc.hasAttribute("H2"))
+  }
+
+  test("hapmap2 membership set adam->htsjdk") {
+    val vc = converter.extractHapMap2(VariantAnnotation.newBuilder
+      .setHapMap2(true)
+      .build, htsjdkSNVBuilder)
+      .make
+
+    assert(vc.hasAttribute("H2"))
+    assert(vc.getAttributeAsBoolean("H2", false))
+  }
+
+  test("no hapmap3 membership set adam->htsjdk") {
+    val vc = converter.extractHapMap3(emptyVa, htsjdkSNVBuilder)
+      .make
+
+    assert(!vc.hasAttribute("H3"))
+  }
+
+  test("hapmap3 membership set adam->htsjdk") {
+    val vc = converter.extractHapMap3(VariantAnnotation.newBuilder
+      .setHapMap3(true)
+      .build, htsjdkSNVBuilder)
+      .make
+
+    assert(vc.hasAttribute("H3"))
+    assert(vc.getAttributeAsBoolean("H3", false))
+  }
+
+  test("no allele frequency set adam->htsjdk") {
+    val vc = converter.extractAlleleFrequency(emptyVa, htsjdkSNVBuilder)
+      .make
+
+    assert(!vc.hasAttribute("AF"))
+  }
+
+  test("allele frequency set adam->htsjdk") {
+    val vc = converter.extractAlleleFrequency(VariantAnnotation.newBuilder
+      .setAlleleFrequency(0.1f)
+      .build, htsjdkSNVBuilder)
+      .make
+
+    assert(vc.hasAttribute("AF"))
+    assert(vc.getAttributeAsList("AF").size === 1)
+    val freq = vc.getAttributeAsList("AF").get(0).asInstanceOf[String]
+    assert(freq === "0.1")
+  }
+
+  test("no cigar set adam->htsjdk") {
+    val vc = converter.extractCigar(emptyVa, htsjdkSNVBuilder)
+      .make
+
+    assert(!vc.hasAttribute("CIGAR"))
+  }
+
+  test("cigar set adam->htsjdk") {
+    val vc = converter.extractCigar(VariantAnnotation.newBuilder
+      .setCigar("10D10M")
+      .build, htsjdkSNVBuilder)
+      .make
+
+    assert(vc.hasAttribute("CIGAR"))
+    assert(vc.getAttributeAsString("CIGAR", null) === "10D10M")
+  }
+
+  test("no allelic depth set adam->htsjdk") {
+    val vc = converter.extractReadDepth(emptyVa, htsjdkSNVBuilder)
+      .make
+
+    assert(!vc.hasAttribute("AD"))
+  }
+
+  test("allelic depth set adam->htsjdk") {
+    val vc = converter.extractReadDepth(VariantAnnotation.newBuilder
+      .setReadDepth(10)
+      .build, htsjdkSNVBuilder)
+      .make
+
+    assert(vc.hasAttribute("AD"))
+    assert(vc.getAttributeAsList("AD").size === 2)
+    assert(vc.getAttributeAsList("AD").get(0).asInstanceOf[String] === "-1")
+    assert(vc.getAttributeAsList("AD").get(1).asInstanceOf[String] === "10")
+  }
+
+  test("no forward allelic depth set adam->htsjdk") {
+    val vc = converter.extractForwardReadDepth(emptyVa, htsjdkSNVBuilder)
+      .make
+
+    assert(!vc.hasAttribute("ADF"))
+  }
+
+  test("forward allelic depth set adam->htsjdk") {
+    val vc = converter.extractForwardReadDepth(VariantAnnotation.newBuilder
+      .setForwardReadDepth(10)
+      .build, htsjdkSNVBuilder)
+      .make
+
+    assert(vc.hasAttribute("ADF"))
+    assert(vc.getAttributeAsList("ADF").size === 2)
+    assert(vc.getAttributeAsList("ADF").get(0).asInstanceOf[String] === "-1")
+    assert(vc.getAttributeAsList("ADF").get(1).asInstanceOf[String] === "10")
+  }
+
+  test("no reverse allelic depth set adam->htsjdk") {
+    val vc = converter.extractReverseReadDepth(emptyVa, htsjdkSNVBuilder)
+      .make
+
+    assert(!vc.hasAttribute("ADR"))
+  }
+
+  test("reverse allelic depth set adam->htsjdk") {
+    val vc = converter.extractReverseReadDepth(VariantAnnotation.newBuilder
+      .setReverseReadDepth(10)
+      .build, htsjdkSNVBuilder)
+      .make
+
+    assert(vc.hasAttribute("ADR"))
+    assert(vc.getAttributeAsList("ADR").size === 2)
+    assert(vc.getAttributeAsList("ADR").get(0).asInstanceOf[String] === "-1")
+    assert(vc.getAttributeAsList("ADR").get(1).asInstanceOf[String] === "10")
   }
 }
