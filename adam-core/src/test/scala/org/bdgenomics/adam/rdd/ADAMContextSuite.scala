@@ -190,13 +190,13 @@ class ADAMContextSuite extends ADAMFunSuite {
     assert(vcs.rdd.count === 6)
   }
 
-  sparkTest("can read an uncompressed BCFv2.2 file") { // see https://github.com/samtools/htsjdk/issues/507
+  ignore("can read an uncompressed BCFv2.2 file") { // see https://github.com/samtools/htsjdk/issues/507
     val path = testFile("test.uncompressed.bcf")
     val vcs = sc.loadVcf(path)
     assert(vcs.rdd.count === 6)
   }
 
-  sparkTest("can read a BGZF compressed BCFv2.2 file") { // see https://github.com/samtools/htsjdk/issues/507
+  ignore("can read a BGZF compressed BCFv2.2 file") { // see https://github.com/samtools/htsjdk/issues/507
     val path = testFile("test.compressed.bcf")
     val vcs = sc.loadVcf(path)
     assert(vcs.rdd.count === 6)

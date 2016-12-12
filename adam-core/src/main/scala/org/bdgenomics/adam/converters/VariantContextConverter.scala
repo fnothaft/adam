@@ -402,6 +402,7 @@ private[adam] class VariantContextConverter(
     v: Variant,
     index: Int): VariantAnnotation.Builder = {
 
+    // default somatic to false if unspecified
     Option(vc.getAttribute("SOMATIC").asInstanceOf[java.lang.Boolean])
       .fold(vab.setSomatic(false))(vab.setSomatic(_))
   }
@@ -452,6 +453,9 @@ private[adam] class VariantContextConverter(
     index: Int): VariantAnnotation.Builder = {
 
     val ad = vc.getAttributeAsList("AD")
+    if (ad.size > 0) {
+      vab.setReferenceReadDepth(toInt(ad.get(0)))
+    }
     if (ad.size > (index + 1)) {
       vab.setReadDepth(toInt(ad.get(index + 1)))
     }
@@ -465,6 +469,9 @@ private[adam] class VariantContextConverter(
     index: Int): VariantAnnotation.Builder = {
 
     val adf = vc.getAttributeAsList("ADF")
+    if (adf.size > 0) {
+      vab.setReferenceForwardReadDepth(toInt(adf.get(0)))
+    }
     if (adf.size > (index + 1)) {
       vab.setForwardReadDepth(toInt(adf.get(index + 1)))
     }
@@ -478,6 +485,9 @@ private[adam] class VariantContextConverter(
     index: Int): VariantAnnotation.Builder = {
 
     val adr = vc.getAttributeAsList("ADR")
+    if (adr.size > 0) {
+      vab.setReferenceReverseReadDepth(toInt(adr.get(0)))
+    }
     if (adr.size > (index + 1)) {
       vab.setReverseReadDepth(toInt(adr.get(index + 1)))
     }
@@ -499,6 +509,7 @@ private[adam] class VariantContextConverter(
     formatDbSnp(_, _, _, _),
     formatHapMap2(_, _, _, _),
     formatHapMap3(_, _, _, _),
+    formatValidated(_, _, _, _),
     formatThousandGenomes(_, _, _, _),
     formatSomatic(_, _, _, _),
     formatAlleleCount(_, _, _, _),
@@ -540,6 +551,13 @@ private[adam] class VariantContextConverter(
     Option(va.getHapMap3).fold(vcb)(vcb.attribute("H3", _))
   }
 
+  private[converters] def extractValidated(
+    va: VariantAnnotation,
+    vcb: VariantContextBuilder): VariantContextBuilder = {
+
+    Option(va.getValidated).fold(vcb)(vcb.attribute("VALIDATED", _))
+  }
+
   private[converters] def extractThousandGenomes(
     va: VariantAnnotation,
     vcb: VariantContextBuilder): VariantContextBuilder = {
@@ -558,17 +576,14 @@ private[adam] class VariantContextConverter(
     va: VariantAnnotation,
     vcb: VariantContextBuilder): VariantContextBuilder = {
 
-    Option(va.getAlleleCount).fold(vcb)(vcb.attribute("AC", _))
+    Option(va.getAlleleCount).fold(vcb)(i => vcb.attribute("AC", i.toString))
   }
 
   private[converters] def extractAlleleFrequency(
     va: VariantAnnotation,
     vcb: VariantContextBuilder): VariantContextBuilder = {
 
-    Option(va.getAlleleFrequency).fold(vcb)(af => {
-      val afList: java.util.List[String] = Seq(af.toString)
-      vcb.attribute("AF", afList)
-    })
+    Option(va.getAlleleFrequency).fold(vcb)(f => vcb.attribute("AF", f.toString))
   }
 
   private[converters] def extractCigar(
@@ -582,24 +597,39 @@ private[adam] class VariantContextConverter(
     va: VariantAnnotation,
     vcb: VariantContextBuilder): VariantContextBuilder = {
 
-    Option(va.getReadDepth)
-      .fold(vcb)(rd => vcb.attribute("AD", prependDefaultReferenceValue(rd)))
+    (Option(va.getReferenceReadDepth), Option(va.getReadDepth)) match {
+      case (Some(ref), Some(alt)) => vcb.attribute("AD", ImmutableList.of(ref.toString, alt.toString))
+      case (None, Some(_))        => throw new IllegalArgumentException("Read depth specified without reference read depth")
+      case (Some(_), None)        => throw new IllegalArgumentException("Reference read depth specified without read depth")
+      case _                      =>
+    }
+    vcb
   }
 
   private[converters] def extractForwardReadDepth(
     va: VariantAnnotation,
     vcb: VariantContextBuilder): VariantContextBuilder = {
 
-    Option(va.getForwardReadDepth)
-      .fold(vcb)(frd => vcb.attribute("ADF", prependDefaultReferenceValue(frd)))
+    (Option(va.getReferenceForwardReadDepth), Option(va.getForwardReadDepth)) match {
+      case (Some(ref), Some(alt)) => vcb.attribute("ADF", ImmutableList.of(ref.toString, alt.toString))
+      case (None, Some(_))        => throw new IllegalArgumentException("Forward read depth specified without reference forward read depth")
+      case (Some(_), None)        => throw new IllegalArgumentException("Reference forward read depth specified without forward read depth")
+      case _                      =>
+    }
+    vcb
   }
 
   private[converters] def extractReverseReadDepth(
     va: VariantAnnotation,
     vcb: VariantContextBuilder): VariantContextBuilder = {
 
-    Option(va.getReverseReadDepth)
-      .fold(vcb)(rrd => vcb.attribute("ADR", prependDefaultReferenceValue(rrd)))
+    (Option(va.getReferenceReverseReadDepth), Option(va.getReverseReadDepth)) match {
+      case (Some(ref), Some(alt)) => vcb.attribute("ADR", ImmutableList.of(ref.toString, alt.toString))
+      case (None, Some(_))        => throw new IllegalArgumentException("Reverse read depth specified without reference reverse read depth")
+      case (Some(_), None)        => throw new IllegalArgumentException("Reference reverse read depth specified without reverse read depth")
+      case _                      =>
+    }
+    vcb
   }
 
   private[converters] def extractTranscriptEffects(
@@ -612,16 +642,12 @@ private[adam] class VariantContextConverter(
     vcb
   }
 
-  // reference value is missing for Number=R VCF INFO attributes
-  private[converters] def prependDefaultReferenceValue(v: Int): java.util.List[String] = {
-    Seq("-1", v.toString)
-  }
-
   private val variantAnnotationExtractFns: Iterable[(VariantAnnotation, VariantContextBuilder) => VariantContextBuilder] = Iterable(
     extractAncestralAllele(_, _),
     extractDbSnp(_, _),
     extractHapMap2(_, _),
     extractHapMap3(_, _),
+    extractValidated(_, _),
     extractThousandGenomes(_, _),
     extractSomatic(_, _),
     extractAlleleCount(_, _),
@@ -1365,7 +1391,6 @@ private[adam] class VariantContextConverter(
       val convertedAnnotation = boundAnnotationFns.foldLeft(variantAnnotationBuilder)(
         (vab: VariantAnnotation.Builder, fn) => fn(vab))
 
-      // todo: I don't believe these are useful for INFO fields
       val indices = Array.empty[Int]
 
       // pull out the attribute map and process
@@ -1379,8 +1404,8 @@ private[adam] class VariantContextConverter(
         convertedAnnotation.setAttributes(attrMap)
       }
 
-      variant.setAnnotation(convertedAnnotationWithAttrs.build)
-      variant
+      variantBuilder.setAnnotation(convertedAnnotationWithAttrs.build)
+      variantBuilder.build
     }
 
     convert(_, _, _)

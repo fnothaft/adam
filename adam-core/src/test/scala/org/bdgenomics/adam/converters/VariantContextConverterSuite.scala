@@ -542,7 +542,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
     assert(gt.getAlternateReadDepth === 6)
   }
 
-  test("no read depth going htsjdk->adam") {
+  test("no gt read depth going htsjdk->adam") {
     val gt = buildGt(Map.empty,
       converter.formatReadDepth,
       fns = Iterable((gb: GenotypeBuilder) => {
@@ -552,7 +552,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
     assert(gt.getReadDepth === null)
   }
 
-  test("extract read depth going htsjdk->adam") {
+  test("extract gt read depth going htsjdk->adam") {
     val gt = buildGt(Map.empty,
       converter.formatReadDepth,
       fns = Iterable((gb: GenotypeBuilder) => {
@@ -562,7 +562,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
     assert(gt.getReadDepth === 20)
   }
 
-  test("no min read depth going htsjdk->adam") {
+  test("no min gt read depth going htsjdk->adam") {
     val gt = buildGt(Map.empty,
       converter.formatMinReadDepth,
       fns = Iterable.empty)
@@ -570,7 +570,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
     assert(gt.getMinReadDepth === null)
   }
 
-  test("extract min read depth going htsjdk->adam") {
+  test("extract min gt read depth going htsjdk->adam") {
     val gt = buildGt(Map(("MIN_DP" -> (20: java.lang.Integer).asInstanceOf[java.lang.Object])),
       converter.formatMinReadDepth,
       fns = Iterable.empty)
@@ -756,14 +756,14 @@ class VariantContextConverterSuite extends ADAMFunSuite {
   def emptyGt: Genotype = Genotype.newBuilder.build
   def newGb: GenotypeBuilder = new GenotypeBuilder
 
-  test("no allelic depth going adam->htsjdk") {
+  test("no gt read depth going adam->htsjdk") {
     val g = converter.extractAllelicDepth(emptyGt, newGb)
       .make
 
     assert(!g.hasAD)
   }
 
-  test("extract allelic depth going adam->htsjdk") {
+  test("extract gt read depth going adam->htsjdk") {
     val g = converter.extractAllelicDepth(Genotype.newBuilder
       .setReferenceReadDepth(10)
       .setAlternateReadDepth(15)
@@ -777,7 +777,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
     assert(attr(1) === 15)
   }
 
-  test("throw iae if missing one component of allelic depth going adam->htsjdk") {
+  test("throw iae if missing one component of gt read depth going adam->htsjdk") {
     intercept[IllegalArgumentException] {
       val g = converter.extractAllelicDepth(Genotype.newBuilder
         .setAlternateReadDepth(15)
@@ -1339,6 +1339,18 @@ class VariantContextConverterSuite extends ADAMFunSuite {
     assert(va.getHapMap3)
   }
 
+  test("no validated set going htsjdk->adam") {
+    val va = buildVariantAnnotation(Map.empty,
+      converter.formatValidated)
+    assert(va.getValidated === null)
+  }
+
+  test("validated set going htsjdk->adam") {
+    val va = buildVariantAnnotation(Map(("VALIDATED", true: java.lang.Boolean)),
+      converter.formatValidated)
+    assert(va.getValidated)
+  }
+
   test("no 1000G membership set going htsjdk->adam") {
     val va = buildVariantAnnotation(Map.empty,
       converter.formatThousandGenomes)
@@ -1430,72 +1442,81 @@ class VariantContextConverterSuite extends ADAMFunSuite {
     assert(va.getCigar === "90M10D")
   }
 
-  test("no allele depth going htsjdk->adam") {
+  test("no read depth going htsjdk->adam") {
     val va = buildVariantAnnotation(Map.empty,
       converter.formatReadDepth)
+    assert(va.getReferenceReadDepth === null)
     assert(va.getReadDepth === null)
   }
 
-  test("single allele depth going htsjdk->adam") {
+  test("single read depth going htsjdk->adam") {
     val acList: java.util.List[java.lang.Integer] = List(
       5, 10).map(i => i: java.lang.Integer)
     val va = buildVariantAnnotation(Map(("AD", acList)),
       converter.formatReadDepth)
+    assert(va.getReferenceReadDepth === 5)
     assert(va.getReadDepth === 10)
   }
 
-  test("multiple allele depths going htsjdk->adam") {
+  test("multiple read depths going htsjdk->adam") {
     val acList: java.util.List[java.lang.Integer] = List(
       5, 10, 13, 16).map(i => i: java.lang.Integer)
     val va = buildVariantAnnotation(Map(("AD", acList)),
       converter.formatReadDepth,
       idx = 2)
+    assert(va.getReferenceReadDepth === 5)
     assert(va.getReadDepth === 16)
   }
 
-  test("no forward allele depth going htsjdk->adam") {
+  test("no forward read depth going htsjdk->adam") {
     val va = buildVariantAnnotation(Map.empty,
       converter.formatForwardReadDepth)
+    assert(va.getReferenceForwardReadDepth === null)
     assert(va.getForwardReadDepth === null)
   }
 
-  test("single forward allele depth going htsjdk->adam") {
+  test("single forward read depth going htsjdk->adam") {
     val acList: java.util.List[java.lang.Integer] = List(
       5, 10).map(i => i: java.lang.Integer)
     val va = buildVariantAnnotation(Map(("ADF", acList)),
       converter.formatForwardReadDepth)
+    assert(va.getReferenceForwardReadDepth === 5)
     assert(va.getForwardReadDepth === 10)
   }
 
-  test("multiple forward allele depths going htsjdk->adam") {
+  test("multiple forward read depths going htsjdk->adam") {
     val acList: java.util.List[java.lang.Integer] = List(
       5, 10, 13, 16).map(i => i: java.lang.Integer)
     val va = buildVariantAnnotation(Map(("ADF", acList)),
       converter.formatForwardReadDepth,
       idx = 2)
+    assert(va.getReferenceForwardReadDepth === 5)
     assert(va.getForwardReadDepth === 16)
   }
 
-  test("no reverse allele depth going htsjdk->adam") {
+  test("no reverse read depth going htsjdk->adam") {
     val va = buildVariantAnnotation(Map.empty,
       converter.formatReverseReadDepth)
+    assert(va.getReferenceReverseReadDepth === null)
     assert(va.getReverseReadDepth === null)
   }
 
-  test("single reverse allele depth going htsjdk->adam") {
+  test("single reverse read depth going htsjdk->adam") {
     val acList: java.util.List[java.lang.Integer] = List(
       5, 10).map(i => i: java.lang.Integer)
     val va = buildVariantAnnotation(Map(("ADR", acList)),
       converter.formatReverseReadDepth)
+    assert(va.getReferenceReverseReadDepth === 5)
     assert(va.getReverseReadDepth === 10)
   }
 
-  test("multiple reverse allele depths going htsjdk->adam") {
+  test("multiple reverse read depths going htsjdk->adam") {
     val acList: java.util.List[java.lang.Integer] = List(
       5, 10, 13, 16).map(i => i: java.lang.Integer)
     val va = buildVariantAnnotation(Map(("ADR", acList)),
       converter.formatReverseReadDepth,
       idx = 2)
+    assert(va.getReferenceReverseReadDepth === 5)
     assert(va.getReverseReadDepth === 16)
   }
 
@@ -1570,6 +1591,58 @@ class VariantContextConverterSuite extends ADAMFunSuite {
     assert(vc.getAttributeAsBoolean("H3", false))
   }
 
+  test("no validated set adam->htsjdk") {
+    val vc = converter.extractValidated(emptyVa, htsjdkSNVBuilder)
+      .make
+
+    assert(!vc.hasAttribute("VALIDATED"))
+  }
+
+  test("validated set adam->htsjdk") {
+    val vc = converter.extractValidated(VariantAnnotation.newBuilder
+      .setValidated(true)
+      .build, htsjdkSNVBuilder)
+      .make
+
+    assert(vc.hasAttribute("VALIDATED"))
+    assert(vc.getAttributeAsBoolean("VALIDATED", true))
+  }
+
+  test("no 1000G membership set adam->htsjdk") {
+    val vc = converter.extractThousandGenomes(emptyVa, htsjdkSNVBuilder)
+      .make
+
+    assert(!vc.hasAttribute("1000G"))
+  }
+
+  test("1000G membership set adam->htsjdk") {
+    val vc = converter.extractThousandGenomes(VariantAnnotation.newBuilder
+      .setThousandGenomes(true)
+      .build, htsjdkSNVBuilder)
+      .make
+
+    assert(vc.hasAttribute("1000G"))
+    assert(vc.getAttributeAsBoolean("1000G", false))
+  }
+
+  test("no allele count set adam->htsjdk") {
+    val vc = converter.extractAlleleCount(emptyVa, htsjdkSNVBuilder)
+      .make
+
+    assert(!vc.hasAttribute("AC"))
+  }
+
+  test("allele count set adam->htsjdk") {
+    val vc = converter.extractAlleleCount(VariantAnnotation.newBuilder
+      .setAlleleCount(42)
+      .build, htsjdkSNVBuilder)
+      .make
+
+    assert(vc.hasAttribute("AC"))
+    assert(vc.getAttributeAsList("AC").size === 1)
+    assert(vc.getAttributeAsList("AC").get(0) === "42")
+  }
+
   test("no allele frequency set adam->htsjdk") {
     val vc = converter.extractAlleleFrequency(emptyVa, htsjdkSNVBuilder)
       .make
@@ -1585,8 +1658,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
 
     assert(vc.hasAttribute("AF"))
     assert(vc.getAttributeAsList("AF").size === 1)
-    val freq = vc.getAttributeAsList("AF").get(0).asInstanceOf[String]
-    assert(freq === "0.1")
+    assert(vc.getAttributeAsList("AF").get(0) === "0.1")
   }
 
   test("no cigar set adam->htsjdk") {
@@ -1603,63 +1675,121 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       .make
 
     assert(vc.hasAttribute("CIGAR"))
-    assert(vc.getAttributeAsString("CIGAR", null) === "10D10M")
+    assert(vc.getAttributeAsList("CIGAR").size === 1)
+    assert(vc.getAttributeAsList("CIGAR").get(0) === "10D10M")
   }
 
-  test("no allelic depth set adam->htsjdk") {
+  test("no read depth set adam->htsjdk") {
     val vc = converter.extractReadDepth(emptyVa, htsjdkSNVBuilder)
       .make
 
     assert(!vc.hasAttribute("AD"))
   }
 
-  test("allelic depth set adam->htsjdk") {
+  test("read depth set adam->htsjdk") {
     val vc = converter.extractReadDepth(VariantAnnotation.newBuilder
+      .setReferenceReadDepth(5)
       .setReadDepth(10)
       .build, htsjdkSNVBuilder)
       .make
 
     assert(vc.hasAttribute("AD"))
     assert(vc.getAttributeAsList("AD").size === 2)
-    assert(vc.getAttributeAsList("AD").get(0).asInstanceOf[String] === "-1")
-    assert(vc.getAttributeAsList("AD").get(1).asInstanceOf[String] === "10")
+    assert(vc.getAttributeAsList("AD").get(0) === "5")
+    assert(vc.getAttributeAsList("AD").get(1) === "10")
   }
 
-  test("no forward allelic depth set adam->htsjdk") {
+  test("read depth without reference read depth") {
+    intercept[IllegalArgumentException] {
+      val vc = converter.extractReadDepth(VariantAnnotation.newBuilder
+        .setReadDepth(10)
+        .build, htsjdkSNVBuilder)
+        .make
+    }
+  }
+
+  test("reference read depth without read depth") {
+    intercept[IllegalArgumentException] {
+      val vc = converter.extractReadDepth(VariantAnnotation.newBuilder
+        .setReferenceReadDepth(10)
+        .build, htsjdkSNVBuilder)
+        .make
+    }
+  }
+
+  test("no forward read depth set adam->htsjdk") {
     val vc = converter.extractForwardReadDepth(emptyVa, htsjdkSNVBuilder)
       .make
 
     assert(!vc.hasAttribute("ADF"))
   }
 
-  test("forward allelic depth set adam->htsjdk") {
+  test("forward read depth set adam->htsjdk") {
     val vc = converter.extractForwardReadDepth(VariantAnnotation.newBuilder
+      .setReferenceForwardReadDepth(5)
       .setForwardReadDepth(10)
       .build, htsjdkSNVBuilder)
       .make
 
     assert(vc.hasAttribute("ADF"))
     assert(vc.getAttributeAsList("ADF").size === 2)
-    assert(vc.getAttributeAsList("ADF").get(0).asInstanceOf[String] === "-1")
-    assert(vc.getAttributeAsList("ADF").get(1).asInstanceOf[String] === "10")
+    assert(vc.getAttributeAsList("ADF").get(0) === "5")
+    assert(vc.getAttributeAsList("ADF").get(1) === "10")
   }
 
-  test("no reverse allelic depth set adam->htsjdk") {
+  test("reference forward read depth without forward read depth") {
+    intercept[IllegalArgumentException] {
+      val vc = converter.extractForwardReadDepth(VariantAnnotation.newBuilder
+        .setReferenceForwardReadDepth(10)
+        .build, htsjdkSNVBuilder)
+        .make
+    }
+  }
+
+  test("forward read depth without reference forward read depth") {
+    intercept[IllegalArgumentException] {
+      val vc = converter.extractForwardReadDepth(VariantAnnotation.newBuilder
+        .setForwardReadDepth(10)
+        .build, htsjdkSNVBuilder)
+        .make
+    }
+  }
+
+  test("no reverse read depth set adam->htsjdk") {
     val vc = converter.extractReverseReadDepth(emptyVa, htsjdkSNVBuilder)
       .make
 
     assert(!vc.hasAttribute("ADR"))
   }
 
-  test("reverse allelic depth set adam->htsjdk") {
+  test("reverse read depth set adam->htsjdk") {
     val vc = converter.extractReverseReadDepth(VariantAnnotation.newBuilder
+      .setReferenceReverseReadDepth(5)
       .setReverseReadDepth(10)
       .build, htsjdkSNVBuilder)
       .make
 
     assert(vc.hasAttribute("ADR"))
     assert(vc.getAttributeAsList("ADR").size === 2)
-    assert(vc.getAttributeAsList("ADR").get(0).asInstanceOf[String] === "-1")
-    assert(vc.getAttributeAsList("ADR").get(1).asInstanceOf[String] === "10")
+    assert(vc.getAttributeAsList("ADR").get(0) === "5")
+    assert(vc.getAttributeAsList("ADR").get(1) === "10")
+  }
+
+  test("reference reverse read depth without reverse read depth") {
+    intercept[IllegalArgumentException] {
+      val vc = converter.extractReverseReadDepth(VariantAnnotation.newBuilder
+        .setReferenceReverseReadDepth(10)
+        .build, htsjdkSNVBuilder)
+        .make
+    }
+  }
+
+  test("reverse read depth without reference reverse read depth") {
+    intercept[IllegalArgumentException] {
+      val vc = converter.extractReverseReadDepth(VariantAnnotation.newBuilder
+        .setReverseReadDepth(10)
+        .build, htsjdkSNVBuilder)
+        .make
+    }
   }
 }
