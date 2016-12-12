@@ -288,7 +288,7 @@ private[adam] class VariantContextConverter(
       vb.setFiltersPassed(!vc.isFiltered)
     }
     if (vc.isFiltered) {
-      vb.setFiltersFailed(new java.util.ArrayList(vc.getFilters));
+      vb.setFiltersFailed(new java.util.ArrayList(vc.getFilters))
     }
     vb
   }
@@ -321,7 +321,7 @@ private[adam] class VariantContextConverter(
             val failedFilters = v.getFiltersFailed
             require(failedFilters.nonEmpty,
               "Variant marked as filtered, but no failed filters listed in %s.".format(v))
-            vcb.filters(failedFilters.mkString(";"))
+            vcb.filters(failedFilters.toSet)
           }
         }).getOrElse({
           throw new IllegalArgumentException("Filters were applied but filters passed is null in %s.".format(v))
@@ -403,7 +403,7 @@ private[adam] class VariantContextConverter(
     index: Int): VariantAnnotation.Builder = {
 
     Option(vc.getAttribute("SOMATIC").asInstanceOf[java.lang.Boolean])
-      .fold(vab)(vab.setSomatic(_))
+      .fold(vab.setSomatic(false))(vab.setSomatic(_))
   }
 
   private[converters] def formatAlleleCount(
@@ -565,7 +565,10 @@ private[adam] class VariantContextConverter(
     va: VariantAnnotation,
     vcb: VariantContextBuilder): VariantContextBuilder = {
 
-    Option(va.getAlleleCount).fold(vcb)(vcb.attribute("AF", _))
+    Option(va.getAlleleFrequency).fold(vcb)(af => {
+      val afList: java.util.List[String] = Seq(af.toString)
+      vcb.attribute("AF", afList)
+    })
   }
 
   private[converters] def extractCigar(
@@ -610,8 +613,8 @@ private[adam] class VariantContextConverter(
   }
 
   // reference value is missing for Number=R VCF INFO attributes
-  private[converters] def prependDefaultReferenceValue(v: Int): String = {
-    "-1," + v
+  private[converters] def prependDefaultReferenceValue(v: Int): java.util.List[String] = {
+    Seq("-1", v.toString)
   }
 
   private val variantAnnotationExtractFns: Iterable[(VariantAnnotation, VariantContextBuilder) => VariantContextBuilder] = Iterable(
