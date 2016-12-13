@@ -18,6 +18,7 @@
 package org.bdgenomics.adam.converters
 
 import com.google.common.collect.ImmutableList
+import com.google.common.collect.ImmutableMap
 import htsjdk.samtools.ValidationStringency
 import htsjdk.variant.utils.SAMSequenceDictionaryExtractor
 import htsjdk.variant.variantcontext.{
@@ -27,6 +28,14 @@ import htsjdk.variant.variantcontext.{
   GenotypeType,
   VariantContext => HtsjdkVariantContext,
   VariantContextBuilder
+}
+import htsjdk.variant.vcf.{
+  VCFConstants,
+  VCFFormatHeaderLine,
+  VCFHeaderLineCount,
+  VCFHeaderLineType,
+  VCFInfoHeaderLine,
+  VCFStandardHeaderLines
 }
 import java.io.File
 import org.bdgenomics.adam.models.{
@@ -1791,5 +1800,182 @@ class VariantContextConverterSuite extends ADAMFunSuite {
         .build, htsjdkSNVBuilder)
         .make
     }
+  }
+
+  val v = Variant.newBuilder
+    .setContigName("1")
+    .setStart(0L)
+    .setReferenceAllele("A")
+    .setAlternateAllele("T")
+    .build
+
+  test("attribute Number=0 Type=Flag adam->htsjdk") {
+    val va = VariantAnnotation.newBuilder
+      .setAttributes(ImmutableMap.of("FLAG", "true"))
+      .build
+
+    val adamVc = ADAMVariantContext(v, None, Some(va))
+
+    val flagHeader = new VCFInfoHeaderLine("FLAG",
+      0,
+      VCFHeaderLineType.Flag,
+      "Flag")
+
+    val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ flagHeader)
+      .convert(adamVc, lenient).orNull
+
+    assert(vc.hasAttribute("FLAG"))
+    assert(vc.getAttributeAsBoolean("FLAG", false))
+  }
+
+  test("attribute Number=1 Type=Integer adam->htsjdk") {
+    val va = VariantAnnotation.newBuilder
+      .setAttributes(ImmutableMap.of("ONE_INT", "42"))
+      .build
+
+    val adamVc = ADAMVariantContext(v, None, Some(va))
+
+    val oneIntHeader = new VCFInfoHeaderLine("ONE_INT",
+      1,
+      VCFHeaderLineType.Integer,
+      "Number=1 Type=Integer")
+
+    val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ oneIntHeader)
+      .convert(adamVc, lenient).orNull
+
+    assert(vc.hasAttribute("ONE_INT"))
+    assert(vc.getAttribute("ONE_INT", -1) === 42)
+  }
+
+  test("attribute Number=4 Type=Integer adam->htsjdk") {
+    val va = VariantAnnotation.newBuilder
+      .setAttributes(ImmutableMap.of("FOUR_INTS", "5,10,15,20"))
+      .build
+
+    val adamVc = ADAMVariantContext(v, None, Some(va))
+
+    val fourIntsHeader = new VCFInfoHeaderLine("FOUR_INTS",
+      4,
+      VCFHeaderLineType.Integer,
+      "Number=4 Type=Integer")
+
+    val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ fourIntsHeader)
+      .convert(adamVc, lenient).orNull
+
+    assert(vc.hasAttribute("FOUR_INTS"))
+    assert(vc.getAttributeAsList("FOUR_INTS").size === 4)
+    assert(vc.getAttributeAsList("FOUR_INTS").get(0) === 5)
+    assert(vc.getAttributeAsList("FOUR_INTS").get(1) === 10)
+    assert(vc.getAttributeAsList("FOUR_INTS").get(2) === 15)
+    assert(vc.getAttributeAsList("FOUR_INTS").get(3) === 20)
+    // next version of htsjdk
+    //assert(vc.getAttributeAsIntegerList("FOUR_INTS", -1).size === 4)
+    //assert(vc.getAttributeAsIntegerList("FOUR_INTS", -1).get(0) === 5)
+    //assert(vc.getAttributeAsIntegerList("FOUR_INTS", -1).get(1) === 10)
+    //assert(vc.getAttributeAsIntegerList("FOUR_INTS", -1).get(2) === 15)
+    //assert(vc.getAttributeAsIntegerList("FOUR_INTS", -1).get(3) === 20)
+  }
+
+  test("attribute Number=A Type=Integer adam->htsjdk") {
+    val va = VariantAnnotation.newBuilder
+      .setAttributes(ImmutableMap.of("A_INT", "42"))
+      .build
+
+    val adamVc = ADAMVariantContext(v, None, Some(va))
+
+    val aIntHeader = new VCFInfoHeaderLine("A_INT",
+      VCFHeaderLineCount.A,
+      VCFHeaderLineType.Integer,
+      "Number=A Type=Integer")
+
+    val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ aIntHeader)
+      .convert(adamVc, lenient).orNull
+
+    assert(vc.hasAttribute("A_INT"))
+    assert(vc.getAttribute("A_INT", -1) === 42)
+  }
+
+  test("attribute Number=R Type=Integer adam->htsjdk") {
+    val va = VariantAnnotation.newBuilder
+      .setAttributes(ImmutableMap.of("R_INT", "5,10"))
+      .build
+
+    val adamVc = ADAMVariantContext(v, None, Some(va))
+
+    val rIntHeader = new VCFInfoHeaderLine("R_INT",
+      VCFHeaderLineCount.R,
+      VCFHeaderLineType.Integer,
+      "Number=R Type=Integer")
+
+    val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ rIntHeader)
+      .convert(adamVc, lenient).orNull
+
+    assert(vc.hasAttribute("R_INT"))
+    assert(vc.getAttributeAsList("R_INT").size === 2)
+    assert(vc.getAttributeAsList("R_INT").get(0) === 5)
+    assert(vc.getAttributeAsList("R_INT").get(1) === 10)
+    //assert(vc.getAttributeAsIntegerList("R_INT", -1).size === 2)
+    //assert(vc.getAttributeAsIntegerList("R_INT", -1).get(0) === 5)
+    //assert(vc.getAttributeAsIntegerList("R_INT", -1).get(1) === 10)
+  }
+
+  test("attribute Number=R Type=String adam->htsjdk") {
+    val va = VariantAnnotation.newBuilder
+      .setAttributes(ImmutableMap.of("R_STRING", "foo,bar"))
+      .build
+
+    val adamVc = ADAMVariantContext(v, None, Some(va))
+
+    val rStringHeader = new VCFInfoHeaderLine("R_STRING",
+      VCFHeaderLineCount.R,
+      VCFHeaderLineType.String,
+      "Number=R Type=String")
+
+    val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ rStringHeader)
+      .convert(adamVc, lenient).orNull
+
+    assert(vc.hasAttribute("R_STRING"))
+    assert(vc.getAttributeAsList("R_STRING").size === 2)
+    assert(vc.getAttributeAsList("R_STRING").get(0) === "foo")
+    assert(vc.getAttributeAsList("R_STRING").get(1) === "bar")
+    //assert(vc.getAttributeAsStringList("R_STRING", "").size === 2)
+    //assert(vc.getAttributeAsStringList("R_STRING", "").get(0) === "foo")
+    //assert(vc.getAttributeAsStringList("R_STRING", "").get(1) === "bar")
+  }
+
+  test("attribute Number=G Type=String adam->htsjdk not supported") {
+    val va = VariantAnnotation.newBuilder
+      .setAttributes(ImmutableMap.of("G_STRING", "foo,bar"))
+      .build
+
+    val adamVc = ADAMVariantContext(v, None, Some(va))
+
+    val gStringHeader = new VCFInfoHeaderLine("G_STRING",
+      VCFHeaderLineCount.G,
+      VCFHeaderLineType.String,
+      "Number=G Type=String")
+
+    intercept[IllegalArgumentException] {
+      val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ gStringHeader)
+        .convert(adamVc, lenient).orNull
+    }
+  }
+
+  test("attribute Number=0 Type=Flag htsjdk->adam") {
+  }
+
+  test("attribute Number=1 Type=Integer htsjdk->adam") {
+  }
+
+  test("attribute Number=4 Type=Integer htsjdk->adam") {
+  }
+
+  test("attribute Number=A Type=Integer htsjdk->adam") {
+  }
+
+  test("attribute Number=R Type=Integer htsjdk->adam") {
+  }
+
+  test("attribute Number=G Type=Integer htsjdk->adam") {
   }
 }
