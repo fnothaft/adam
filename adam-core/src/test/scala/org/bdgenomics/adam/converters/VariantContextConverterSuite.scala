@@ -1962,20 +1962,132 @@ class VariantContextConverterSuite extends ADAMFunSuite {
   }
 
   test("attribute Number=0 Type=Flag htsjdk->adam") {
+    val vc = htsjdkSNVBuilder
+      .attribute("FLAG", true)
+      .make
+
+    val flagHeader = new VCFInfoHeaderLine("FLAG",
+      0,
+      VCFHeaderLineType.Flag,
+      "Flag")
+
+    val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ flagHeader)
+      .convert(vc, lenient)
+      .head
+
+    val v = adamVc.variant.variant
+    assert(v.getAnnotation.getAttributes.containsKey("FLAG"))
+    assert(v.getAnnotation.getAttributes.get("FLAG") === "true")
   }
 
   test("attribute Number=1 Type=Integer htsjdk->adam") {
+    val vc = htsjdkSNVBuilder
+      .attribute("ONE_INT", "42")
+      .make
+
+    val oneIntHeader = new VCFInfoHeaderLine("ONE_INT",
+      1,
+      VCFHeaderLineType.Integer,
+      "Number=1 Type=Integer")
+
+    val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ oneIntHeader)
+      .convert(vc, lenient)
+      .head
+
+    val v = adamVc.variant.variant
+    assert(v.getAnnotation.getAttributes.containsKey("ONE_INT"))
+    assert(v.getAnnotation.getAttributes.get("ONE_INT") === "42")
   }
 
   test("attribute Number=4 Type=Integer htsjdk->adam") {
+    val vc = htsjdkSNVBuilder
+      .attribute("FOUR_INTS", ImmutableList.of(5, 10, 15, 20))
+      .make
+
+    val fourIntsHeader = new VCFInfoHeaderLine("FOUR_INTS",
+      4,
+      VCFHeaderLineType.Integer,
+      "Number=4 Type=Integer")
+
+    val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ fourIntsHeader)
+      .convert(vc, lenient)
+      .head
+
+    val v = adamVc.variant.variant
+    assert(v.getAnnotation.getAttributes.containsKey("FOUR_INTS"))
+    assert(v.getAnnotation.getAttributes.get("FOUR_INTS") === "5,10,15,20")
   }
 
   test("attribute Number=A Type=Integer htsjdk->adam") {
+    val vc = htsjdkSNVBuilder
+      .attribute("A_INT", ImmutableList.of(5, 10, 15, 20))
+      .make
+
+    val aIntHeader = new VCFInfoHeaderLine("A_INT",
+      VCFHeaderLineCount.A,
+      VCFHeaderLineType.Integer,
+      "Number=A Type=Integer")
+
+    val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ aIntHeader)
+      .convert(vc, lenient)
+      .head
+
+    val v = adamVc.variant.variant
+    assert(v.getAnnotation.getAttributes.containsKey("A_INT"))
+    assert(v.getAnnotation.getAttributes.get("A_INT") === "5")
   }
 
   test("attribute Number=R Type=Integer htsjdk->adam") {
+    val vc = htsjdkSNVBuilder
+      .attribute("R_INT", ImmutableList.of(5, 10, 15, 20))
+      .make
+
+    val rIntHeader = new VCFInfoHeaderLine("R_INT",
+      VCFHeaderLineCount.R,
+      VCFHeaderLineType.Integer,
+      "Number=R Type=Integer")
+
+    val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ rIntHeader)
+      .convert(vc, lenient)
+      .head
+
+    val v = adamVc.variant.variant
+    assert(v.getAnnotation.getAttributes.containsKey("R_INT"))
+    assert(v.getAnnotation.getAttributes.get("R_INT") === "5,10")
   }
 
-  test("attribute Number=G Type=Integer htsjdk->adam") {
+  test("attribute Number=R Type=String htsjdk->adam") {
+    val vc = htsjdkSNVBuilder
+      .attribute("R_STRING", ImmutableList.of("foo", "bar", "baz"))
+      .make
+
+    val rStringHeader = new VCFInfoHeaderLine("R_STRING",
+      VCFHeaderLineCount.R,
+      VCFHeaderLineType.String,
+      "Number=R Type=String")
+
+    val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ rStringHeader)
+      .convert(vc, lenient)
+      .head
+
+    val v = adamVc.variant.variant
+    assert(v.getAnnotation.getAttributes.containsKey("R_STRING"))
+    assert(v.getAnnotation.getAttributes.get("R_STRING") === "foo,bar")
+  }
+
+  test("attribute Number=G Type=String htsjdk->adam not supported") {
+    val vc = htsjdkSNVBuilder
+      .attribute("R_STRING", ImmutableList.of("foo", "bar", "baz"))
+      .make
+
+    val gStringHeader = new VCFInfoHeaderLine("G_STRING",
+      VCFHeaderLineCount.G,
+      VCFHeaderLineType.String,
+      "Number=G Type=String")
+
+    intercept[IllegalArgumentException] {
+      val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ gStringHeader)
+        .convert(vc, lenient)
+    }
   }
 }
