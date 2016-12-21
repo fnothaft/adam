@@ -62,9 +62,8 @@ class SortedGenomicRDDSuite extends SparkFunSuite {
       val i = z.leftOuterShuffleRegionJoin(x).rdd.collect
       assert(h.length == i.length)
 
-      z.save("/Users/DevinPetersohn/Downloads/testOut1.txt", isSorted = true)
-      val t = sc.loadParquetAlignments("/Users/DevinPetersohn/Downloads/testOut1.txt")
-      println(t.SortedTrait.isSorted)
+      val t = sc.loadParquetAlignments(ClassLoader.getSystemClassLoader.getResource("sortedAlignments.parquet.txt").getPath)
+      assert(t.SortedTrait.isSorted)
       val j = t.shuffleRegionJoin(x, Some(1))
       val k = x.shuffleRegionJoin(t, Some(16))
       assert(j.rdd.collect.length == k.rdd.collect.length)
