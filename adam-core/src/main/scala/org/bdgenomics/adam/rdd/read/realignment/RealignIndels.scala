@@ -22,20 +22,18 @@ import org.bdgenomics.utils.misc.Logging
 import org.apache.spark.rdd.MetricsContext._
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.algorithms.consensus.{ Consensus, ConsensusGenerator, ConsensusGeneratorFromReads }
-import org.bdgenomics.adam.models.ReferenceRegion._
-import org.bdgenomics.adam.models.{ ReferencePosition, ReferenceRegion }
+import org.bdgenomics.adam.models.{ MdTag, ReferencePosition, ReferenceRegion }
 import org.bdgenomics.adam.rich.RichAlignmentRecord
 import org.bdgenomics.adam.rich.RichAlignmentRecord._
-import org.bdgenomics.adam.util.ImplicitJavaConversions._
-import org.bdgenomics.adam.util.MdTag
 import org.bdgenomics.adam.instrumentation.Timers._
 import org.bdgenomics.formats.avro.AlignmentRecord
 import scala.annotation.tailrec
+import scala.collection.JavaConversions._
 import scala.collection.immutable.{ NumericRange, TreeSet }
 import scala.collection.mutable
 import scala.util.Random
 
-private[rdd] object RealignIndels extends Serializable with Logging {
+private[read] object RealignIndels extends Serializable with Logging {
 
   /**
    * Realigns an RDD of reads.
@@ -223,7 +221,7 @@ private[rdd] object RealignIndels extends Serializable with Logging {
 
 import org.bdgenomics.adam.rdd.read.realignment.RealignIndels._
 
-private[rdd] class RealignIndels(
+private[read] class RealignIndels(
     val consensusModel: ConsensusGenerator = new ConsensusGeneratorFromReads,
     val dataIsSorted: Boolean = false,
     val maxIndelSize: Int = 500,
@@ -498,5 +496,4 @@ private[rdd] class RealignIndels(
       readsMappedToTarget.flatMap(realignTargetGroup).map(r => r.record)
     }
   }
-
 }

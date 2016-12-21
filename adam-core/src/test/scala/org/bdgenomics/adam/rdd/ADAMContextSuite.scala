@@ -18,8 +18,6 @@
 package org.bdgenomics.adam.rdd
 
 import java.io.{ File, FileNotFoundException }
-import java.util.UUID
-import htsjdk.samtools.DiskBasedBAMFileIndex
 import com.google.common.io.Files
 import org.apache.hadoop.fs.Path
 import org.apache.parquet.filter2.dsl.Dsl._
@@ -28,12 +26,10 @@ import org.apache.parquet.hadoop.metadata.CompressionCodecName
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models._
 import org.bdgenomics.adam.rdd.ADAMContext._
-import org.bdgenomics.adam.rdd.read.AlignedReadRDD
 import org.bdgenomics.adam.util.PhredUtils._
 import org.bdgenomics.adam.util.ADAMFunSuite
 import org.bdgenomics.formats.avro._
-import org.seqdoop.hadoop_bam.{ BAMInputFormat, CRAMInputFormat }
-import scala.collection.JavaConversions._
+import org.seqdoop.hadoop_bam.CRAMInputFormat
 
 case class TestSaveArgs(var outputPath: String) extends ADAMSaveAnyArgs {
   var sortFastqOutput = false
@@ -47,6 +43,10 @@ case class TestSaveArgs(var outputPath: String) extends ADAMSaveAnyArgs {
 }
 
 class ADAMContextSuite extends ADAMFunSuite {
+
+  sparkTest("ctr is accessible") {
+    new ADAMContext(sc)
+  }
 
   sparkTest("sc.loadParquet should not fail on unmapped reads") {
     val readsFilepath = testFile("unmapped.sam")
@@ -148,10 +148,24 @@ class ADAMContextSuite extends ADAMFunSuite {
   sparkTest("can read a small .vcf file") {
     val path = testFile("small.vcf")
 
-    val vcs = sc.loadGenotypes(path).toVariantContextRDD.rdd.collect.sortBy(_.position)
+    val gts = sc.loadGenotypes(path)
+    val vcRdd = gts.toVariantContextRDD
+    val vcs = vcRdd.rdd.collect.sortBy(_.position)
     assert(vcs.size === 6)
 
     val vc = vcs.head
+    val variant = vc.variant.variant
+    assert(variant.getContigName === "1")
+    assert(variant.getStart === 14396L)
+    assert(variant.getEnd === 14400L)
+    assert(variant.getReferenceAllele === "CTGT")
+    assert(variant.getAlternateAllele === "C")
+    assert(variant.getNames.isEmpty)
+    assert(variant.getFiltersApplied === true)
+    assert(variant.getFiltersPassed === false)
+    assert(variant.getFiltersFailed.contains("IndelQD"))
+    assert(variant.getSomatic === false)
+
     assert(vc.genotypes.size === 3)
 
     val gt = vc.genotypes.head
@@ -372,7 +386,7 @@ class ADAMContextSuite extends ADAMFunSuite {
     val path = testFile("bqsr1.vcf").replace("bqsr1", "*")
 
     val variants = sc.loadVcf(path).toVariantRDD
-    assert(variants.rdd.count === 692)
+    assert(variants.rdd.count === 710)
   }
 
   sparkTest("load vcf from a directory") {
@@ -380,6 +394,15 @@ class ADAMContextSuite extends ADAMFunSuite {
 
     val variants = sc.loadVcf(path).toVariantRDD
     assert(variants.rdd.count === 681)
+  }
+
+  sparkTest("load gvcf which contains a multi-allelic row from a directory") {
+    val path = new File(testFile("gvcf_dir/gvcf_multiallelic.g.vcf")).getParent()
+
+    val variants = sc.loadVcf(path).toVariantRDD
+    // Not sure that the count should be 7 below, however the current failure to read the mult-allelic site happens
+    // before this assertion is even reached
+    assert(variants.rdd.count === 6)
   }
 
   sparkTest("load parquet with globs") {

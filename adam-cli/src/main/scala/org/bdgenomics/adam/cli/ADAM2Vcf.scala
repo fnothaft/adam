@@ -17,17 +17,11 @@
  */
 package org.bdgenomics.adam.cli
 
-import java.io.File
-import org.apache.spark.rdd.RDD
 import org.apache.spark.SparkContext
-import org.apache.hadoop.mapreduce.Job
-import org.bdgenomics.adam.models.SequenceDictionary
 import org.bdgenomics.adam.rdd.ADAMContext._
-import org.bdgenomics.formats.avro.Genotype
 import org.bdgenomics.utils.cli._
 import org.bdgenomics.utils.misc.Logging
 import org.kohsuke.args4j.{ Option => Args4jOption, Argument }
-import scala.Option
 
 object ADAM2Vcf extends BDGCommandCompanion {
 
@@ -40,8 +34,6 @@ object ADAM2Vcf extends BDGCommandCompanion {
 }
 
 class ADAM2VcfArgs extends Args4jBase with ParquetArgs {
-  @Args4jOption(required = false, name = "-dict", usage = "Reference dictionary")
-  var dictionaryFile: File = _
 
   @Argument(required = true, metaVar = "ADAM", usage = "The ADAM variant files to convert", index = 0)
   var adamFile: String = _
@@ -52,20 +44,24 @@ class ADAM2VcfArgs extends Args4jBase with ParquetArgs {
   @Args4jOption(required = false, name = "-coalesce", usage = "Set the number of partitions written to the ADAM output directory")
   var coalesce: Int = -1
 
-  @Args4jOption(required = false, name = "-sort_on_save", usage = "Sort the VCF output.")
+  @Args4jOption(required = false, name = "-sort_on_save", usage = "Sort the VCF output by contig index.")
   var sort: Boolean = false
+
+  @Args4jOption(required = false,
+    name = "-sort_lexicographically_on_save",
+    usage = "Sort the VCF output by lexicographic order. Conflicts with -sort_on_save.")
+  var sortLexicographically: Boolean = false
 
   @Args4jOption(required = false, name = "-single", usage = "Save as a single VCF file.")
   var single: Boolean = false
 }
 
-class ADAM2Vcf(val args: ADAM2VcfArgs) extends BDGSparkCommand[ADAM2VcfArgs] with DictionaryCommand with Logging {
+class ADAM2Vcf(val args: ADAM2VcfArgs) extends BDGSparkCommand[ADAM2VcfArgs] with Logging {
   val companion = ADAM2Vcf
 
   def run(sc: SparkContext) {
-    var dictionary: Option[SequenceDictionary] = loadSequenceDictionary(args.dictionaryFile)
-    if (dictionary.isDefined)
-      log.info("Using contig translation")
+    require(!(args.sort && args.sortLexicographically),
+      "Cannot set both -sort_on_save and -sort_lexicographically_on_save.")
 
     val adamGTs = sc.loadParquetGenotypes(args.adamFile)
 
@@ -77,14 +73,22 @@ class ADAM2Vcf(val args: ADAM2VcfArgs) extends BDGSparkCommand[ADAM2VcfArgs] wit
 
     // convert to variant contexts and prep for save
     val variantContexts = adamGTs.toVariantContextRDD
-    val variantContextsToSave = if (args.coalesce > 0) {
+    val maybeCoalescedVcs = if (args.coalesce > 0) {
       variantContexts.transform(_.coalesce(args.coalesce))
     } else {
       variantContexts
     }
 
-    variantContextsToSave.saveAsVcf(args.outputPath,
-      sortOnSave = args.sort,
+    // sort if requested
+    val maybeSortedVcs = if (args.sort) {
+      maybeCoalescedVcs.sort()
+    } else if (args.sortLexicographically) {
+      maybeCoalescedVcs.sortLexicographically()
+    } else {
+      maybeCoalescedVcs
+    }
+
+    maybeSortedVcs.saveAsVcf(args.outputPath,
       asSingleFile = args.single)
   }
 }

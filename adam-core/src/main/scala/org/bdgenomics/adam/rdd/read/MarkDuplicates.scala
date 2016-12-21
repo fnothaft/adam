@@ -22,9 +22,7 @@ import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.instrumentation.Timers._
 import org.bdgenomics.adam.models.{
   RecordGroupDictionary,
-  ReferencePosition,
-  ReferencePositionPair,
-  SingleReadBucket
+  ReferencePosition
 }
 import org.bdgenomics.adam.rdd.ADAMContext._
 import org.bdgenomics.formats.avro.AlignmentRecord
@@ -154,5 +152,4 @@ private[rdd] object MarkDuplicates extends Serializable with Logging {
       scoreBucket(x._2) - scoreBucket(y._2)
     }
   }
-
 }

@@ -21,12 +21,27 @@ import com.esotericsoftware.kryo.{ Kryo, Serializer }
 import com.esotericsoftware.kryo.io.{ Input, Output }
 import org.bdgenomics.formats.avro._
 
+/**
+ * A sort order that orders all positions lexicographically by contig and
+ * numerically within a single contig.
+ */
 object PositionOrdering extends ReferenceOrdering[ReferencePosition] {
 }
+
+/**
+ * A sort order that orders all given positions lexicographically by contig and
+ * numerically within a single contig, and puts all non-provided positions at
+ * the end. An extension of PositionOrdering to Optional data.
+ *
+ * @see PositionOrdering
+ */
 object OptionalPositionOrdering extends OptionalReferenceOrdering[ReferencePosition] {
   val baseOrdering = PositionOrdering
 }
 
+/**
+ * Companion object for creating and sorting ReferencePositions.
+ */
 object ReferencePosition extends Serializable {
 
   implicit def orderingForPositions = PositionOrdering
@@ -86,20 +101,40 @@ object ReferencePosition extends Serializable {
     new ReferencePosition(contigNameSet.head, startSet.head)
   }
 
+  /**
+   * Convenience method for building a ReferencePosition.
+   *
+   * @param referenceName The name of the reference contig this locus exists on.
+   * @param pos The position of this locus.
+   */
   def apply(referenceName: String, pos: Long): ReferencePosition = {
     new ReferencePosition(referenceName, pos)
   }
 
-  def apply(referenceName: String, pos: Long, orientation: Strand): ReferencePosition = {
-    new ReferencePosition(referenceName, pos, orientation)
+  /**
+   * Convenience method for building a ReferencePosition.
+   *
+   * @param referenceName The name of the reference contig this locus exists on.
+   * @param pos The position of this locus.
+   * @param strand The strand that this locus is on.
+   */
+  def apply(referenceName: String, pos: Long, strand: Strand): ReferencePosition = {
+    new ReferencePosition(referenceName, pos, strand)
   }
 }
 
+/**
+ * A single genomic locus.
+ *
+ * @param referenceName The name of the reference contig this locus exists on.
+ * @param pos The position of this locus.
+ * @param strand The strand that this locus is on.
+ */
 class ReferencePosition(
   override val referenceName: String,
   val pos: Long,
-  override val orientation: Strand = Strand.INDEPENDENT)
-    extends ReferenceRegion(referenceName, pos, pos + 1, orientation)
+  override val strand: Strand = Strand.INDEPENDENT)
+    extends ReferenceRegion(referenceName, pos, pos + 1, strand)
 
 class ReferencePositionSerializer extends Serializer[ReferencePosition] {
   private val enumValues = Strand.values()
@@ -107,13 +142,13 @@ class ReferencePositionSerializer extends Serializer[ReferencePosition] {
   def write(kryo: Kryo, output: Output, obj: ReferencePosition) = {
     output.writeString(obj.referenceName)
     output.writeLong(obj.pos)
-    output.writeInt(obj.orientation.ordinal)
+    output.writeInt(obj.strand.ordinal)
   }
 
   def read(kryo: Kryo, input: Input, klazz: Class[ReferencePosition]): ReferencePosition = {
     val refName = input.readString()
     val pos = input.readLong()
-    val orientation = input.readInt()
-    new ReferencePosition(refName, pos, enumValues(orientation))
+    val strand = input.readInt()
+    new ReferencePosition(refName, pos, enumValues(strand))
   }
 }

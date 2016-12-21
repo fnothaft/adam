@@ -17,12 +17,11 @@
  */
 package org.bdgenomics.adam.models
 
-import org.bdgenomics.formats.avro.{ Genotype, DatabaseVariantAnnotation, Variant }
+import org.bdgenomics.formats.avro.{ Genotype, Variant, VariantAnnotation }
 import org.bdgenomics.adam.rich.RichVariant
 
 /**
- * Note: VariantContext inherits its name from the Picard VariantContext, and is not related to the SparkContext object.
- * If you're looking for the latter, see [[org.bdgenomics.adam.rdd.variation.VariationContext]]
+ * Singleton object for building VariantContexts.
  */
 object VariantContext {
 
@@ -37,10 +36,10 @@ object VariantContext {
    * @return A new VariantContext, where an annotation has been added/merged.
    */
   def apply(v: VariantContext,
-            optAnn: Option[DatabaseVariantAnnotation]): VariantContext = {
+            optAnn: Option[VariantAnnotation]): VariantContext = {
 
     // if the join yielded one or fewer annotation, pick what we've got. else, merge.
-    val ann = (v.databases, optAnn) match {
+    val ann = (v.annotations, optAnn) match {
       case (None, a)          => a
       case (a, None)          => a
       case (Some(a), Some(b)) => Some(mergeAnnotations(a, b))
@@ -66,11 +65,12 @@ object VariantContext {
    *   from the left record.
    * @return Returns the union of these two annotations.
    */
-  def mergeAnnotations(leftRecord: DatabaseVariantAnnotation,
-                       rightRecord: DatabaseVariantAnnotation): DatabaseVariantAnnotation = {
-    val mergedAnnotation = DatabaseVariantAnnotation.newBuilder(leftRecord)
+  private[adam] def mergeAnnotations(
+    leftRecord: VariantAnnotation,
+    rightRecord: VariantAnnotation): VariantAnnotation = {
+    val mergedAnnotation = VariantAnnotation.newBuilder(leftRecord)
       .build()
-    val numFields = DatabaseVariantAnnotation.getClassSchema.getFields.size
+    val numFields = VariantAnnotation.getClassSchema.getFields.size
 
     def insertField(fieldIdx: Int) =
       {
@@ -91,8 +91,8 @@ object VariantContext {
    *           optional domain annotation at site))
    * @return VariantContext corresponding to the data above.
    */
-  def apply(kv: (ReferencePosition, Variant, Iterable[Genotype], Option[DatabaseVariantAnnotation])): VariantContext = {
-    new VariantContext(kv._1, kv._2, kv._3, kv._4)
+  def apply(kv: (ReferencePosition, Variant, Iterable[Genotype], Option[VariantAnnotation])): VariantContext = {
+    new VariantContext(kv._1, RichVariant(kv._2), kv._3, kv._4)
   }
 
   /**
@@ -102,7 +102,7 @@ object VariantContext {
    * @return VariantContext corresponding to the Variant
    */
   def apply(v: Variant): VariantContext = {
-    apply((ReferencePosition(v), v, Seq(), None))
+    new VariantContext(ReferencePosition(v), RichVariant(v), Seq(), None)
   }
 
   /**
@@ -111,10 +111,10 @@ object VariantContext {
    *
    * @param v Variant which is used to construct the ReferencePosition
    * @param genotypes Seq[Genotype]
-   * @param annotation Option[DatabaseVariantAnnotation]
+   * @param annotation Option[VariantAnnotation]
    * @return VariantContext corresponding to the Variant
    */
-  def apply(v: Variant, genotypes: Iterable[Genotype], annotation: Option[DatabaseVariantAnnotation] = None): VariantContext = {
+  def apply(v: Variant, genotypes: Iterable[Genotype], annotation: Option[VariantAnnotation] = None): VariantContext = {
     apply((ReferencePosition(v), v, genotypes, annotation))
   }
 
@@ -135,14 +135,26 @@ object VariantContext {
 
     val variant = genotypes.head.getVariant
 
-    new VariantContext(position, variant, genotypes, None)
+    new VariantContext(position, RichVariant(variant), genotypes, None)
   }
 }
 
+/**
+ * A representation of all variation data at a single variant.
+ *
+ * This class represents an equivalent to a single allele from a VCF line, and
+ * is the ADAM equivalent to htsjdk.variant.variantcontext.VariantContext.
+ *
+ * @param position The locus that the variant is at.
+ * @param variant The variant allele that is contained in this VariantContext.
+ * @param genotypes An iterable collection of Genotypes where this allele was
+ *   called. Equivalent to the per-sample FORMAT fields in a VCF.
+ * @param databases An optional record annotating this variant. Equivalent to
+ *   the per-allele split of the INFO field in a VCF.
+ */
 class VariantContext(
     val position: ReferencePosition,
     val variant: RichVariant,
     val genotypes: Iterable[Genotype],
-    val databases: Option[DatabaseVariantAnnotation] = None) {
+    val annotations: Option[VariantAnnotation] = None) extends Serializable {
 }
-

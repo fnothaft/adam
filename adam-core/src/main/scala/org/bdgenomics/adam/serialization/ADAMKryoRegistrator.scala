@@ -111,6 +111,7 @@ class ADAMKryoRegistrator extends KryoRegistrator {
     kryo.register(Class.forName("org.apache.avro.Schema$EnumSchema"))
     kryo.register(Class.forName("org.apache.avro.Schema$Name"))
     kryo.register(Class.forName("org.apache.avro.Schema$LongSchema"))
+    kryo.register(Class.forName("org.apache.avro.generic.GenericData$Array"))
 
     // org.apache.hadoop.io
     kryo.register(classOf[org.apache.hadoop.io.Text])
@@ -125,29 +126,32 @@ class ADAMKryoRegistrator extends KryoRegistrator {
 
     // org.bdgenomics.adam.models
     kryo.register(classOf[org.bdgenomics.adam.models.Coverage])
+    kryo.register(classOf[org.bdgenomics.adam.models.MdTag])
     kryo.register(classOf[org.bdgenomics.adam.models.MultiContigNonoverlappingRegions])
     kryo.register(classOf[org.bdgenomics.adam.models.NonoverlappingRegions])
+    kryo.register(classOf[org.bdgenomics.adam.models.QualityScore])
     kryo.register(classOf[org.bdgenomics.adam.models.RecordGroup])
     kryo.register(classOf[org.bdgenomics.adam.models.RecordGroupDictionary])
     kryo.register(classOf[org.bdgenomics.adam.models.ReferencePosition],
       new org.bdgenomics.adam.models.ReferencePositionSerializer)
     kryo.register(classOf[org.bdgenomics.adam.models.ReferenceRegion])
-    kryo.register(classOf[org.bdgenomics.adam.models.ReferencePositionPair],
-      new org.bdgenomics.adam.models.ReferencePositionPairSerializer)
     kryo.register(classOf[org.bdgenomics.adam.models.SAMFileHeaderWritable])
     kryo.register(classOf[org.bdgenomics.adam.models.SequenceDictionary])
     kryo.register(classOf[org.bdgenomics.adam.models.SequenceRecord])
-    kryo.register(classOf[org.bdgenomics.adam.models.SingleReadBucket],
-      new org.bdgenomics.adam.models.SingleReadBucketSerializer)
     kryo.register(classOf[org.bdgenomics.adam.models.SnpTable])
     kryo.register(classOf[org.bdgenomics.adam.models.VariantContext])
 
     // org.bdgenomics.adam.rdd
     kryo.register(classOf[org.bdgenomics.adam.rdd.GenomeBins])
+    kryo.register(Class.forName("org.bdgenomics.adam.rdd.SortedIntervalPartitionJoinAndGroupByLeft$$anonfun$postProcessHits$1"))
 
     // org.bdgenomics.adam.rdd.read
     kryo.register(classOf[org.bdgenomics.adam.rdd.read.FlagStatMetrics])
     kryo.register(classOf[org.bdgenomics.adam.rdd.read.DuplicateMetrics])
+    kryo.register(classOf[org.bdgenomics.adam.rdd.read.SingleReadBucket],
+      new org.bdgenomics.adam.rdd.read.SingleReadBucketSerializer)
+    kryo.register(classOf[org.bdgenomics.adam.rdd.read.ReferencePositionPair],
+      new org.bdgenomics.adam.rdd.read.ReferencePositionPairSerializer)
 
     // org.bdgenomics.adam.rdd.read.realignment
     kryo.register(classOf[org.bdgenomics.adam.rdd.read.realignment.IndelRealignmentTarget],
@@ -172,8 +176,6 @@ class ADAMKryoRegistrator extends KryoRegistrator {
     kryo.register(classOf[org.bdgenomics.adam.rich.RichVariant])
 
     // org.bdgenomics.adam.util
-    kryo.register(classOf[org.bdgenomics.adam.util.MdTag])
-    kryo.register(classOf[org.bdgenomics.adam.util.QualityScore])
     kryo.register(classOf[org.bdgenomics.adam.util.ReferenceContigMap])
     kryo.register(classOf[org.bdgenomics.adam.util.TwoBitFile],
       new org.bdgenomics.adam.util.TwoBitFileSerializer)
@@ -183,8 +185,6 @@ class ADAMKryoRegistrator extends KryoRegistrator {
       new AvroSerializer[org.bdgenomics.formats.avro.AlignmentRecord])
     kryo.register(classOf[org.bdgenomics.formats.avro.Contig],
       new AvroSerializer[org.bdgenomics.formats.avro.Contig])
-    kryo.register(classOf[org.bdgenomics.formats.avro.DatabaseVariantAnnotation],
-      new AvroSerializer[org.bdgenomics.formats.avro.DatabaseVariantAnnotation])
     kryo.register(classOf[org.bdgenomics.formats.avro.Dbxref],
       new AvroSerializer[org.bdgenomics.formats.avro.Dbxref])
     kryo.register(classOf[org.bdgenomics.formats.avro.Feature],
@@ -199,13 +199,17 @@ class ADAMKryoRegistrator extends KryoRegistrator {
       new AvroSerializer[org.bdgenomics.formats.avro.NucleotideContigFragment])
     kryo.register(classOf[org.bdgenomics.formats.avro.OntologyTerm],
       new AvroSerializer[org.bdgenomics.formats.avro.OntologyTerm])
+    kryo.register(classOf[org.bdgenomics.formats.avro.Read],
+      new AvroSerializer[org.bdgenomics.formats.avro.Read])
     kryo.register(classOf[org.bdgenomics.formats.avro.RecordGroupMetadata],
       new AvroSerializer[org.bdgenomics.formats.avro.RecordGroupMetadata])
     kryo.register(classOf[org.bdgenomics.formats.avro.Sample],
       new AvroSerializer[org.bdgenomics.formats.avro.Sample])
+    kryo.register(classOf[org.bdgenomics.formats.avro.Sequence],
+      new AvroSerializer[org.bdgenomics.formats.avro.Sequence])
+    kryo.register(classOf[org.bdgenomics.formats.avro.Slice],
+      new AvroSerializer[org.bdgenomics.formats.avro.Slice])
     kryo.register(classOf[org.bdgenomics.formats.avro.Strand])
-    kryo.register(classOf[org.bdgenomics.formats.avro.StructuralVariant],
-      new AvroSerializer[org.bdgenomics.formats.avro.StructuralVariant])
     kryo.register(classOf[org.bdgenomics.formats.avro.TranscriptEffect],
       new AvroSerializer[org.bdgenomics.formats.avro.TranscriptEffect])
     kryo.register(classOf[org.bdgenomics.formats.avro.Variant],
@@ -216,6 +220,24 @@ class ADAMKryoRegistrator extends KryoRegistrator {
     kryo.register(classOf[org.bdgenomics.formats.avro.VariantCallingAnnotations],
       new AvroSerializer[org.bdgenomics.formats.avro.VariantCallingAnnotations])
 
+    // org.bdgenomics.utils.intervalarray
+    // this is only exposed officially through the genomicrdd trait, thus, we'll only
+    // register it for said traits
+    kryo.register(classOf[org.bdgenomics.utils.intervalarray.IntervalArray[org.bdgenomics.adam.models.ReferenceRegion, org.bdgenomics.formats.avro.AlignmentRecord]],
+      new org.bdgenomics.utils.intervalarray.IntervalArraySerializer[org.bdgenomics.adam.models.ReferenceRegion, org.bdgenomics.formats.avro.AlignmentRecord](kryo))
+    kryo.register(classOf[org.bdgenomics.utils.intervalarray.IntervalArray[org.bdgenomics.adam.models.ReferenceRegion, org.bdgenomics.formats.avro.Feature]],
+      new org.bdgenomics.utils.intervalarray.IntervalArraySerializer[org.bdgenomics.adam.models.ReferenceRegion, org.bdgenomics.formats.avro.Feature](kryo))
+    kryo.register(classOf[org.bdgenomics.utils.intervalarray.IntervalArray[org.bdgenomics.adam.models.ReferenceRegion, org.bdgenomics.formats.avro.Fragment]],
+      new org.bdgenomics.utils.intervalarray.IntervalArraySerializer[org.bdgenomics.adam.models.ReferenceRegion, org.bdgenomics.formats.avro.Fragment](kryo))
+    kryo.register(classOf[org.bdgenomics.utils.intervalarray.IntervalArray[org.bdgenomics.adam.models.ReferenceRegion, org.bdgenomics.formats.avro.Genotype]],
+      new org.bdgenomics.utils.intervalarray.IntervalArraySerializer[org.bdgenomics.adam.models.ReferenceRegion, org.bdgenomics.formats.avro.Genotype](kryo))
+    kryo.register(classOf[org.bdgenomics.utils.intervalarray.IntervalArray[org.bdgenomics.adam.models.ReferenceRegion, org.bdgenomics.formats.avro.NucleotideContigFragment]],
+      new org.bdgenomics.utils.intervalarray.IntervalArraySerializer[org.bdgenomics.adam.models.ReferenceRegion, org.bdgenomics.formats.avro.NucleotideContigFragment](kryo))
+    kryo.register(classOf[org.bdgenomics.utils.intervalarray.IntervalArray[org.bdgenomics.adam.models.ReferenceRegion, org.bdgenomics.formats.avro.Variant]],
+      new org.bdgenomics.utils.intervalarray.IntervalArraySerializer[org.bdgenomics.adam.models.ReferenceRegion, org.bdgenomics.formats.avro.Variant](kryo))
+    kryo.register(classOf[org.bdgenomics.utils.intervalarray.IntervalArray[org.bdgenomics.adam.models.ReferenceRegion, org.bdgenomics.adam.models.VariantContext]],
+      new org.bdgenomics.utils.intervalarray.IntervalArraySerializer[org.bdgenomics.adam.models.ReferenceRegion, org.bdgenomics.adam.models.VariantContext](kryo))
+
     // org.codehaus.jackson.node
     kryo.register(classOf[org.codehaus.jackson.node.NullNode])
     kryo.register(classOf[org.codehaus.jackson.node.BooleanNode])
@@ -225,16 +247,24 @@ class ADAMKryoRegistrator extends KryoRegistrator {
     kryo.register(classOf[scala.Array[htsjdk.variant.vcf.VCFHeader]])
     kryo.register(classOf[scala.Array[java.lang.Object]])
     kryo.register(classOf[scala.Array[org.bdgenomics.formats.avro.AlignmentRecord]])
-    kryo.register(classOf[scala.Array[org.bdgenomics.formats.avro.DatabaseVariantAnnotation]])
+    kryo.register(classOf[scala.Array[org.bdgenomics.formats.avro.Contig]])
     kryo.register(classOf[scala.Array[org.bdgenomics.formats.avro.Dbxref]])
     kryo.register(classOf[scala.Array[org.bdgenomics.formats.avro.Feature]])
+    kryo.register(classOf[scala.Array[org.bdgenomics.formats.avro.Fragment]])
     kryo.register(classOf[scala.Array[org.bdgenomics.formats.avro.Genotype]])
     kryo.register(classOf[scala.Array[org.bdgenomics.formats.avro.GenotypeAllele]])
     kryo.register(classOf[scala.Array[org.bdgenomics.formats.avro.OntologyTerm]])
     kryo.register(classOf[scala.Array[org.bdgenomics.formats.avro.NucleotideContigFragment]])
+    kryo.register(classOf[scala.Array[org.bdgenomics.formats.avro.Read]])
+    kryo.register(classOf[scala.Array[org.bdgenomics.formats.avro.RecordGroupMetadata]])
+    kryo.register(classOf[scala.Array[org.bdgenomics.formats.avro.Sample]])
+    kryo.register(classOf[scala.Array[org.bdgenomics.formats.avro.Sequence]])
+    kryo.register(classOf[scala.Array[org.bdgenomics.formats.avro.Slice]])
     kryo.register(classOf[scala.Array[org.bdgenomics.formats.avro.TranscriptEffect]])
     kryo.register(classOf[scala.Array[org.bdgenomics.formats.avro.Variant]])
+    kryo.register(classOf[scala.Array[org.bdgenomics.formats.avro.VariantAnnotation]])
     kryo.register(classOf[scala.Array[org.bdgenomics.formats.avro.VariantAnnotationMessage]])
+    kryo.register(classOf[scala.Array[org.bdgenomics.formats.avro.VariantCallingAnnotations]])
     kryo.register(classOf[scala.Array[org.bdgenomics.adam.models.Coverage]])
     kryo.register(classOf[scala.Array[org.bdgenomics.adam.models.ReferencePosition]])
     kryo.register(classOf[scala.Array[org.bdgenomics.adam.models.ReferenceRegion]])
@@ -246,15 +276,23 @@ class ADAMKryoRegistrator extends KryoRegistrator {
     kryo.register(classOf[scala.Array[String]])
     kryo.register(Class.forName("scala.Tuple2$mcCC$sp"))
 
+    // scala.collection
+    kryo.register(Class.forName("scala.collection.Iterator$$anon$11"))
+    kryo.register(Class.forName("scala.collection.Iterator$$anonfun$toStream$1"))
+
     // scala.collection.convert
     kryo.register(Class.forName("scala.collection.convert.Wrappers$"))
 
     // scala.collection.immutable
     kryo.register(classOf[scala.collection.immutable.::[_]])
     kryo.register(classOf[scala.collection.immutable.Range])
+    kryo.register(Class.forName("scala.collection.immutable.Stream$Cons"))
+    kryo.register(Class.forName("scala.collection.immutable.Stream$Empty$"))
 
     // scala.collection.mutable
     kryo.register(classOf[scala.collection.mutable.ArrayBuffer[_]])
+    kryo.register(classOf[scala.collection.mutable.ListBuffer[_]])
+    kryo.register(Class.forName("scala.collection.mutable.ListBuffer$$anon$1"))
     kryo.register(classOf[scala.collection.mutable.WrappedArray.ofInt])
     kryo.register(classOf[scala.collection.mutable.WrappedArray.ofLong])
     kryo.register(classOf[scala.collection.mutable.WrappedArray.ofByte])

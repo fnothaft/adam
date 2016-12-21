@@ -28,8 +28,8 @@ import org.bdgenomics.adam.models.{
 }
 import org.bdgenomics.adam.rdd.ADAMContext._
 import org.bdgenomics.adam.rdd.TestSaveArgs
-import org.bdgenomics.adam.rdd.features.CoverageRDD
-import org.bdgenomics.adam.rdd.variation.{
+import org.bdgenomics.adam.rdd.feature.CoverageRDD
+import org.bdgenomics.adam.rdd.variant.{
   VariantContextRDD,
   VCFOutFormatter
 }
@@ -85,12 +85,33 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
     assert(expectedSortedReads === mapped)
   }
 
+  sparkTest("coverage does not fail on unmapped reads") {
+    val inputPath = testFile("unmapped.sam")
+    val reads: AlignmentRecordRDD = sc.loadAlignments(inputPath)
+      .transform(rdd => {
+        rdd.filter(!_.getReadMapped)
+      })
+
+    val coverage = reads.toCoverage()
+    assert(coverage.rdd.count === 0)
+  }
+
   sparkTest("computes coverage") {
     val inputPath = testFile("artificial.sam")
     val reads: AlignmentRecordRDD = sc.loadAlignments(inputPath)
 
     // get pileup at position 30
     val pointCoverage = reads.filterByOverlappingRegion(ReferenceRegion("artificial", 30, 31)).rdd.count
+    val coverage: CoverageRDD = reads.toCoverage(false)
+    assert(coverage.rdd.filter(r => r.start == 30).first.count == pointCoverage)
+  }
+
+  sparkTest("test filterByOverlappingRegions") {
+    val inputPath = testFile("artificial.sam")
+    val reads: AlignmentRecordRDD = sc.loadAlignments(inputPath)
+
+    // get pileup at position 30
+    val pointCoverage = reads.filterByOverlappingRegions(Array(ReferenceRegion("artificial", 30, 31)).toList).rdd.count
     val coverage: CoverageRDD = reads.toCoverage(false)
     assert(coverage.rdd.filter(r => r.start == 30).first.count == pointCoverage)
   }
@@ -686,5 +707,188 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
 
     val tempBam = sc.loadBam(tempPath)
     assert(tempBam.rdd.count === ardd.rdd.count)
+  }
+
+  sparkTest("use broadcast join to pull down reads mapped to targets") {
+    val readsPath = testFile("small.1.sam")
+    val targetsPath = testFile("small.1.bed")
+
+    val reads = sc.loadAlignments(readsPath)
+    val targets = sc.loadFeatures(targetsPath)
+
+    val jRdd = reads.broadcastRegionJoin(targets)
+
+    assert(jRdd.rdd.count === 5)
+  }
+
+  sparkTest("use right outer broadcast join to pull down reads mapped to targets") {
+    val readsPath = testFile("small.1.sam")
+    val targetsPath = testFile("small.1.bed")
+
+    val reads = sc.loadAlignments(readsPath)
+    val targets = sc.loadFeatures(targetsPath)
+
+    val jRdd = reads.rightOuterBroadcastRegionJoin(targets)
+
+    val c = jRdd.rdd.collect
+    assert(c.count(_._1.isEmpty) === 1)
+    assert(c.count(_._1.isDefined) === 5)
+  }
+
+  sparkTest("use shuffle join to pull down reads mapped to targets") {
+    val readsPath = testFile("small.1.sam")
+    val targetsPath = testFile("small.1.bed")
+
+    val reads = sc.loadAlignments(readsPath)
+      .transform(_.repartition(1))
+    val targets = sc.loadFeatures(targetsPath)
+      .transform(_.repartition(1))
+
+    val jRdd = reads.shuffleRegionJoin(targets)
+    val jRdd0 = reads.shuffleRegionJoin(targets, optPartitions = Some(4))
+
+    // we can't guarantee that we get exactly the number of partitions requested,
+    // we get close though
+    assert(jRdd.rdd.partitions.length === 1)
+    assert(jRdd0.rdd.partitions.length === 5)
+
+    assert(jRdd.rdd.count === 5)
+    assert(jRdd0.rdd.count === 5)
+  }
+
+  sparkTest("use right outer shuffle join to pull down reads mapped to targets") {
+    val readsPath = testFile("small.1.sam")
+    val targetsPath = testFile("small.1.bed")
+
+    val reads = sc.loadAlignments(readsPath)
+      .transform(_.repartition(1))
+    val targets = sc.loadFeatures(targetsPath)
+      .transform(_.repartition(1))
+
+    val jRdd = reads.rightOuterShuffleRegionJoin(targets)
+    val jRdd0 = reads.rightOuterShuffleRegionJoin(targets, optPartitions = Some(4))
+
+    // we can't guarantee that we get exactly the number of partitions requested,
+    // we get close though
+    assert(jRdd.rdd.partitions.length === 1)
+    assert(jRdd0.rdd.partitions.length === 5)
+
+    val c = jRdd.rdd.collect
+    val c0 = jRdd0.rdd.collect
+    assert(c.count(_._1.isEmpty) === 1)
+    assert(c0.count(_._1.isEmpty) === 1)
+    assert(c.count(_._1.isDefined) === 5)
+    assert(c0.count(_._1.isDefined) === 5)
+  }
+
+  sparkTest("use left outer shuffle join to pull down reads mapped to targets") {
+    val readsPath = testFile("small.1.sam")
+    val targetsPath = testFile("small.1.bed")
+
+    val reads = sc.loadAlignments(readsPath)
+      .transform(_.repartition(1))
+    val targets = sc.loadFeatures(targetsPath)
+      .transform(_.repartition(1))
+
+    val jRdd = reads.leftOuterShuffleRegionJoin(targets)
+    val jRdd0 = reads.leftOuterShuffleRegionJoin(targets, optPartitions = Some(4))
+
+    // we can't guarantee that we get exactly the number of partitions requested,
+    // we get close though
+    assert(jRdd.rdd.partitions.length === 1)
+    assert(jRdd0.rdd.partitions.length === 5)
+
+    val c = jRdd.rdd.collect
+    val c0 = jRdd0.rdd.collect
+    assert(c.count(_._2.isEmpty) === 15)
+    assert(c0.count(_._2.isEmpty) === 15)
+    assert(c.count(_._2.isDefined) === 5)
+    assert(c0.count(_._2.isDefined) === 5)
+  }
+
+  sparkTest("use full outer shuffle join to pull down reads mapped to targets") {
+    val readsPath = testFile("small.1.sam")
+    val targetsPath = testFile("small.1.bed")
+
+    val reads = sc.loadAlignments(readsPath)
+      .transform(_.repartition(1))
+    val targets = sc.loadFeatures(targetsPath)
+      .transform(_.repartition(1))
+
+    val jRdd = reads.fullOuterShuffleRegionJoin(targets)
+    val jRdd0 = reads.fullOuterShuffleRegionJoin(targets, optPartitions = Some(4))
+
+    // we can't guarantee that we get exactly the number of partitions requested,
+    // we get close though
+    assert(jRdd.rdd.partitions.length === 1)
+    assert(jRdd0.rdd.partitions.length === 5)
+
+    val c = jRdd.rdd.collect
+    val c0 = jRdd0.rdd.collect
+    assert(c.count(t => t._1.isEmpty && t._2.isEmpty) === 0)
+    assert(c0.count(t => t._1.isEmpty && t._2.isEmpty) === 0)
+    assert(c.count(t => t._1.isDefined && t._2.isEmpty) === 15)
+    assert(c0.count(t => t._1.isDefined && t._2.isEmpty) === 15)
+    assert(c.count(t => t._1.isEmpty && t._2.isDefined) === 1)
+    assert(c0.count(t => t._1.isEmpty && t._2.isDefined) === 1)
+    assert(c.count(t => t._1.isDefined && t._2.isDefined) === 5)
+    assert(c0.count(t => t._1.isDefined && t._2.isDefined) === 5)
+  }
+
+  sparkTest("use shuffle join with group by to pull down reads mapped to targets") {
+    val readsPath = testFile("small.1.sam")
+    val targetsPath = testFile("small.1.bed")
+
+    val reads = sc.loadAlignments(readsPath)
+      .transform(_.repartition(1))
+    val targets = sc.loadFeatures(targetsPath)
+      .transform(_.repartition(1))
+
+    val jRdd = reads.shuffleRegionJoinAndGroupByLeft(targets)
+    val jRdd0 = reads.shuffleRegionJoinAndGroupByLeft(targets, optPartitions = Some(4))
+
+    // we can't guarantee that we get exactly the number of partitions requested,
+    // we get close though
+    assert(jRdd.rdd.partitions.length === 1)
+    assert(jRdd0.rdd.partitions.length === 5)
+
+    val c = jRdd.rdd.collect
+    val c0 = jRdd0.rdd.collect
+    assert(c.size === 5)
+    assert(c0.size === 5)
+    assert(c.forall(_._2.size == 1))
+    assert(c0.forall(_._2.size == 1))
+  }
+
+  sparkTest("use right outer shuffle join with group by to pull down reads mapped to targets") {
+    val readsPath = testFile("small.1.sam")
+    val targetsPath = testFile("small.1.bed")
+
+    val reads = sc.loadAlignments(readsPath)
+      .transform(_.repartition(1))
+    val targets = sc.loadFeatures(targetsPath)
+      .transform(_.repartition(1))
+
+    val jRdd = reads.rightOuterShuffleRegionJoinAndGroupByLeft(targets)
+    val jRdd0 = reads.rightOuterShuffleRegionJoinAndGroupByLeft(targets, optPartitions = Some(4))
+
+    // we can't guarantee that we get exactly the number of partitions requested,
+    // we get close though
+    assert(jRdd.rdd.partitions.length === 1)
+    assert(jRdd0.rdd.partitions.length === 5)
+
+    val c = jRdd0.rdd.collect // FIXME
+    val c0 = jRdd0.rdd.collect
+
+    assert(c.count(_._1.isDefined) === 20)
+    assert(c0.count(_._1.isDefined) === 20)
+    assert(c.filter(_._1.isDefined).count(_._2.size == 1) === 5)
+    assert(c0.filter(_._1.isDefined).count(_._2.size == 1) === 5)
+    assert(c.filter(_._1.isDefined).count(_._2.isEmpty) === 15)
+    assert(c0.filter(_._1.isDefined).count(_._2.isEmpty) === 15)
+    assert(c.count(_._1.isEmpty) === 1)
+    assert(c0.count(_._1.isEmpty) === 1)
+    assert(c.filter(_._1.isEmpty).forall(_._2.size == 1))
+    assert(c0.filter(_._1.isEmpty).forall(_._2.size == 1))
   }
 }

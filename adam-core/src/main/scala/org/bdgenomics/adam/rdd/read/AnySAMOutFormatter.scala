@@ -17,22 +17,18 @@
  */
 package org.bdgenomics.adam.rdd.read
 
-import htsjdk.samtools.{
-  SAMFileReader,
-  SAMRecord,
-  SAMRecordIterator
-}
+import htsjdk.samtools._
 import java.io.InputStream
 import org.bdgenomics.adam.converters.SAMRecordConverter
-import org.bdgenomics.adam.models.{
-  RecordGroupDictionary,
-  SequenceDictionary
-}
 import org.bdgenomics.adam.rdd.OutFormatter
 import org.bdgenomics.formats.avro.AlignmentRecord
 import scala.annotation.tailrec
 import scala.collection.mutable.ListBuffer
 
+/**
+ * An OutFormatter that automatically infers whether the piped input is SAM or
+ * BAM. Autodetecting streamed CRAM is not currently supported.
+ */
 class AnySAMOutFormatter extends OutFormatter[AlignmentRecord] {
 
   /**
@@ -47,7 +43,8 @@ class AnySAMOutFormatter extends OutFormatter[AlignmentRecord] {
     val converter = new SAMRecordConverter
 
     // make reader
-    val reader = new SAMFileReader(is)
+    val reader = SamReaderFactory.makeDefault()
+      .open(SamInputResource.of(is))
 
     // make iterator from said reader
     val iter = reader.iterator()

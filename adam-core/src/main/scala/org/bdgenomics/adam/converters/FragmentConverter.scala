@@ -17,7 +17,6 @@
  */
 package org.bdgenomics.adam.converters
 
-import org.apache.spark.SparkContext._
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.ReferenceRegion
 import org.bdgenomics.formats.avro._
@@ -92,7 +91,7 @@ private[adam] object FragmentConverter extends Serializable {
         // are our fragments adjacent?
         val newLastFragment = if (lastRegion.isAdjacent(thisRegion)) {
           // if they are, merge the fragments
-          // we have sorted these fragments before we started, so the orientation is already known
+          // we have sorted these fragments before we started, so the strand is already known
           (lastRegion.hull(thisRegion), lastString + thisString)
         } else {
           // if they aren't, prepend the last fragment to the list

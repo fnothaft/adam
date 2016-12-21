@@ -18,16 +18,16 @@
 package org.bdgenomics.adam.cli
 
 import org.apache.spark.SparkContext
-import org.apache.spark.rdd.RDD
-import org.bdgenomics.adam.projections.NucleotideContigFragmentField._
-import org.bdgenomics.adam.projections.Projection
 import org.bdgenomics.adam.rdd.ADAMContext._
-import org.bdgenomics.formats.avro.NucleotideContigFragment
 import org.bdgenomics.utils.cli._
 import org.bdgenomics.utils.misc.Logging
 import org.kohsuke.args4j.{ Argument, Option => Args4JOption }
 
-class ADAM2FastaArgs extends ParquetLoadSaveArgs {
+class ADAM2FastaArgs extends Args4jBase {
+  @Argument(required = true, metaVar = "ADAM", usage = "The Parquet file to convert", index = 0)
+  var inputPath: String = null
+  @Argument(required = true, metaVar = "FASTA", usage = "Location to write the FASTA to", index = 1)
+  var outputPath: String = null
   @Args4JOption(required = false, name = "-coalesce", usage = "Choose the number of partitions to coalesce down to.")
   var coalesce: Int = -1
   @Args4JOption(required = false, name = "-force_shuffle_coalesce", usage = "Force shuffle while partitioning, default false.")
@@ -56,7 +56,7 @@ class ADAM2Fasta(val args: ADAM2FastaArgs) extends BDGSparkCommand[ADAM2FastaArg
     val contigs = contigFragments.mergeFragments()
 
     val cc = if (args.coalesce > 0) {
-      if (args.coalesce > contigs.rdd.partitions.size || args.forceShuffle) {
+      if (args.coalesce > contigs.rdd.partitions.length || args.forceShuffle) {
         contigs.transform(_.coalesce(args.coalesce, shuffle = true))
       } else {
         contigs.transform(_.coalesce(args.coalesce, shuffle = false))

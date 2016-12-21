@@ -17,22 +17,17 @@
  */
 package org.bdgenomics.adam.apis.java
 
-import org.apache.spark.SparkContext
 import org.apache.spark.api.java.JavaSparkContext
-import org.bdgenomics.adam.models.{ RecordGroupDictionary, SequenceDictionary }
-import org.bdgenomics.adam.rdd.ADAMContext._
 import org.bdgenomics.adam.rdd.ADAMContext
 import org.bdgenomics.adam.rdd.contig.NucleotideContigFragmentRDD
-import org.bdgenomics.adam.rdd.features.FeatureRDD
+import org.bdgenomics.adam.rdd.feature.FeatureRDD
 import org.bdgenomics.adam.rdd.fragment.FragmentRDD
 import org.bdgenomics.adam.rdd.read.AlignmentRecordRDD
-import org.bdgenomics.adam.rdd.variation.{
-  DatabaseVariantAnnotationRDD,
+import org.bdgenomics.adam.rdd.variant.{
   GenotypeRDD,
-  VariantRDD
+  VariantRDD,
+  VariantAnnotationRDD
 }
-import org.bdgenomics.formats.avro._
-import scala.collection.JavaConversions._
 
 object JavaADAMContext {
   // convert to and from java/scala implementations
@@ -40,7 +35,7 @@ object JavaADAMContext {
   implicit def toADAMContext(jac: JavaADAMContext): ADAMContext = jac.ac
 }
 
-class JavaADAMContext private (val ac: ADAMContext) extends Serializable {
+class JavaADAMContext(val ac: ADAMContext) extends Serializable {
 
   /**
    * @return Returns the Java Spark Context associated with this Java ADAM Context.
@@ -93,9 +88,9 @@ class JavaADAMContext private (val ac: ADAMContext) extends Serializable {
    * Loads in variant annotations.
    *
    * @param filePath The path to load the file from.
-   * @return Returns a DatabaseVariantAnnotationRDD.
+   * @return Returns a VariantAnnotationRDD.
    */
-  def loadVariantAnnotations(filePath: java.lang.String): DatabaseVariantAnnotationRDD = {
+  def loadVariantAnnotations(filePath: java.lang.String): VariantAnnotationRDD = {
     ac.loadVariantAnnotations(filePath)
   }
 

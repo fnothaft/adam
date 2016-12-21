@@ -18,19 +18,12 @@
 package org.bdgenomics.adam.rdd.read
 
 import htsjdk.samtools._
-import htsjdk.samtools.util.{
-  BinaryCodec,
-  BlockCompressedOutputStream,
-  BlockCompressedStreamConstants
-}
-import htsjdk.samtools._
 import htsjdk.samtools.cram.ref.ReferenceSource
 import htsjdk.samtools.util.{ BinaryCodec, BlockCompressedOutputStream }
-import java.io.{ InputStream, OutputStream, StringWriter, Writer }
+import java.io.{ OutputStream, StringWriter, Writer }
 import java.net.URI
 import java.nio.file.Paths
-import org.apache.avro.Schema
-import org.apache.hadoop.fs.{ FileSystem, Path }
+import org.apache.hadoop.fs.Path
 import org.apache.hadoop.io.LongWritable
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.rdd.MetricsContext._
@@ -52,14 +45,12 @@ import org.bdgenomics.adam.rdd.{
   SAMHeaderWriter,
   Unaligned
 }
-import org.bdgenomics.adam.rdd.features.CoverageRDD
+import org.bdgenomics.adam.rdd.feature.CoverageRDD
 import org.bdgenomics.adam.rdd.read.realignment.RealignIndels
 import org.bdgenomics.adam.rdd.read.recalibration.BaseQualityRecalibration
 import org.bdgenomics.adam.rdd.fragment.FragmentRDD
-import org.bdgenomics.adam.rich.RichAlignmentRecord
-import org.bdgenomics.adam.util.MapTools
+import org.bdgenomics.adam.util.ReferenceFile
 import org.bdgenomics.formats.avro._
-import org.bdgenomics.utils.misc.Logging
 import org.seqdoop.hadoop_bam._
 import scala.collection.JavaConversions._
 import scala.language.implicitConversions
@@ -98,7 +89,17 @@ sealed trait AlignmentRecordRDD extends AvroReadGroupGenomicRDD[AlignmentRecord,
   def toCoverage(collapse: Boolean = true): CoverageRDD = {
     val covCounts =
       rdd.rdd
-        .flatMap(r => {
+        .filter(r => {
+          val readMapped = r.getReadMapped
+
+          // validate alignment fields
+          if (readMapped) {
+            require(r.getStart != null && r.getEnd != null && r.getContigName != null,
+              "Read was mapped but was missing alignment start/end/contig (%s).".format(r))
+          }
+
+          readMapped
+        }).flatMap(r => {
           val t: List[Long] = List.range(r.getStart, r.getEnd)
           t.map(n => (ReferenceRegion(r.getContigName, n, n + 1), 1))
         }).reduceByKey(_ + _)
@@ -591,6 +592,30 @@ sealed trait AlignmentRecordRDD extends AvroReadGroupGenomicRDD[AlignmentRecord,
   }
 
   /**
+   * Computes the mismatching positions field (SAM "MD" tag).
+   *
+   * @param referenceFile A reference file that can be broadcast to all nodes.
+   * @param overwriteExistingTags If true, overwrites the MD tags on reads where
+   *   it is already populated. If false, we only tag reads that are currently
+   *   missing an MD tag. Default is false.
+   * @param validationStringency If we are recalculating existing tags and we
+   *   find that the MD tag that was previously on the read doesn't match our
+   *   new tag, LENIENT will log a warning message, STRICT will throw an
+   *   exception, and SILENT will ignore. Default is LENIENT.
+   * @return Returns a new AlignmentRecordRDD where all reads have the
+   *   mismatchingPositions field populated.
+   */
+  def computeMismatchingPositions(
+    referenceFile: ReferenceFile,
+    overwriteExistingTags: Boolean = false,
+    validationStringency: ValidationStringency = ValidationStringency.LENIENT): AlignmentRecordRDD = {
+    replaceRdd(MDTagging(rdd,
+      referenceFile,
+      overwriteExistingTags = overwriteExistingTags,
+      validationStringency = validationStringency).taggedReads)
+  }
+
+  /**
    * Runs a quality control pass akin to the Samtools FlagStat tool.
    *
    * @return Returns a tuple of (failedQualityMetrics, passedQualityMetrics)
@@ -604,7 +629,7 @@ sealed trait AlignmentRecordRDD extends AvroReadGroupGenomicRDD[AlignmentRecord,
    *
    * @return SingleReadBuckets with primary, secondary and unmapped reads
    */
-  def groupReadsByFragment(): RDD[SingleReadBucket] = {
+  private[read] def groupReadsByFragment(): RDD[SingleReadBucket] = {
     SingleReadBucket(rdd)
   }
 

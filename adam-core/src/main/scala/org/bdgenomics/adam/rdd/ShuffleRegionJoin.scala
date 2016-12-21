@@ -17,19 +17,29 @@
  */
 package org.bdgenomics.adam.rdd
 
-import org.apache.spark.SparkContext._
 import org.apache.spark.{ Partitioner, SparkContext }
+import org.apache.spark.rdd.MetricsContext._
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.ReferenceRegion._
 import org.bdgenomics.adam.models.{ SequenceDictionary, ReferenceRegion }
 import scala.collection.mutable.ListBuffer
 import scala.reflect.ClassTag
 
+/**
+ * A trait describing join implementations that are based on a sort-merge join.
+ *
+ * @tparam T The type of the left RDD.
+ * @tparam U The type of the right RDD.
+ * @tparam RT The type of data yielded by the left RDD at the output of the
+ *   join. This may not match T if the join is an outer join, etc.
+ * @tparam RU The type of data yielded by the right RDD at the output of the
+ *   join.
+ */
 sealed trait ShuffleRegionJoin[T, U, RT, RU] extends RegionJoin[T, U, RT, RU] {
 
-  val sd: SequenceDictionary
-  val partitionSize: Long
-  val sc: SparkContext
+  protected val sd: SequenceDictionary
+  protected val partitionSize: Long
+  protected val sc: SparkContext
 
   // Create the set of bins across the genome for parallel processing
   //   partitionSize (in nucleotides) may range from 10000 to 10000000+ 
@@ -234,7 +244,7 @@ case class RightOuterShuffleRegionJoinAndGroupByLeft[T, U](sd: SequenceDictionar
 
   protected def emptyFn(left: Iterator[((ReferenceRegion, Int), T)],
                         right: Iterator[((ReferenceRegion, Int), U)]): Iterator[(Option[T], Iterable[U])] = {
-    right.map(v => (None, Iterable(v._2)))
+    left.map(v => (Some(v._2), Iterable.empty)) ++ right.map(v => (None, Iterable(v._2)))
   }
 }
 
@@ -257,6 +267,30 @@ private[rdd] case class ManualRegionPartitioner(partitions: Int) extends Partiti
   }
 }
 
+private class AppendableIterator[T] extends Iterator[T] {
+  var iterators: ListBuffer[Iterator[T]] = ListBuffer.empty
+
+  def append(iter: Iterator[T]) {
+    if (iter.hasNext) {
+      iterators += iter
+    }
+  }
+
+  def hasNext: Boolean = {
+    iterators.nonEmpty
+  }
+
+  def next: T = {
+    val nextVal = iterators.head.next
+
+    if (!iterators.head.hasNext) {
+      iterators = iterators.tail
+    }
+
+    nextVal
+  }
+}
+
 private trait SortedIntervalPartitionJoin[T, U, RT, RU] extends Iterator[(RT, RU)] with Serializable {
   val binRegion: ReferenceRegion
   val left: BufferedIterator[((ReferenceRegion, Int), T)]
@@ -265,15 +299,16 @@ private trait SortedIntervalPartitionJoin[T, U, RT, RU] extends Iterator[(RT, RU
   private var prevLeftRegion: ReferenceRegion = _
 
   // stores the current set of joined pairs
-  protected var hits: Iterator[(RT, RU)] = Iterator.empty
+  protected var hits: AppendableIterator[(RT, RU)] = new AppendableIterator
 
   protected def advanceCache(until: Long)
 
   protected def pruneCache(to: Long)
 
   private def getHits(): Unit = {
+    assert(!hits.hasNext)
     // if there is nothing more in left, then I'm done
-    while (left.hasNext && hits.isEmpty) {
+    while (left.hasNext) {
       // there is more in left...
       val nl = left.next
       val ((nextLeftRegion, _), nextLeft) = nl
@@ -288,11 +323,13 @@ private trait SortedIntervalPartitionJoin[T, U, RT, RU] extends Iterator[(RT, RU
         nextLeftRegion.start > prevLeftRegion.start) {
         pruneCache(nextLeftRegion.start)
       }
+
       // at this point, we effectively do a cross-product and filter; this could probably
       // be improved by making cache a fancier data structure than just a list
       // we filter for things that overlap, where at least one side of the join has a start position
       // in this partition
-      hits = processHits(nextLeft, nextLeftRegion)
+      val newHits = processHits(nextLeft, nextLeftRegion)
+      hits.append(newHits)
 
       assert(prevLeftRegion == null ||
         (prevLeftRegion.referenceName == nextLeftRegion.referenceName &&
@@ -311,6 +348,11 @@ private trait SortedIntervalPartitionJoin[T, U, RT, RU] extends Iterator[(RT, RU
     // if the list of current hits is empty, try to refill it by moving forward
     if (hits.isEmpty) {
       getHits()
+    }
+    // if that fails, try advancing and pruning the cache
+    if (hits.isEmpty) {
+      advanceCache(binRegion.end)
+      pruneCache(binRegion.end)
     }
     // if hits is still empty, I must really be at the end
     hits.hasNext
@@ -371,7 +413,11 @@ private case class SortedIntervalPartitionJoinAndGroupByLeft[T, U](
 
   protected def postProcessHits(iter: Iterator[(T, U)],
                                 currentLeft: T): Iterator[(T, Iterable[U])] = {
-    Iterator((currentLeft, iter.map(_._2).toIterable))
+    if (iter.hasNext) {
+      Iterator((currentLeft, iter.map(_._2).toIterable))
+    } else {
+      Iterator.empty
+    }
   }
 }
 
@@ -419,8 +465,14 @@ private trait SortedIntervalPartitionJoinWithVictims[T, U, RT, RU] extends Sorte
   }
 
   protected def pruneCache(to: Long) {
+
     cache = cache.dropWhile(_._1.end <= to)
-    hits = hits ++ (victimCache.takeWhile(_._1.end <= to).map(u => postProcessPruned(u._2)))
+    cache = cache ++ victimCache.takeWhile(_._1.end > to)
+    victimCache = victimCache.dropWhile(_._1.end > to)
+
+    val pped = (victimCache.takeWhile(_._1.end <= to).map(u => postProcessPruned(u._2)))
+    hits.append(pped.toIterator)
+
     victimCache = victimCache.dropWhile(_._1.end <= to)
   }
 

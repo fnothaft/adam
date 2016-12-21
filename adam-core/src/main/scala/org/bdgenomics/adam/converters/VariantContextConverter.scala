@@ -17,6 +17,8 @@
  */
 package org.bdgenomics.adam.converters
 
+import com.google.common.base.Splitter
+import com.google.common.collect.ImmutableList
 import htsjdk.variant.variantcontext.{
   Allele,
   GenotypesContext,
@@ -24,6 +26,7 @@ import htsjdk.variant.variantcontext.{
   VariantContext => HtsjdkVariantContext,
   VariantContextBuilder
 }
+import htsjdk.variant.vcf.VCFConstants
 import java.util.Collections
 import org.bdgenomics.utils.misc.Logging
 import org.bdgenomics.adam.models.{
@@ -33,7 +36,7 @@ import org.bdgenomics.adam.models.{
 import org.bdgenomics.adam.util.PhredUtils
 import org.bdgenomics.formats.avro._
 import scala.collection.JavaConversions._
-import scala.collection.mutable.HashMap
+import scala.collection.mutable.{ Buffer, HashMap }
 
 /**
  * Object for converting between htsjdk and ADAM VariantContexts.
@@ -72,10 +75,10 @@ private[adam] object VariantContextConverter {
    * @return The Avro representation for this allele.
    */
   private def convertAllele(vc: HtsjdkVariantContext, allele: Allele): GenotypeAllele = {
-    if (allele.isNoCall) GenotypeAllele.NoCall
-    else if (allele.isReference) GenotypeAllele.Ref
-    else if (allele == NON_REF_ALLELE || !vc.hasAlternateAllele(allele)) GenotypeAllele.OtherAlt
-    else GenotypeAllele.Alt
+    if (allele.isNoCall) GenotypeAllele.NO_CALL
+    else if (allele.isReference) GenotypeAllele.REF
+    else if (allele == NON_REF_ALLELE || !vc.hasAlternateAllele(allele)) GenotypeAllele.OTHER_ALT
+    else GenotypeAllele.ALT
   }
 
   /**
@@ -123,9 +126,9 @@ private[adam] object VariantContextConverter {
     var alleles = g.getAlleles
     if (alleles == null) return Collections.emptyList[Allele]
     else g.getAlleles.map {
-      case GenotypeAllele.NoCall                        => Allele.NO_CALL
-      case GenotypeAllele.Ref | GenotypeAllele.OtherAlt => Allele.create(g.getVariant.getReferenceAllele, true)
-      case GenotypeAllele.Alt                           => Allele.create(g.getVariant.getAlternateAllele)
+      case GenotypeAllele.NO_CALL                        => Allele.NO_CALL
+      case GenotypeAllele.REF | GenotypeAllele.OTHER_ALT => Allele.create(g.getVariant.getReferenceAllele, true)
+      case GenotypeAllele.ALT                            => Allele.create(g.getVariant.getAlternateAllele)
     }
   }
 }
@@ -193,7 +196,7 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
         return Seq(ADAMVariantContext(variant, genotypes, None))
       }
       case List(allele) => {
-        assert(
+        require(
           allele.isNonReference,
           "Assertion failed when converting: " + vc.toString
         )
@@ -202,7 +205,7 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
         return Seq(ADAMVariantContext(variant, genotypes, None))
       }
       case List(allele, NON_REF_ALLELE) => {
-        assert(
+        require(
           allele.isNonReference,
           "Assertion failed when converting: " + vc.toString
         )
@@ -210,23 +213,30 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
         val genotypes = extractReferenceModelGenotypes(vc, variant, calling_annotations)
         return Seq(ADAMVariantContext(variant, genotypes, None))
       }
-      case alleles :+ NON_REF_ALLELE => {
-        throw new IllegalArgumentException("Multi-allelic site with non-ref symbolic allele" +
-          vc.toString)
-      }
       case _ => {
-        // Default case is multi-allelic without reference model
         val vcb = new VariantContextBuilder(vc)
-        return vc.getAlternateAlleles.flatMap(allele => {
+
+        // is the last allele the non-ref allele?
+        val alleles = vc.getAlternateAlleles.toSeq
+        val referenceModelIndex = if (alleles.nonEmpty && alleles.last == NON_REF_ALLELE) {
+          alleles.length - 1
+        } else {
+          -1
+        }
+        val altAlleles = if (referenceModelIndex > 0) {
+          alleles.dropRight(1)
+        } else {
+          alleles
+        }
+
+        return altAlleles.flatMap(allele => {
           val idx = vc.getAlleleIndex(allele)
-          assert(idx >= 1, "Unexpected index for alternate allele: " + vc.toString)
+          require(idx >= 1, "Unexpected index for alternate allele: " + vc.toString)
           vcb.alleles(List(vc.getReference, allele, NON_REF_ALLELE))
 
           def punchOutGenotype(g: htsjdk.variant.variantcontext.Genotype, idx: Int): htsjdk.variant.variantcontext.Genotype = {
 
             val gb = new htsjdk.variant.variantcontext.GenotypeBuilder(g)
-            // TODO: Multi-allelic genotypes are locally phased, add phase set
-            gb.phased(true)
 
             if (g.hasAD) {
               val ad = g.getAD
@@ -238,9 +248,30 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
             if (g.hasPL) {
               val oldPLs = g.getPL
               val maxIdx = oldPLs.length
-              val newPLs = GenotypeLikelihoods.getPLIndecesOfAlleles(0, idx).filter(_ < maxIdx).map(oldPLs(_))
-              // Normalize new likelihoods in log-space
-              gb.PL(newPLs.map(_ - newPLs.min))
+
+              def extractPls(idx0: Int, idx1: Int): Array[Int] = {
+                GenotypeLikelihoods.getPLIndecesOfAlleles(0, idx).map(idx => {
+                  require(idx < maxIdx, "Got out-of-range index (%d) for allele %s in %s.".format(
+                    idx, allele, vc))
+                  oldPLs(idx)
+                })
+              }
+
+              val newPLs = extractPls(0, idx)
+              val referencePLs = if (referenceModelIndex > 0) {
+                try {
+                  extractPls(idx, referenceModelIndex)
+                } catch {
+                  case iae: IllegalArgumentException => {
+                    log.warn("Caught exception (%s) when trying to build reference model for allele %s at %s. Ignoring...".format(
+                      iae.getMessage, allele, g))
+                    Array.empty
+                  }
+                }
+              } else {
+                Array.empty
+              }
+              gb.PL(newPLs ++ referencePLs)
             }
             gb.make
           }
@@ -266,22 +297,22 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
    * Extracts a variant annotation from a htsjdk VariantContext.
    *
    * @param vc htsjdk variant context to extract annotations from.
-   * @return The database annotations in Avro format.
+   * @return The variant annotations in Avro format.
    */
-  def convertToAnnotation(vc: HtsjdkVariantContext): DatabaseVariantAnnotation = {
+  def convertToVariantAnnotation(vc: HtsjdkVariantContext): VariantAnnotation = {
     val variant = vc.getAlternateAlleles.toList match {
       case List(NON_REF_ALLELE) => {
         createADAMVariant(vc, None /* No alternate allele */ )
       }
       case List(allele) => {
-        assert(
+        require(
           allele.isNonReference,
           "Assertion failed when converting: " + vc.toString
         )
         createADAMVariant(vc, Some(allele.getDisplayString))
       }
       case List(allele, NON_REF_ALLELE) => {
-        assert(
+        require(
           allele.isNonReference,
           "Assertion failed when converting: " + vc.toString
         )
@@ -296,7 +327,7 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
       }
     }
 
-    extractVariantDatabaseAnnotation(variant, vc)
+    extractVariantAnnotation(variant, vc)
   }
 
   /**
@@ -313,6 +344,36 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
   }
 
   /**
+   * Split the htsjdk variant context ID field into an array of names.
+   *
+   * @param vc htsjdk variant context
+   * @return Returns an Option wrapping an array of names split from the htsjdk
+   *    variant context ID field
+   */
+  private def splitIds(vc: HtsjdkVariantContext): Option[java.util.List[String]] = {
+    if (vc.hasID()) {
+      Some(ImmutableList.copyOf(vc.getID().split(VCFConstants.ID_FIELD_SEPARATOR)))
+    } else {
+      None
+    }
+  }
+
+  /**
+   * Join the array of variant names into a string for the htsjdk variant context ID field.
+   *
+   * @param variant variant
+   * @return Returns an Option wrapping a string for the htsjdk variant context ID field joined
+   *    from the array of variant names
+   */
+  private def joinNames(variant: Variant): Option[String] = {
+    if (variant.getNames != null && variant.getNames.length > 0) {
+      Some(variant.getNames.mkString(VCFConstants.ID_FIELD_SEPARATOR))
+    } else {
+      None
+    }
+  }
+
+  /**
    * Builds an avro Variant for a site with a defined alt allele.
    *
    * @param vc htsjdk variant context to use for building the site.
@@ -321,30 +382,37 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
    * @return Returns an Avro description of the genotyped site.
    */
   private def createADAMVariant(vc: HtsjdkVariantContext, alt: Option[String]): Variant = {
-    // VCF CHROM, POS, REF and ALT
+    // VCF CHROM, POS, ID, REF, FORMAT, and ALT
     val builder = Variant.newBuilder
       .setContigName(createContig(vc))
       .setStart(vc.getStart - 1 /* ADAM is 0-indexed */ )
       .setEnd(vc.getEnd /* ADAM is 0-indexed, so the 1-indexed inclusive end becomes exclusive */ )
       .setReferenceAllele(vc.getReference.getBaseString)
-    if (vc.hasLog10PError) {
-      builder.setVariantErrorProbability(vc.getPhredScaledQual.intValue())
-    }
     alt.foreach(builder.setAlternateAllele(_))
+    splitIds(vc).foreach(builder.setNames(_))
+    builder.setFiltersApplied(vc.filtersWereApplied)
+    if (vc.filtersWereApplied) {
+      builder.setFiltersPassed(!vc.isFiltered)
+    }
+    if (vc.isFiltered) {
+      builder.setFiltersFailed(new java.util.ArrayList(vc.getFilters));
+    }
+    if (vc.getAttributeAsBoolean("SOMATIC", false)) {
+      builder.setSomatic(true)
+    }
     builder.build
   }
 
   /**
-   * Populates a site annotation from an htsjdk variant context.
+   * Populates a variant annotation from an htsjdk variant context.
    *
    * @param variant Avro variant representation for the site.
    * @param vc htsjdk representation of the VCF line.
-   * @return Returns the Avro representation of the annotations at this site
-   *   that indicate membership in an annotation database.
+   * @return Returns the Avro representation of the variant annotations at this site.
    */
-  private def extractVariantDatabaseAnnotation(variant: Variant,
-                                               vc: HtsjdkVariantContext): DatabaseVariantAnnotation = {
-    val annotation = DatabaseVariantAnnotation.newBuilder()
+  private def extractVariantAnnotation(variant: Variant,
+                                       vc: HtsjdkVariantContext): VariantAnnotation = {
+    val annotation = VariantAnnotation.newBuilder()
       .setVariant(variant)
       .build
 
@@ -389,10 +457,20 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
           .setContigName(contigName)
           .setStart(start)
           .setEnd(end)
-          .setVariantCallingAnnotations(annotations)
           .setSampleId(g.getSampleName)
           .setAlleles(g.getAlleles.map(VariantContextConverter.convertAllele(vc, _)))
-          .setIsPhased(g.isPhased)
+          .setPhased(g.isPhased)
+
+        // copy variant calling annotations to update filter attributes
+        // (because the htsjdk Genotype is not available when build is called upstream)
+        val copy = VariantCallingAnnotations.newBuilder(annotations)
+        // htsjdk does not provide a field filtersWereApplied for genotype as it does in VariantContext
+        copy.setFiltersApplied(true)
+        copy.setFiltersPassed(!g.isFiltered)
+        if (g.isFiltered) {
+          copy.setFiltersFailed(Splitter.on(";").splitToList(g.getFilters))
+        }
+        genotype.setVariantCallingAnnotations(copy.build())
 
         if (g.hasGQ) genotype.setGenotypeQuality(g.getGQ)
         if (g.hasDP) genotype.setReadDepth(g.getDP)
@@ -471,11 +549,7 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
     extractGenotypes(vc, variant, annotations, (g, b) => {
       if (g.hasPL) {
         val pls = g.getPL.map(p => jFloat(PhredUtils.phredToLogProbability(p)))
-        val splitAt: Int = g.getPloidy match {
-          case 1 => 2
-          case 2 => 3
-          case _ => require(false, "Ploidy > 2 not supported for this operation"); 0
-        }
+        val splitAt: Int = g.getPloidy + 1
         b.setGenotypeLikelihoods(pls.slice(0, splitAt).toList)
         b.setNonReferenceLikelihoods(pls.slice(splitAt, pls.length).toList)
       }
@@ -492,13 +566,6 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
    */
   private def extractVariantCallingAnnotations(vc: HtsjdkVariantContext): VariantCallingAnnotations = {
     val call: VariantCallingAnnotations.Builder = VariantCallingAnnotations.newBuilder
-
-    // VCF QUAL, FILTER and INFO fields
-    if (vc.filtersWereApplied && vc.isFiltered) {
-      call.setVariantIsPassing(false).setVariantFilters(new java.util.ArrayList(vc.getFilters))
-    } else if (vc.filtersWereApplied) {
-      call.setVariantIsPassing(true)
-    }
 
     VariantAnnotationConverter.convert(vc, call.build())
   }
@@ -528,7 +595,7 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
    * @return GATK VariantContext
    */
   def convert(vc: ADAMVariantContext): HtsjdkVariantContext = {
-    val variant: Variant = vc.variant
+    val variant: Variant = vc.variant.variant
     val vcb = new VariantContextBuilder()
       .chr(refSeqToContig.getOrElse(
         variant.getContigName,
@@ -538,7 +605,25 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
       .stop(variant.getStart + variant.getReferenceAllele.length)
       .alleles(VariantContextConverter.convertAlleles(variant))
 
-    vc.databases.flatMap(d => Option(d.getDbSnpId)).foreach(d => vcb.id("rs" + d))
+    joinNames(variant) match {
+      case None    => vcb.noID()
+      case Some(s) => vcb.id(s)
+    }
+
+    val filtersApplied = Option(variant.getFiltersApplied).getOrElse(false)
+    val filtersPassed = Option(variant.getFiltersPassed).getOrElse(false)
+
+    (filtersApplied, filtersPassed) match {
+      case (false, false) => vcb.unfiltered
+      case (false, true)  => vcb.passFilters // log warning?
+      case (true, false)  => vcb.filters(new java.util.HashSet(variant.getFiltersFailed()))
+      case (true, true)   => vcb.passFilters
+    }
+
+    val somatic: java.lang.Boolean = Option(variant.getSomatic).getOrElse(false)
+    if (somatic) {
+      vcb.attribute("SOMATIC", true)
+    }
 
     // TODO: Extract provenance INFO fields
     try {
@@ -547,17 +632,26 @@ private[adam] class VariantContextConverter(dict: Option[SequenceDictionary] = N
           g.getSampleId, VariantContextConverter.convertAlleles(g)
         )
 
-        Option(g.getIsPhased).foreach(gb.phased(_))
+        Option(g.getPhased).foreach(gb.phased(_))
         Option(g.getGenotypeQuality).foreach(gb.GQ(_))
         Option(g.getReadDepth).foreach(gb.DP(_))
+
+        // strand bias components should have length 4 or length 0
+        val strandBiasComponents = g.getStrandBiasComponents
+        if (strandBiasComponents.length == 4) {
+          gb.attribute("SB", strandBiasComponents)
+        } else if (!strandBiasComponents.isEmpty) {
+          log.warn("Ignoring bad strand bias components (%s) at %s.".format(
+            strandBiasComponents.mkString(","), variant))
+        }
 
         if (g.getReferenceReadDepth != null && g.getAlternateReadDepth != null)
           gb.AD(Array(g.getReferenceReadDepth, g.getAlternateReadDepth))
 
         if (g.getVariantCallingAnnotations != null) {
           val callAnnotations = g.getVariantCallingAnnotations()
-          if (callAnnotations.getVariantFilters != null) {
-            gb.filters(callAnnotations.getVariantFilters)
+          if (callAnnotations.getFiltersPassed() != null && !callAnnotations.getFiltersPassed()) {
+            gb.filters(callAnnotations.getFiltersFailed())
           }
         }
 

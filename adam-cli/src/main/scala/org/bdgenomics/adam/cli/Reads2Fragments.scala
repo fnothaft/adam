@@ -22,7 +22,7 @@ import org.bdgenomics.adam.rdd.ADAMContext._
 import org.bdgenomics.adam.rdd.ADAMSaveAnyArgs
 import org.bdgenomics.utils.cli._
 import org.bdgenomics.utils.misc.Logging
-import org.kohsuke.args4j.{ Argument, Option => Args4jOption }
+import org.kohsuke.args4j.Argument
 
 object Reads2Fragments extends BDGCommandCompanion {
   val commandName = "reads2fragments"
@@ -34,9 +34,9 @@ object Reads2Fragments extends BDGCommandCompanion {
 }
 
 class Reads2FragmentsArgs extends Args4jBase with ADAMSaveAnyArgs with ParquetArgs {
-  @Argument(required = true, metaVar = "INPUT", usage = "The ADAM, interleaved FASTQ, BAM, or SAM file to apply the transforms to", index = 0)
+  @Argument(required = true, metaVar = "READS", usage = "The ADAM, interleaved FASTQ, BAM, or SAM file to apply the transforms to", index = 0)
   var inputPath: String = null
-  @Argument(required = true, metaVar = "OUTPUT", usage = "Location to write the transformed data in ADAM/Parquet format", index = 1)
+  @Argument(required = true, metaVar = "FRAGMENTS", usage = "Location to write the transformed data in ADAM/Parquet format", index = 1)
   var outputPath: String = null
 
   // these are required because of the ADAMSaveAnyArgs trait... fix this trait???

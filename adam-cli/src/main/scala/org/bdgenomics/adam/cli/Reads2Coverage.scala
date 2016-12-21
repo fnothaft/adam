@@ -21,8 +21,7 @@ import org.apache.spark.SparkContext
 import org.bdgenomics.adam.projections.AlignmentRecordField._
 import org.bdgenomics.adam.projections.Projection
 import org.bdgenomics.adam.rdd.ADAMContext._
-import org.bdgenomics.adam.rdd.features.CoverageRDD
-import org.bdgenomics.adam.rdd.read.{ AlignedReadRDD, AlignmentRecordRDD }
+import org.bdgenomics.adam.rdd.read.AlignmentRecordRDD
 import org.bdgenomics.utils.cli._
 import org.kohsuke.args4j.{ Argument, Option => Args4jOption }
 
@@ -46,11 +45,11 @@ object Reads2Coverage extends BDGCommandCompanion {
 class Reads2CoverageArgs extends Args4jBase with ParquetArgs {
   @Argument(required = true, metaVar = "INPUT", usage = "The reads file to use to calculate depths", index = 0)
   var inputPath: String = null
-  @Argument(required = true, metaVar = "OUTPUT", usage = "Location to write the coverage data in ADAM/Parquet format", index = 1)
+  @Argument(required = true, metaVar = "OUTPUT", usage = "Location to write the coverage data to", index = 1)
   var outputPath: String = null
   @Args4jOption(required = false, name = "-collapse", usage = "Collapses neighboring coverage records " +
     "of equal counts into the same record")
-  var collapse: Boolean = true
+  var collapse: Boolean = false
   @Args4jOption(required = false, name = "-only_negative_strands", usage = "Compute coverage for negative strands")
   var onlyNegativeStrands: Boolean = false
   @Args4jOption(required = false, name = "-only_positive_strands", usage = "Compute coverage for positive strands")
@@ -64,7 +63,7 @@ class Reads2Coverage(protected val args: Reads2CoverageArgs) extends BDGSparkCom
 
   def run(sc: SparkContext): Unit = {
 
-    val proj = Projection(contigName, start, end, cigar)
+    val proj = Projection(readMapped, contigName, start, end, cigar)
 
     // If saving strand specific coverage, require that only one direction is specified
     require(!(args.onlyNegativeStrands && args.onlyPositiveStrands),
@@ -85,4 +84,3 @@ class Reads2Coverage(protected val args: Reads2CoverageArgs) extends BDGSparkCom
       .save(args.outputPath, asSingleFile = args.asSingleFile)
   }
 }
-

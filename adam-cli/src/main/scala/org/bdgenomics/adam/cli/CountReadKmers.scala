@@ -17,20 +17,15 @@
  */
 package org.bdgenomics.adam.cli
 
-import java.util.logging.Level
-import org.apache.hadoop.mapreduce.Job
 import org.apache.spark.SparkContext
-import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.projections.{ AlignmentRecordField, Projection }
 import org.bdgenomics.adam.rdd.ADAMContext._
-import org.bdgenomics.adam.util.ParquetLogger
-import org.bdgenomics.formats.avro.AlignmentRecord
 import org.bdgenomics.utils.cli._
 import org.bdgenomics.utils.misc.Logging
 import org.kohsuke.args4j.{ Argument, Option => Args4jOption }
 
 object CountReadKmers extends BDGCommandCompanion {
-  val commandName = "count_kmers"
+  val commandName = "countKmers"
   val commandDescription = "Counts the k-mers/q-mers from a read dataset."
 
   def apply(cmdLine: Array[String]) = {
@@ -55,9 +50,6 @@ class CountReadKmers(protected val args: CountReadKmersArgs) extends BDGSparkCom
   val companion = CountReadKmers
 
   def run(sc: SparkContext) {
-
-    // Quiet Parquet...
-    ParquetLogger.hadoopLoggerLevel(Level.SEVERE)
 
     // read from disk
     var adamRecords = sc.loadAlignments(
@@ -88,5 +80,4 @@ class CountReadKmers(protected val args: CountReadKmersArgs) extends BDGSparkCom
     // save as text file
     countedKmers.saveAsTextFile(args.outputPath)
   }
-
 }

@@ -17,9 +17,13 @@
  */
 package org.bdgenomics.adam.models
 
-import htsjdk.samtools.{ SAMFileReader, SAMSequenceRecord, SAMSequenceDictionary }
-import htsjdk.variant.vcf.VCFFileReader
 import java.io.File
+import htsjdk.samtools.{
+  SAMSequenceDictionary,
+  SAMSequenceRecord
+}
+import htsjdk.variant.utils.SAMSequenceDictionaryExtractor
+import htsjdk.variant.vcf.VCFFileReader
 import org.bdgenomics.adam.util.ADAMFunSuite
 import scala.collection.JavaConversions._
 
@@ -34,14 +38,14 @@ class SequenceDictionarySuite extends ADAMFunSuite {
     assert(asASR.length === 1000L)
     assert(asASR.url === Some("http://bigdatagenomics.github.io/1"))
 
-    val asPSR: SAMSequenceRecord = SequenceRecord.toSAMSequenceRecord(asASR)
+    val asPSR: SAMSequenceRecord = asASR.toSAMSequenceRecord
 
     assert(sr.isSameSequence(asPSR))
   }
 
   test("Convert from SAM sequence dictionary file (with extra fields)") {
     val path = testFile("dict_with_accession.dict")
-    val ssd = SAMFileReader.getSequenceDictionary(new File(path))
+    val ssd = SAMSequenceDictionaryExtractor.extractDictionary(new File(path))
 
     val chr1 = ssd.getSequence("1") // Validate that extra fields are parsed
     assert(chr1 != null)
@@ -55,7 +59,7 @@ class SequenceDictionarySuite extends ADAMFunSuite {
 
   test("merge into existing dictionary") {
     val path = testFile("dict_with_accession.dict")
-    val ssd = SAMFileReader.getSequenceDictionary(new File(path))
+    val ssd = SAMSequenceDictionaryExtractor.extractDictionary(new File(path))
 
     val asd = SequenceDictionary(ssd)
     assert(asd.containsRefName("1"))
@@ -68,9 +72,9 @@ class SequenceDictionarySuite extends ADAMFunSuite {
 
   test("Convert from SAM sequence dictionary and back") {
     val path = testFile("dict_with_accession.dict")
-    val ssd = SAMFileReader.getSequenceDictionary(new File(path))
+    val ssd = SAMSequenceDictionaryExtractor.extractDictionary(new File(path))
     val asd = SequenceDictionary(ssd)
-    ssd.assertSameDictionary(SequenceDictionary.toSAMSequenceDictionary(asd))
+    ssd.assertSameDictionary(asd.toSAMSequenceDictionary)
   }
 
   test("Can retrieve sequence by name") {

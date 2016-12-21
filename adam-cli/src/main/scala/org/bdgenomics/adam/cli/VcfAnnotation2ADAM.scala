@@ -17,20 +17,16 @@
  */
 package org.bdgenomics.adam.cli
 
-import org.apache.spark.SparkContext._
 import org.apache.spark.SparkContext
-import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.VariantContext
 import org.bdgenomics.adam.rdd.ADAMContext._
-import org.bdgenomics.adam.rdd.variation.DatabaseVariantAnnotationRDD
+import org.bdgenomics.adam.rdd.variant.VariantAnnotationRDD
 import org.bdgenomics.adam.rich.RichVariant
-import org.bdgenomics.formats.avro._
 import org.bdgenomics.utils.cli._
 import org.bdgenomics.utils.misc.Logging
 import org.kohsuke.args4j.{ Argument, Option => Args4jOption }
 
 object VcfAnnotation2ADAM extends BDGCommandCompanion {
-
   val commandName = "anno2adam"
   val commandDescription = "Convert a annotation file (in VCF format) to the corresponding ADAM format"
 
@@ -44,7 +40,7 @@ class VcfAnnotation2ADAMArgs extends Args4jBase with ParquetSaveArgs {
   var vcfFile: String = _
   @Argument(required = true, metaVar = "ADAM", usage = "Location to write ADAM Variant annotations data", index = 1)
   var outputPath: String = null
-  @Args4jOption(required = false, name = "-current_db", usage = "Location of existing ADAM Variant annotations data")
+  @Args4jOption(required = false, name = "-annotations_to_join", usage = "Location of existing ADAM Variant annotations data")
   var currentAnnotations: String = null
 }
 
@@ -60,7 +56,7 @@ class VcfAnnotation2ADAM(val args: VcfAnnotation2ADAMArgs) extends BDGSparkComma
       val keyedAnnotations = existingAnnotations.rdd.keyBy(anno => new RichVariant(anno.getVariant))
       val joinedAnnotations = keyedAnnotations.join(annotations.rdd.keyBy(anno => new RichVariant(anno.getVariant)))
       val mergedAnnotations = joinedAnnotations.map(kv => VariantContext.mergeAnnotations(kv._2._1, kv._2._2))
-      DatabaseVariantAnnotationRDD(mergedAnnotations, existingAnnotations.sequences).saveAsParquet(args)
+      VariantAnnotationRDD(mergedAnnotations, existingAnnotations.sequences).saveAsParquet(args)
     } else {
       annotations.saveAsParquet(args)
     }

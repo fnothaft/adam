@@ -19,14 +19,12 @@ package org.bdgenomics.adam.rdd.read.recalibration
 
 import htsjdk.samtools.ValidationStringency
 import java.io._
-import org.apache.spark.SparkContext._
 import org.bdgenomics.utils.misc.Logging
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.rdd.RDD
-import org.bdgenomics.adam.models.SnpTable
+import org.bdgenomics.adam.models.{ QualityScore, SnpTable }
 import org.bdgenomics.adam.rich.DecadentRead
 import org.bdgenomics.adam.rich.DecadentRead._
-import org.bdgenomics.adam.util.QualityScore
 import org.bdgenomics.formats.avro.AlignmentRecord
 
 /**
@@ -35,7 +33,7 @@ import org.bdgenomics.formats.avro.AlignmentRecord
  * a second pass over the reads to apply the recalibration and assign adjusted
  * quality scores.
  */
-class BaseQualityRecalibration(
+private class BaseQualityRecalibration(
   val input: RDD[(Option[DecadentRead], Option[AlignmentRecord])],
   val knownSnps: Broadcast[SnpTable],
   val dumpObservationTableFile: Option[String] = None)
@@ -123,7 +121,7 @@ class BaseQualityRecalibration(
   }
 }
 
-object BaseQualityRecalibration {
+private[read] object BaseQualityRecalibration {
   def apply(
     rdd: RDD[AlignmentRecord],
     knownSnps: Broadcast[SnpTable],

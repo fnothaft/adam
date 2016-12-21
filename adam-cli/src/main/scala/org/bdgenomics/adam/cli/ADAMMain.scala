@@ -32,13 +32,13 @@ object ADAMMain {
       CommandGroup(
         "ADAM ACTIONS",
         List(
-          CalculateDepth,
           CountReadKmers,
           CountContigKmers,
           Transform,
-          ADAM2Fastq,
+          TransformFeatures,
           Flatten,
-          MergeShards
+          MergeShards,
+          Reads2Coverage
         )
       ),
       CommandGroup(
@@ -49,11 +49,9 @@ object ADAMMain {
           VcfAnnotation2ADAM,
           Fasta2ADAM,
           ADAM2Fasta,
-          TransformFeatures,
-          WigFix2Bed,
+          ADAM2Fastq,
           Fragments2Reads,
-          Reads2Fragments,
-          Reads2Coverage
+          Reads2Fragments
         )
       ),
       CommandGroup(
@@ -61,8 +59,6 @@ object ADAMMain {
         List(
           PrintADAM,
           FlagStat,
-          ListDict,
-          AlleleCount,
           View
         )
       )
@@ -92,11 +88,11 @@ class ADAMMain @Inject() (commandGroups: List[CommandGroup]) extends Logging {
   private def printVersion() {
     printLogo()
     val about = new About()
-    println("\nADAM version: %s".format(about.version()))
-    if (about.isSnapshot()) {
-      println("Commit: %s Build: %s".format(about.commit(), about.buildTimestamp()))
+    println("\nADAM version: %s".format(about.version))
+    if (about.isSnapshot) {
+      println("Commit: %s Build: %s".format(about.commit, about.buildTimestamp))
     }
-    println("Built for: Scala %s and Hadoop %s".format(about.scalaVersion(), about.hadoopVersion()))
+    println("Built for: Scala %s and Hadoop %s".format(about.scalaVersion, about.hadoopVersion))
   }
 
   private def printCommands() {
@@ -113,7 +109,7 @@ class ADAMMain @Inject() (commandGroups: List[CommandGroup]) extends Logging {
 
   def apply(args: Array[String]) {
     log.info("ADAM invoked with args: %s".format(argsToString(args)))
-    if (args.size < 1) {
+    if (args.length < 1) {
       printCommands()
     } else if (args.contains("--version") || args.contains("-version")) {
       printVersion()
@@ -148,7 +144,7 @@ class ADAMMain @Inject() (commandGroups: List[CommandGroup]) extends Logging {
 }
 
 class ADAMModule extends AbstractModule with ScalaModule {
-  def configure {
+  def configure() {
     bind[List[CommandGroup]].toInstance(ADAMMain.defaultCommandGroups)
   }
 }
