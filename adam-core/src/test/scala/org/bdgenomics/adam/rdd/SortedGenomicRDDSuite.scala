@@ -27,17 +27,10 @@ class SortedGenomicRDDSuite extends SparkFunSuite {
     time {
       //val x = sc.loadBam("/data/recompute/alignments/NA12878.bam.aln.bam")
       val x = sc.loadBam(ClassLoader.getSystemClassLoader.getResource("bqsr1.sam").getFile)
-      println(x.rdd.partitions.length)
-      println(x.rdd.count)
-      println(x.flattenRddByRegions.sortBy(_._1).count)
       val y = x.repartitionAndSortByGenomicCoordinate(16)
-      println(y.rdd.count)
-
-      assert(isSorted(y.partitionMap))
-      println("Uneven: " + y.rdd.mapPartitions(f => Iterator(f.size)).collect.mkString(","))
-      println("Partitions of Uneven: " + y.rdd.partitions.length)
-      val z = x.wellBalancedRepartitionByGenomicCoordinate(16)
-      assert(isSorted(z.partitionMap))
+      assert(isSorted(y.SortedTrait.partitionMap))
+      val z = x.repartitionAndSortByGenomicCoordinate(16)
+      assert(isSorted(z.SortedTrait.partitionMap))
       val arrayRepresentationOfZ = z.rdd.collect
       //verify sort worked
       for (currentArray <- List(y.rdd.collect, z.rdd.collect)) {
@@ -47,34 +40,34 @@ class SortedGenomicRDDSuite extends SparkFunSuite {
         }
       }
 
-      println("Printing class:")
-      println(z.getClass)
-      println(x.toCoverage(true).rdd.first)
-
-      //      x.shuffleRegionJoin(y)
-      //      z.shuffleRegionJoin(y)
-      //      y.shuffleRegionJoin(z)
-
       val partitionTupleCounts: Array[Int] = z.rdd.mapPartitions(f => Iterator(f.size)).collect
-      println(partitionTupleCounts.mkString(","))
-      //      val d = x.shuffleRegionJoinAndGroupByLeft(y)
-      //      d.rdd.count
-      //      println(d.rdd.first)
-      val a = z.evenlyRepartition(200)
-      val partitionTupleCounts2: Array[Int] = a.rdd.mapPartitions(f => Iterator(f.size)).collect
-      println(partitionTupleCounts2.mkString(","))
+
+      val partitionTupleCounts2: Array[Int] = y.rdd.mapPartitions(f => Iterator(f.size)).collect
 
       assert(partitionTupleCounts.sum == partitionTupleCounts2.sum)
 
       val b = z.shuffleRegionJoin(x, Some(1)).rdd.collect
       val c = x.shuffleRegionJoin(z).rdd.collect
-      println("X length: " + x.rdd.collect.length + "\tB length: " + b.length + "\t" + "C length: " + c.length)
-      //      assert(b.length == c.length)
+      assert(b.length == c.length)
 
-      //      for (i <- b.indices) {
-      //        assert(b(i) == c(i))
-      //      }
+      val d = z.fullOuterShuffleRegionJoin(x, Some(1)).rdd.collect
+      val e = x.fullOuterShuffleRegionJoin(z).rdd.collect
+      assert(d.length == e.length)
 
+      val f = z.rightOuterShuffleRegionJoin(x, Some(1)).rdd.collect
+      val g = z.rightOuterShuffleRegionJoin(x).rdd.collect
+      assert(f.length == g.length)
+
+      val h = z.leftOuterShuffleRegionJoin(x, Some(1)).rdd.collect
+      val i = z.leftOuterShuffleRegionJoin(x).rdd.collect
+      assert(h.length == i.length)
+
+      z.save("/Users/DevinPetersohn/Downloads/testOut1.txt", isSorted = true)
+      val t = sc.loadParquetAlignments("/Users/DevinPetersohn/Downloads/testOut1.txt")
+      println(t.SortedTrait.isSorted)
+      val j = t.shuffleRegionJoin(x, Some(1))
+      val k = x.shuffleRegionJoin(t, Some(16))
+      assert(j.rdd.collect.length == k.rdd.collect.length)
     }
   }
 }

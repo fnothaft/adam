@@ -144,7 +144,7 @@ sealed trait AlignmentRecordRDD extends AvroReadGroupGenomicRDD[AlignmentRecord,
    *   file was saved.
    */
   private[rdd] def maybeSaveBam(args: ADAMSaveAnyArgs,
-                                isSorted: Boolean = false): Boolean = {
+                                isSorted: Boolean = SortedTrait.isSorted): Boolean = {
 
     if (args.outputPath.endsWith(".sam") ||
       args.outputPath.endsWith(".bam") ||
@@ -191,7 +191,7 @@ sealed trait AlignmentRecordRDD extends AvroReadGroupGenomicRDD[AlignmentRecord,
    * @return Returns true if saving succeeded.
    */
   def save(args: ADAMSaveAnyArgs,
-           isSorted: Boolean = false): Boolean = {
+           isSorted: Boolean = SortedTrait.isSorted): Boolean = {
 
     (maybeSaveBam(args, isSorted) ||
       maybeSaveFastq(args) ||
@@ -250,7 +250,7 @@ sealed trait AlignmentRecordRDD extends AvroReadGroupGenomicRDD[AlignmentRecord,
    *
    * @return Returns a SAM/BAM formatted RDD of reads, as well as the file header.
    */
-  def convertToSam(isSorted: Boolean = false): (RDD[SAMRecordWritable], SAMFileHeader) = ConvertToSAM.time {
+  def convertToSam(isSorted: Boolean = SortedTrait.isSorted): (RDD[SAMRecordWritable], SAMFileHeader) = ConvertToSAM.time {
 
     // create conversion object
     val adamRecordConverter = new AlignmentRecordConverter
@@ -307,7 +307,7 @@ sealed trait AlignmentRecordRDD extends AvroReadGroupGenomicRDD[AlignmentRecord,
     filePath: String,
     asType: Option[SAMFormat] = None,
     asSingleFile: Boolean = false,
-    isSorted: Boolean = false,
+    isSorted: Boolean = SortedTrait.isSorted,
     deferMerging: Boolean = false): Unit = SAMSave.time {
 
     val fileType = asType.getOrElse(SAMFormat.inferFromFilePath(filePath))
@@ -582,7 +582,7 @@ sealed trait AlignmentRecordRDD extends AvroReadGroupGenomicRDD[AlignmentRecord,
    */
   def realignIndels(
     consensusModel: ConsensusGenerator = new ConsensusGeneratorFromReads,
-    isSorted: Boolean = false,
+    isSorted: Boolean = SortedTrait.isSorted,
     maxIndelSize: Int = 500,
     maxConsensusNumber: Int = 30,
     lodThreshold: Double = 5.0,
