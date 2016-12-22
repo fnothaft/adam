@@ -1335,7 +1335,7 @@ private[adam] class VariantContextConverter(
         case (false, VCFHeaderLineCount.R) => {
           (g: HtsjdkGenotype, idx: Int, indices: Array[Int]) =>
             {
-              arrayFieldExtractor(g, id, toFn, List(0, idx + 1))
+              arrayFieldExtractor(g, id, toFn, List(0, idx))
                 .map(kv => (kv._1, kv._2.mkString(",")))
             }
         }

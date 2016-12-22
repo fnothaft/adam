@@ -2285,8 +2285,11 @@ class VariantContextConverterSuite extends ADAMFunSuite {
   }
 
   test("VCF FORMAT attribute Number=1 Type=Integer htsjdk->adam") {
-    val vc = htsjdkSNVBuilder
-      .attribute("ONE_INT", "42")
+    val vcb = htsjdkSNVBuilder
+    val gt = GenotypeBuilder.create("NA12878",
+      vcb.getAlleles(),
+      Map[String, java.lang.Object](("ONE_INT", "42")))
+    val vc = vcb.genotypes(gt)
       .make
 
     val oneIntHeader = new VCFFormatHeaderLine("ONE_INT",
@@ -2298,15 +2301,18 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       .convert(vc, lenient)
       .head
 
-    val v = adamVc.variant.variant
-    assert(v.getAnnotation.getAttributes.containsKey("ONE_INT"))
-    assert(v.getAnnotation.getAttributes.get("ONE_INT") === "42")
+    assert(adamVc.genotypes.size === 1)
+    val adamGt = adamVc.genotypes.head
+    assert(adamGt.getVariantCallingAnnotations.getAttributes.containsKey("ONE_INT"))
+    assert(adamGt.getVariantCallingAnnotations.getAttributes.get("ONE_INT") === "42")
   }
 
   test("VCF FORMAT attribute Number=4 Type=Integer htsjdk->adam") {
-    val vc = htsjdkSNVBuilder
-      // in htsjdk INFO multivalue attributes are List<String>, even for Type=Integer and Type=Float
-      .attribute("FOUR_INTS", ImmutableList.of("5", "10", "15", "20"))
+    val vcb = htsjdkSNVBuilder
+    val gt = GenotypeBuilder.create("NA12878",
+      vcb.getAlleles(),
+      Map[String, java.lang.Object](("FOUR_INTS", "5,10,15,20")))
+    val vc = vcb.genotypes(gt)
       .make
 
     val fourIntsHeader = new VCFFormatHeaderLine("FOUR_INTS",
@@ -2318,15 +2324,18 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       .convert(vc, lenient)
       .head
 
-    val v = adamVc.variant.variant
-    assert(v.getAnnotation.getAttributes.containsKey("FOUR_INTS"))
-    // in bdg-formats INFO multivalue attributes are comma-separated values in a String
-    assert(v.getAnnotation.getAttributes.get("FOUR_INTS") === "5,10,15,20")
+    assert(adamVc.genotypes.size === 1)
+    val adamGt = adamVc.genotypes.head
+    assert(adamGt.getVariantCallingAnnotations.getAttributes.containsKey("FOUR_INTS"))
+    assert(adamGt.getVariantCallingAnnotations.getAttributes.get("FOUR_INTS") === "5,10,15,20")
   }
 
   test("VCF FORMAT attribute Number=4 Type=Float htsjdk->adam") {
-    val vc = htsjdkSNVBuilder
-      .attribute("FOUR_FLOATS", ImmutableList.of("5.0", "10.1", "15.2", "20.3"))
+    val vcb = htsjdkSNVBuilder
+    val gt = GenotypeBuilder.create("NA12878",
+      vcb.getAlleles(),
+      Map[String, java.lang.Object](("FOUR_FLOATS", "5.0,10.1,15.2,20.3")))
+    val vc = vcb.genotypes(gt)
       .make
 
     val fourFloatsHeader = new VCFFormatHeaderLine("FOUR_FLOATS",
@@ -2338,14 +2347,18 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       .convert(vc, lenient)
       .head
 
-    val v = adamVc.variant.variant
-    assert(v.getAnnotation.getAttributes.containsKey("FOUR_FLOATS"))
-    assert(v.getAnnotation.getAttributes.get("FOUR_FLOATS") === "5.0,10.1,15.2,20.3")
+    assert(adamVc.genotypes.size === 1)
+    val adamGt = adamVc.genotypes.head
+    assert(adamGt.getVariantCallingAnnotations.getAttributes.containsKey("FOUR_FLOATS"))
+    assert(adamGt.getVariantCallingAnnotations.getAttributes.get("FOUR_FLOATS") === "5.0,10.1,15.2,20.3")
   }
 
   test("VCF FORMAT attribute Number=A Type=Integer htsjdk->adam") {
-    val vc = htsjdkSNVBuilder
-      .attribute("A_INT", ImmutableList.of("5", "10", "15", "20"))
+    val vcb = htsjdkSNVBuilder
+    val gt = GenotypeBuilder.create("NA12878",
+      vcb.getAlleles(),
+      Map[String, java.lang.Object](("A_INT", "5,10,15,20")))
+    val vc = vcb.genotypes(gt)
       .make
 
     val aIntHeader = new VCFFormatHeaderLine("A_INT",
@@ -2357,14 +2370,18 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       .convert(vc, lenient)
       .head
 
-    val v = adamVc.variant.variant
-    assert(v.getAnnotation.getAttributes.containsKey("A_INT"))
-    assert(v.getAnnotation.getAttributes.get("A_INT") === "5")
+    assert(adamVc.genotypes.size === 1)
+    val adamGt = adamVc.genotypes.head
+    assert(adamGt.getVariantCallingAnnotations.getAttributes.containsKey("A_INT"))
+    assert(adamGt.getVariantCallingAnnotations.getAttributes.get("A_INT") === "10")
   }
 
   test("VCF FORMAT attribute Number=R Type=Integer htsjdk->adam") {
-    val vc = htsjdkSNVBuilder
-      .attribute("R_INT", ImmutableList.of("5", "10", "15", "20"))
+    val vcb = htsjdkSNVBuilder
+    val gt = GenotypeBuilder.create("NA12878",
+      vcb.getAlleles(),
+      Map[String, java.lang.Object](("R_INT", "5,10,15,20")))
+    val vc = vcb.genotypes(gt)
       .make
 
     val rIntHeader = new VCFFormatHeaderLine("R_INT",
@@ -2376,14 +2393,18 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       .convert(vc, lenient)
       .head
 
-    val v = adamVc.variant.variant
-    assert(v.getAnnotation.getAttributes.containsKey("R_INT"))
-    assert(v.getAnnotation.getAttributes.get("R_INT") === "5,10")
+    assert(adamVc.genotypes.size === 1)
+    val adamGt = adamVc.genotypes.head
+    assert(adamGt.getVariantCallingAnnotations.getAttributes.containsKey("R_INT"))
+    assert(adamGt.getVariantCallingAnnotations.getAttributes.get("R_INT") === "5,10")
   }
 
   test("VCF FORMAT attribute Number=R Type=String htsjdk->adam") {
-    val vc = htsjdkSNVBuilder
-      .attribute("R_STRING", ImmutableList.of("foo", "bar", "baz"))
+    val vcb = htsjdkSNVBuilder
+    val gt = GenotypeBuilder.create("NA12878",
+      vcb.getAlleles(),
+      Map[String, java.lang.Object](("R_STRING", "foo,bar,baz")))
+    val vc = vcb.genotypes(gt)
       .make
 
     val rStringHeader = new VCFFormatHeaderLine("R_STRING",
@@ -2395,14 +2416,18 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       .convert(vc, lenient)
       .head
 
-    val v = adamVc.variant.variant
-    assert(v.getAnnotation.getAttributes.containsKey("R_STRING"))
-    assert(v.getAnnotation.getAttributes.get("R_STRING") === "foo,bar")
+    assert(adamVc.genotypes.size === 1)
+    val adamGt = adamVc.genotypes.head
+    assert(adamGt.getVariantCallingAnnotations.getAttributes.containsKey("R_STRING"))
+    assert(adamGt.getVariantCallingAnnotations.getAttributes.get("R_STRING") === "foo,bar")
   }
 
   test("VCF FORMAT attribute Number=G Type=String htsjdk->adam") {
-    val vc = htsjdkSNVBuilder
-      .attribute("G_STRING", ImmutableList.of("foo", "bar", "baz"))
+    val vcb = htsjdkSNVBuilder
+    val gt = GenotypeBuilder.create("NA12878",
+      vcb.getAlleles(),
+      Map[String, java.lang.Object](("G_STRING", "foo,bar,baz")))
+    val vc = vcb.genotypes(gt)
       .make
 
     val gStringHeader = new VCFFormatHeaderLine("G_STRING",
@@ -2412,5 +2437,11 @@ class VariantContextConverterSuite extends ADAMFunSuite {
 
     val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ gStringHeader)
       .convert(vc, lenient)
+      .head
+
+    assert(adamVc.genotypes.size === 1)
+    val adamGt = adamVc.genotypes.head
+    assert(adamGt.getVariantCallingAnnotations.getAttributes.containsKey("G_STRING"))
+    assert(adamGt.getVariantCallingAnnotations.getAttributes.get("G_STRING") === "foo,bar,baz")
   }
 }
