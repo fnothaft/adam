@@ -65,8 +65,8 @@ class GenotypeRDDSuite extends ADAMFunSuite {
     assert(jRdd.rdd.partitions.length === 1)
     assert(jRdd0.rdd.partitions.length === 5)
 
-    assert(jRdd.rdd.count === 3L)
-    assert(jRdd0.rdd.count === 3L)
+    assert(jRdd.rdd.count === 9L)
+    assert(jRdd0.rdd.count === 9L)
   }
 
   sparkTest("use right outer shuffle join to pull down genotypes mapped to targets") {

@@ -1937,12 +1937,12 @@ class VariantContextConverterSuite extends ADAMFunSuite {
 
   test("VCF INFO attribute Number=G Type=String adam->htsjdk not supported") {
     val va = VariantAnnotation.newBuilder
-      .setAttributes(ImmutableMap.of("G_STRING", "foo,bar"))
+      .setAttributes(ImmutableMap.of("STRING_G", "foo,bar"))
       .build
 
     val adamVc = ADAMVariantContext(annV(va), None, Some(va))
 
-    val gStringHeader = new VCFInfoHeaderLine("G_STRING",
+    val gStringHeader = new VCFInfoHeaderLine("STRING_G",
       VCFHeaderLineCount.G,
       VCFHeaderLineType.String,
       "Number=G Type=String")
@@ -2090,10 +2090,10 @@ class VariantContextConverterSuite extends ADAMFunSuite {
 
   test("VCF INFO attribute Number=G Type=String htsjdk->adam not supported") {
     val vc = htsjdkSNVBuilder
-      .attribute("G_STRING", ImmutableList.of("foo", "bar", "baz"))
+      .attribute("STRING_G", ImmutableList.of("foo", "bar", "baz"))
       .make
 
-    val gStringHeader = new VCFInfoHeaderLine("G_STRING",
+    val gStringHeader = new VCFInfoHeaderLine("STRING_G",
       VCFHeaderLineCount.G,
       VCFHeaderLineType.String,
       "Number=G Type=String")
@@ -2426,11 +2426,11 @@ class VariantContextConverterSuite extends ADAMFunSuite {
     val vcb = htsjdkSNVBuilder
     val gt = GenotypeBuilder.create("NA12878",
       vcb.getAlleles(),
-      Map[String, java.lang.Object](("G_STRING", "foo,bar,baz")))
+      Map[String, java.lang.Object](("STRING_G", "foo,bar,baz")))
     val vc = vcb.genotypes(gt)
       .make
 
-    val gStringHeader = new VCFFormatHeaderLine("G_STRING",
+    val gStringHeader = new VCFFormatHeaderLine("STRING_G",
       VCFHeaderLineCount.G,
       VCFHeaderLineType.String,
       "Number=G Type=String")
@@ -2441,7 +2441,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
 
     assert(adamVc.genotypes.size === 1)
     val adamGt = adamVc.genotypes.head
-    assert(adamGt.getVariantCallingAnnotations.getAttributes.containsKey("G_STRING"))
-    assert(adamGt.getVariantCallingAnnotations.getAttributes.get("G_STRING") === "foo,bar,baz")
+    assert(adamGt.getVariantCallingAnnotations.getAttributes.containsKey("STRING_G"))
+    assert(adamGt.getVariantCallingAnnotations.getAttributes.get("STRING_G") === "foo,bar,baz")
   }
 }

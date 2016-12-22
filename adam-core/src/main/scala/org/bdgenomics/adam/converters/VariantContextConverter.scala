@@ -1167,15 +1167,8 @@ private[adam] class VariantContextConverter(
   private def variantContextFieldExtractor(vc: HtsjdkVariantContext,
                                            id: String,
                                            toFn: (java.lang.Object => Any)): Option[(String, Any)] = {
-    Option({
-      val v = vc.getAttribute(id)
-      println("key " + id + " -> " + v)
-      v
-    }).map(v => {
-      val v2 = toFn(v)
-      println("val " + v + " -> " + v2)
-      v2
-    })
+    Option(vc.getAttribute(id))
+      .map(toFn)
       .map(attr => (id, attr))
   }
 
@@ -1224,9 +1217,24 @@ private[adam] class VariantContextConverter(
       }
     } else {
       def objToArray(obj: java.lang.Object): Array[String] = {
-        val l: java.util.List[String] = obj.asInstanceOf[java.util.List[String]]
-        val sL: Buffer[String] = l
-        sL.toArray
+        try {
+          val l: java.util.List[String] = obj.asInstanceOf[java.util.List[String]]
+          // java.util.List has a conflicing toString. Get implicit to buffer first
+          val sL: Buffer[String] = l
+          sL.toArray
+        } catch {
+          case cce: ClassCastException => {
+            // is this a string? if so, split
+            if (obj.getClass.isAssignableFrom(classOf[String])) {
+              obj.asInstanceOf[String].split(",")
+            } else {
+              throw cce
+            }
+          }
+          case t: Throwable => {
+            throw t
+          }
+        }
       }
 
       val toFn: (java.lang.Object => Array[String]) = headerLine.getType match {
@@ -1412,12 +1420,8 @@ private[adam] class VariantContextConverter(
       val indices = Array.empty[Int]
 
       // pull out the attribute map and process
-      println("have " + attributeFns.size + " attribute functions")
-      println("have attributes " + vc.getAttributes.map(_._1).mkString)
       val attrMap = attributeFns.flatMap(fn => fn(vc, alleleIdx, indices))
         .toMap
-
-      println("Map(" + attrMap.mkString(",") + ")")
 
       // if the map has kv pairs, attach it
       val convertedAnnotationWithAttrs = if (attrMap.isEmpty) {
@@ -1442,7 +1446,6 @@ private[adam] class VariantContextConverter(
 
           // get the id of this line
           val key = fl.getID
-          println("Extractor for " + key)
 
           // filter out the lines that we already support
           if (SupportedHeaderLines.formatHeaderLines
@@ -1604,9 +1607,7 @@ private[adam] class VariantContextConverter(
         case VCFHeaderLineType.Integer => {
           (m: Map[String, String]) =>
             {
-              val ov = m.get(id)
-              println("key: " + id + " -> " + ov)
-              ov.map(toIntAndKey)
+              m.get(id).map(toIntAndKey)
             }
         }
         case VCFHeaderLineType.String => {
@@ -1804,7 +1805,6 @@ private[adam] class VariantContextConverter(
 
             None
           } else {
-            println("Making extractor for " + key)
             Some(extractorFromInfoLine(il))
           }
         }
@@ -1832,14 +1832,10 @@ private[adam] class VariantContextConverter(
           // get the attribute map
           val attributes: Map[String, String] = va.getAttributes.toMap
 
-          println("Attributes: " + attributes.mkString)
-          println("have " + attributeFns.size + " attribute functions")
-
           // apply the attribute converters and return
           attributeFns.foldLeft(convertedWithAnnotations)((vcb: VariantContextBuilder, fn) => {
             val optAttrPair = fn(attributes)
             optAttrPair.fold(vcb)(pair => {
-              println("adding attribute " + pair)
               vcb.attribute(pair._1, pair._2)
             })
           })
@@ -1895,16 +1891,12 @@ private[adam] class VariantContextConverter(
 
           // get the attribute map
           val attributes: Map[String, String] = vca.getAttributes.toMap
-          println("attributes: " + attributes.mkString(","))
-          println("have " + attributeFns.size + " attribute functions")
 
           // apply the attribute converters and return
           attributeFns.foldLeft(convertedAnnotations)((gb: GenotypeBuilder, fn) => {
             val optAttrPair = fn(attributes)
 
-            println(optAttrPair)
             optAttrPair.fold(gb)(pair => {
-              println("setting " + pair._1 + " -> " + pair._2)
               gb.attribute(pair._1, pair._2)
             })
           })
