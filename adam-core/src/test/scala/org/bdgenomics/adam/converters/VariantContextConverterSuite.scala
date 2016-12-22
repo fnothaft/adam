@@ -2114,12 +2114,12 @@ class VariantContextConverterSuite extends ADAMFunSuite {
 
     val adamVc = ADAMVariantContext(v, Some(g), None)
 
-    val flagHeader = new VCFFormatHeaderLine("FLAG",
-      0,
-      VCFHeaderLineType.Flag,
-      "Flag")
-
     intercept[IllegalArgumentException] {
+      val flagHeader = new VCFFormatHeaderLine("FLAG",
+        0,
+        VCFHeaderLineType.Flag,
+        "Flag")
+
       val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ flagHeader)
         .convert(adamVc, lenient).orNull
     }
@@ -2129,8 +2129,12 @@ class VariantContextConverterSuite extends ADAMFunSuite {
     val vca = VariantCallingAnnotations.newBuilder
       .setAttributes(ImmutableMap.of("ONE_INT", "42"))
       .build
+    val g = Genotype.newBuilder
+      .setSampleId("sample")
+      .setVariantCallingAnnotations(vca)
+      .build
 
-    val adamVc = ADAMVariantContext(v, None, None)
+    val adamVc = ADAMVariantContext(v, Some(g), None)
 
     val oneIntHeader = new VCFFormatHeaderLine("ONE_INT",
       1,
@@ -2140,16 +2144,22 @@ class VariantContextConverterSuite extends ADAMFunSuite {
     val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ oneIntHeader)
       .convert(adamVc, lenient).orNull
 
-    assert(vc.hasAttribute("ONE_INT"))
-    assert(vc.getAttribute("ONE_INT", -1) === 42)
+    assert(vc.hasGenotypes)
+    val gt = vc.getGenotype("sample")
+    assert(gt.hasExtendedAttribute("ONE_INT"))
+    assert(gt.getExtendedAttribute("ONE_INT") === 42)
   }
 
   test("VCF FORMAT attribute Number=4 Type=Integer adam->htsjdk") {
     val vca = VariantCallingAnnotations.newBuilder
       .setAttributes(ImmutableMap.of("FOUR_INTS", "5,10,15,20"))
       .build
+    val g = Genotype.newBuilder
+      .setSampleId("sample")
+      .setVariantCallingAnnotations(vca)
+      .build
 
-    val adamVc = ADAMVariantContext(v, None, None)
+    val adamVc = ADAMVariantContext(v, Some(g), None)
 
     val fourIntsHeader = new VCFFormatHeaderLine("FOUR_INTS",
       4,
@@ -2159,20 +2169,27 @@ class VariantContextConverterSuite extends ADAMFunSuite {
     val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ fourIntsHeader)
       .convert(adamVc, lenient).orNull
 
-    assert(vc.hasAttribute("FOUR_INTS"))
-    assert(vc.getAttributeAsList("FOUR_INTS").size === 4)
-    assert(vc.getAttributeAsList("FOUR_INTS").get(0) === 5)
-    assert(vc.getAttributeAsList("FOUR_INTS").get(1) === 10)
-    assert(vc.getAttributeAsList("FOUR_INTS").get(2) === 15)
-    assert(vc.getAttributeAsList("FOUR_INTS").get(3) === 20)
+    assert(vc.hasGenotypes)
+    val gt = vc.getGenotype("sample")
+    assert(gt.hasExtendedAttribute("FOUR_INTS"))
+    val fourInts = gt.getExtendedAttribute("FOUR_INTS").asInstanceOf[Array[java.lang.Integer]]
+    assert(fourInts.size === 4)
+    assert(fourInts(0) === 5)
+    assert(fourInts(1) === 10)
+    assert(fourInts(2) === 15)
+    assert(fourInts(3) === 20)
   }
 
   test("VCF FORMAT attribute Number=A Type=Integer adam->htsjdk") {
     val vca = VariantCallingAnnotations.newBuilder
       .setAttributes(ImmutableMap.of("A_INT", "42"))
       .build
+    val g = Genotype.newBuilder
+      .setSampleId("sample")
+      .setVariantCallingAnnotations(vca)
+      .build
 
-    val adamVc = ADAMVariantContext(v, None, None)
+    val adamVc = ADAMVariantContext(v, Some(g), None)
 
     val aIntHeader = new VCFFormatHeaderLine("A_INT",
       VCFHeaderLineCount.A,
@@ -2182,16 +2199,24 @@ class VariantContextConverterSuite extends ADAMFunSuite {
     val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ aIntHeader)
       .convert(adamVc, lenient).orNull
 
-    assert(vc.hasAttribute("A_INT"))
-    assert(vc.getAttribute("A_INT", -1) === 42)
+    assert(vc.hasGenotypes)
+    val gt = vc.getGenotype("sample")
+    assert(gt.hasExtendedAttribute("A_INT"))
+    val aInt = gt.getExtendedAttribute("A_INT").asInstanceOf[Array[java.lang.Integer]]
+    assert(aInt.size === 1)
+    assert(aInt(0) === 42)
   }
 
   test("VCF FORMAT attribute Number=R Type=Integer adam->htsjdk") {
     val vca = VariantCallingAnnotations.newBuilder
       .setAttributes(ImmutableMap.of("R_INT", "5,10"))
       .build
+    val g = Genotype.newBuilder
+      .setSampleId("sample")
+      .setVariantCallingAnnotations(vca)
+      .build
 
-    val adamVc = ADAMVariantContext(v, None, None)
+    val adamVc = ADAMVariantContext(v, Some(g), None)
 
     val rIntHeader = new VCFFormatHeaderLine("R_INT",
       VCFHeaderLineCount.R,
@@ -2201,18 +2226,25 @@ class VariantContextConverterSuite extends ADAMFunSuite {
     val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ rIntHeader)
       .convert(adamVc, lenient).orNull
 
-    assert(vc.hasAttribute("R_INT"))
-    assert(vc.getAttributeAsList("R_INT").size === 2)
-    assert(vc.getAttributeAsList("R_INT").get(0) === 5)
-    assert(vc.getAttributeAsList("R_INT").get(1) === 10)
+    assert(vc.hasGenotypes)
+    val gt = vc.getGenotype("sample")
+    assert(gt.hasExtendedAttribute("R_INT"))
+    val rInt = gt.getExtendedAttribute("R_INT").asInstanceOf[Array[java.lang.Integer]]
+    assert(rInt.size === 2)
+    assert(rInt(0) === 5)
+    assert(rInt(1) === 10)
   }
 
   test("VCF FORMAT attribute Number=R Type=String adam->htsjdk") {
     val vca = VariantCallingAnnotations.newBuilder
       .setAttributes(ImmutableMap.of("R_STRING", "foo,bar"))
       .build
+    val g = Genotype.newBuilder
+      .setSampleId("sample")
+      .setVariantCallingAnnotations(vca)
+      .build
 
-    val adamVc = ADAMVariantContext(v, None, None)
+    val adamVc = ADAMVariantContext(v, Some(g), None)
 
     val rStringHeader = new VCFFormatHeaderLine("R_STRING",
       VCFHeaderLineCount.R,
@@ -2222,47 +2254,34 @@ class VariantContextConverterSuite extends ADAMFunSuite {
     val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ rStringHeader)
       .convert(adamVc, lenient).orNull
 
-    assert(vc.hasAttribute("R_STRING"))
-    assert(vc.getAttributeAsList("R_STRING").size === 2)
-    assert(vc.getAttributeAsList("R_STRING").get(0) === "foo")
-    assert(vc.getAttributeAsList("R_STRING").get(1) === "bar")
+    assert(vc.hasGenotypes)
+    val gt = vc.getGenotype("sample")
+    assert(gt.hasExtendedAttribute("R_STRING"))
+    val rString = gt.getExtendedAttribute("R_STRING").asInstanceOf[Array[String]]
+    assert(rString.size === 2)
+    assert(rString(0) === "foo")
+    assert(rString(1) === "bar")
   }
 
-  test("VCF FORMAT attribute Number=G Type=String adam->htsjdk not supported") {
-    val vca = VariantCallingAnnotations.newBuilder
-      .setAttributes(ImmutableMap.of("G_STRING", "foo,bar"))
-      .build
-
-    val adamVc = ADAMVariantContext(v, None, None)
-
-    val gStringHeader = new VCFFormatHeaderLine("G_STRING",
-      VCFHeaderLineCount.G,
-      VCFHeaderLineType.String,
-      "Number=G Type=String")
-
-    intercept[IllegalArgumentException] {
-      val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ gStringHeader)
-        .convert(adamVc, lenient).orNull
-    }
-  }
-
-  test("VCF FORMAT attribute Number=0 Type=Flag htsjdk->adam") {
+  test("VCF FORMAT attribute Number=0 Type=Flag htsjdk->adam is not supported") {
     val vc = htsjdkSNVBuilder
       .attribute("FLAG", true)
       .make
 
-    val flagHeader = new VCFFormatHeaderLine("FLAG",
-      0,
-      VCFHeaderLineType.Flag,
-      "Flag")
+    intercept[IllegalArgumentException] {
+      val flagHeader = new VCFFormatHeaderLine("FLAG",
+        0,
+        VCFHeaderLineType.Flag,
+        "Flag")
 
-    val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ flagHeader)
-      .convert(vc, lenient)
-      .head
+      val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ flagHeader)
+        .convert(vc, lenient)
+        .head
 
-    val v = adamVc.variant.variant
-    assert(v.getAnnotation.getAttributes.containsKey("FLAG"))
-    assert(v.getAnnotation.getAttributes.get("FLAG") === "true")
+      val v = adamVc.variant.variant
+      assert(v.getAnnotation.getAttributes.containsKey("FLAG"))
+      assert(v.getAnnotation.getAttributes.get("FLAG") === "true")
+    }
   }
 
   test("VCF FORMAT attribute Number=1 Type=Integer htsjdk->adam") {

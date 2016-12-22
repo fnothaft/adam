@@ -1332,6 +1332,13 @@ private[adam] class VariantContextConverter(
                 .map(kv => (kv._1, kv._2.toString))
             }
         }
+        case (false, VCFHeaderLineCount.R) => {
+          (g: HtsjdkGenotype, idx: Int, indices: Array[Int]) =>
+            {
+              arrayFieldExtractor(g, id, toFn, List(0, idx + 1))
+                .map(kv => (kv._1, kv._2.mkString(",")))
+            }
+        }
         case (false, VCFHeaderLineCount.G) => {
           (g: HtsjdkGenotype, idx: Int, indices: Array[Int]) =>
             {
@@ -1358,8 +1365,6 @@ private[adam] class VariantContextConverter(
         case il: VCFInfoHeaderLine => {
           // get the id of this line
           val key = il.getID
-
-          println("Extractor for " + key)
 
           // filter out the lines that we already support
           if (SupportedHeaderLines.infoHeaderLines
@@ -1437,6 +1442,7 @@ private[adam] class VariantContextConverter(
 
           // get the id of this line
           val key = fl.getID
+          println("Extractor for " + key)
 
           // filter out the lines that we already support
           if (SupportedHeaderLines.formatHeaderLines
@@ -1889,12 +1895,18 @@ private[adam] class VariantContextConverter(
 
           // get the attribute map
           val attributes: Map[String, String] = vca.getAttributes.toMap
+          println("attributes: " + attributes.mkString(","))
+          println("have " + attributeFns.size + " attribute functions")
 
           // apply the attribute converters and return
           attributeFns.foldLeft(convertedAnnotations)((gb: GenotypeBuilder, fn) => {
             val optAttrPair = fn(attributes)
 
-            optAttrPair.fold(gb)(pair => gb.attribute(pair._1, pair._2))
+            println(optAttrPair)
+            optAttrPair.fold(gb)(pair => {
+              println("setting " + pair._1 + " -> " + pair._2)
+              gb.attribute(pair._1, pair._2)
+            })
           })
         })
 
