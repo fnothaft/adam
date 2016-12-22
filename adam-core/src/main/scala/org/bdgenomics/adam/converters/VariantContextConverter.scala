@@ -1167,8 +1167,15 @@ private[adam] class VariantContextConverter(
   private def variantContextFieldExtractor(vc: HtsjdkVariantContext,
                                            id: String,
                                            toFn: (java.lang.Object => Any)): Option[(String, Any)] = {
-    Option(vc.getAttribute(id))
-      .map(toFn)
+    Option({
+      val v = vc.getAttribute(id)
+      println("key " + id + " -> " + v)
+      v
+    }).map(v => {
+      val v2 = toFn(v)
+      println("val " + v + " -> " + v2)
+      v2
+    })
       .map(attr => (id, attr))
   }
 
@@ -1348,6 +1355,8 @@ private[adam] class VariantContextConverter(
           // get the id of this line
           val key = il.getID
 
+          println("Extractor for " + key)
+
           // filter out the lines that we already support
           if (SupportedHeaderLines.infoHeaderLines
             .find(_.getID == key)
@@ -1394,8 +1403,12 @@ private[adam] class VariantContextConverter(
       val indices = Array.empty[Int]
 
       // pull out the attribute map and process
+      println("have " + attributeFns.size + " attribute functions")
+      println("have attributes " + vc.getAttributes.map(_._1).mkString)
       val attrMap = attributeFns.flatMap(fn => fn(vc, alleleIdx, indices))
         .toMap
+
+      println("Map(" + attrMap.mkString(",") + ")")
 
       // if the map has kv pairs, attach it
       val convertedAnnotationWithAttrs = if (attrMap.isEmpty) {
@@ -1581,7 +1594,9 @@ private[adam] class VariantContextConverter(
         case VCFHeaderLineType.Integer => {
           (m: Map[String, String]) =>
             {
-              m.get(id).map(toIntAndKey)
+              val ov = m.get(id)
+              println("key: " + id + " -> " + ov)
+              ov.map(toIntAndKey)
             }
         }
         case VCFHeaderLineType.String => {
@@ -1775,10 +1790,11 @@ private[adam] class VariantContextConverter(
           // filter out the lines that we already support
           if (SupportedHeaderLines.infoHeaderLines
             .find(_.getID == key)
-            .isEmpty) {
+            .isDefined) {
 
             None
           } else {
+            println("Making extractor for " + key)
             Some(extractorFromInfoLine(il))
           }
         }
@@ -1806,10 +1822,16 @@ private[adam] class VariantContextConverter(
           // get the attribute map
           val attributes: Map[String, String] = va.getAttributes.toMap
 
+          println("Attributes: " + attributes.mkString)
+          println("have " + attributeFns.size + " attribute functions")
+
           // apply the attribute converters and return
           attributeFns.foldLeft(convertedWithAnnotations)((vcb: VariantContextBuilder, fn) => {
             val optAttrPair = fn(attributes)
-            optAttrPair.fold(vcb)(pair => vcb.attribute(pair._1, pair._2))
+            optAttrPair.fold(vcb)(pair => {
+              println("adding attribute " + pair)
+              vcb.attribute(pair._1, pair._2)
+            })
           })
         })
 
@@ -1833,7 +1855,7 @@ private[adam] class VariantContextConverter(
           // filter out the lines that we already support
           if (SupportedHeaderLines.formatHeaderLines
             .find(_.getID == key)
-            .isEmpty) {
+            .isDefined) {
 
             None
           } else {
