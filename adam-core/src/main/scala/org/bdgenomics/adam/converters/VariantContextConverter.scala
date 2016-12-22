@@ -1223,22 +1223,19 @@ private[adam] class VariantContextConverter(
         }
       }
     } else {
+      def objToArray(obj: java.lang.Object): Array[String] = {
+        val l: java.util.List[String] = obj.asInstanceOf[java.util.List[String]]
+        val sL: Buffer[String] = l
+        sL.toArray
+      }
+
       val toFn: (java.lang.Object => Array[String]) = headerLine.getType match {
         case VCFHeaderLineType.Flag => {
           throw new IllegalArgumentException("Multivalued flags are not supported for INFO lines: %s".format(
             headerLine))
         }
-        case VCFHeaderLineType.Character => {
-          toCharArray(_).map(c => c.toString)
-        }
-        case VCFHeaderLineType.Float => {
-          toFloatArray(_).map(f => f.toString)
-        }
-        case VCFHeaderLineType.Integer => {
-          toIntArray(_).map(i => i.toString)
-        }
-        case VCFHeaderLineType.String => {
-          toStringArray(_)
+        case _ => {
+          objToArray(_)
         }
       }
 
@@ -1248,6 +1245,13 @@ private[adam] class VariantContextConverter(
             {
               fromArrayExtractor(vc, id, toFn, idx)
                 .map(kv => (kv._1, kv._2.toString))
+            }
+        }
+        case (false, VCFHeaderLineCount.R) => {
+          (vc: HtsjdkVariantContext, idx: Int, indices: Array[Int]) =>
+            {
+              arrayFieldExtractor(vc, id, toFn, List(0, idx + 1))
+                .map(kv => (kv._1, kv._2.mkString(",")))
             }
         }
         case (false, VCFHeaderLineCount.G) => {
