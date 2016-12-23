@@ -55,6 +55,8 @@ class VariantContextConverterSuite extends ADAMFunSuite {
   val lenient = ValidationStringency.LENIENT
   val converter = new VariantContextConverter(SupportedHeaderLines.allHeaderLines,
     lenient)
+  val strictConverter = new VariantContextConverter(SupportedHeaderLines.allHeaderLines,
+    ValidationStringency.STRICT)
 
   def htsjdkSNVBuilder: VariantContextBuilder = new VariantContextBuilder()
     .alleles(List(Allele.create("A", true), Allele.create("T")))
@@ -265,6 +267,44 @@ class VariantContextConverterSuite extends ADAMFunSuite {
     assert(sbComponents(1) === 2)
     assert(sbComponents(2) === 4)
     assert(sbComponents(3) === 6)
+  }
+
+  test("Convert ADAM SNV w/ genotypes but bad SB to htsjdk with strict validation") {
+    val variant = adamSNVBuilder().build
+    val genotype = Genotype.newBuilder
+      .setVariant(variant)
+      .setSampleId("NA12878")
+      .setStrandBiasComponents(List(0, 2).map(i => i: java.lang.Integer))
+      .setAlleles(List(GenotypeAllele.REF, GenotypeAllele.ALT))
+      .setVariantCallingAnnotations(VariantCallingAnnotations.newBuilder()
+        .setFisherStrandBiasPValue(3.0f)
+        .setRmsMapQ(0.0f)
+        .setMapq0Reads(5)
+        .build)
+      .build
+
+    intercept[IllegalArgumentException] {
+      strictConverter.convert(ADAMVariantContext(variant, Seq(genotype)))
+    }
+  }
+
+  test("Convert ADAM SNV w/ genotypes but bad SB to htsjdk with lenient validation") {
+    val variant = adamSNVBuilder().build
+    val genotype = Genotype.newBuilder
+      .setVariant(variant)
+      .setSampleId("NA12878")
+      .setStrandBiasComponents(List(0, 2).map(i => i: java.lang.Integer))
+      .setAlleles(List(GenotypeAllele.REF, GenotypeAllele.ALT))
+      .setVariantCallingAnnotations(VariantCallingAnnotations.newBuilder()
+        .setFisherStrandBiasPValue(3.0f)
+        .setRmsMapQ(0.0f)
+        .setMapq0Reads(5)
+        .build)
+      .build
+
+    val optHtsjdkVC = converter.convert(ADAMVariantContext(variant, Seq(genotype)))
+
+    assert(optHtsjdkVC.isEmpty)
   }
 
   test("Convert htsjdk multi-allelic sites-only SNVs to ADAM") {
