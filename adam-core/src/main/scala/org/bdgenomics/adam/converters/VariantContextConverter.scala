@@ -453,10 +453,8 @@ private[adam] class VariantContextConverter(
     index: Int): VariantAnnotation.Builder = {
 
     val ad = vc.getAttributeAsList("AD")
-    if (ad.size > 0) {
-      vab.setReferenceReadDepth(toInt(ad.get(0)))
-    }
     if (ad.size > (index + 1)) {
+      vab.setReferenceReadDepth(toInt(ad.get(0)))
       vab.setReadDepth(toInt(ad.get(index + 1)))
     }
     vab
@@ -469,10 +467,8 @@ private[adam] class VariantContextConverter(
     index: Int): VariantAnnotation.Builder = {
 
     val adf = vc.getAttributeAsList("ADF")
-    if (adf.size > 0) {
-      vab.setReferenceForwardReadDepth(toInt(adf.get(0)))
-    }
     if (adf.size > (index + 1)) {
+      vab.setReferenceForwardReadDepth(toInt(adf.get(0)))
       vab.setForwardReadDepth(toInt(adf.get(index + 1)))
     }
     vab
@@ -485,10 +481,8 @@ private[adam] class VariantContextConverter(
     index: Int): VariantAnnotation.Builder = {
 
     val adr = vc.getAttributeAsList("ADR")
-    if (adr.size > 0) {
-      vab.setReferenceReverseReadDepth(toInt(adr.get(0)))
-    }
     if (adr.size > (index + 1)) {
+      vab.setReferenceReverseReadDepth(toInt(adr.get(0)))
       vab.setReverseReadDepth(toInt(adr.get(index + 1)))
     }
     vab
