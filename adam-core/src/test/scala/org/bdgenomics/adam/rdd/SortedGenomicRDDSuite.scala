@@ -26,7 +26,7 @@ class SortedGenomicRDDSuite extends SparkFunSuite {
   sparkTest("testing partitioner") {
     time {
       //val x = sc.loadBam("/data/recompute/alignments/NA12878.bam.aln.bam")
-      val x = sc.loadBam("/Users/DevinPetersohn/software_builds/adam/adam-core/src/test/resources/bqsr1.sam")
+      val x = sc.loadBam(getClass.getResource("/bqsr1.sam").getFile)
       val y = x.repartitionAndSortByGenomicCoordinate(16)
       assert(isSorted(y.SortedTrait.partitionMap))
       val z = x.repartitionAndSortByGenomicCoordinate(16)
@@ -61,7 +61,7 @@ class SortedGenomicRDDSuite extends SparkFunSuite {
       val i = z.leftOuterShuffleRegionJoin(x).rdd.collect
       assert(h.length == i.length)
 
-      val t = sc.loadParquetAlignments("/Users/DevinPetersohn/software_builds/adam/adam-core/src/test/resources/sortedAlignments.parquet.txt")
+      val t = sc.loadParquetAlignments(getClass.getResource("/sortedAlignments.parquet.txt").getFile)
       assert(t.SortedTrait.isSorted)
 
       val j = t.shuffleRegionJoin(x, Some(1))
