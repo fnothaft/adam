@@ -180,62 +180,75 @@ private[adam] class VariantContextConverter(
     vc: HtsjdkVariantContext,
     stringency: ValidationStringency): Seq[ADAMVariantContext] = {
 
-    vc.getAlternateAlleles.toList match {
-      case List(NON_REF_ALLELE) => {
-        val variant = variantFormatFn(vc, None, 0)
-        val genotypes = vc.getGenotypes.map(g => {
-          genotypeFormatFn(g, variant, NON_REF_ALLELE, 0, Some(1), false)
-        })
-        return Seq(ADAMVariantContext(variant, genotypes))
-      }
-      case List(allele) => {
-        require(
-          allele.isNonReference,
-          "Assertion failed when converting: " + vc.toString
-        )
-        val variant = variantFormatFn(vc, Some(allele.getDisplayString), 0)
-        val genotypes = vc.getGenotypes.map(g => {
-          genotypeFormatFn(g, variant, allele, 1, None, false)
-        })
-        return Seq(ADAMVariantContext(variant, genotypes))
-      }
-      case List(allele, NON_REF_ALLELE) => {
-        require(
-          allele.isNonReference,
-          "Assertion failed when converting: " + vc.toString
-        )
-        val variant = variantFormatFn(vc, Some(allele.getDisplayString), 0)
-        val genotypes = vc.getGenotypes.map(g => {
-          genotypeFormatFn(g, variant, allele, 1, Some(2), false)
-        })
-        return Seq(ADAMVariantContext(variant, genotypes))
-      }
-      case _ => {
-        val vcb = new VariantContextBuilder(vc)
-
-        // is the last allele the non-ref allele?
-        val alleles = vc.getAlternateAlleles.toSeq
-        val referenceModelIndex = if (alleles.nonEmpty && alleles.last == NON_REF_ALLELE) {
-          Some(alleles.length - 1)
-        } else {
-          None
-        }
-        val altAlleles = if (referenceModelIndex.isDefined) {
-          alleles.dropRight(1)
-        } else {
-          alleles
-        }
-
-        return altAlleles.map(allele => {
-          val idx = vc.getAlleleIndex(allele)
-          require(idx >= 1, "Unexpected index for alternate allele: " + vc.toString)
-
-          val variant = variantFormatFn(vc, Some(allele.getDisplayString), idx)
+    try {
+      vc.getAlternateAlleles.toList match {
+        case List(NON_REF_ALLELE) => {
+          val variant = variantFormatFn(vc, None, 0)
           val genotypes = vc.getGenotypes.map(g => {
-            genotypeFormatFn(g, variant, allele, idx, referenceModelIndex, true)
+            genotypeFormatFn(g, variant, NON_REF_ALLELE, 0, Some(1), false)
           })
-          ADAMVariantContext(variant, genotypes)
-        })
+          return Seq(ADAMVariantContext(variant, genotypes))
+        }
+        case List(allele) => {
+          require(
+            allele.isNonReference,
+            "Assertion failed when converting: " + vc.toString
+          )
+          val variant = variantFormatFn(vc, Some(allele.getDisplayString), 0)
+          val genotypes = vc.getGenotypes.map(g => {
+            genotypeFormatFn(g, variant, allele, 1, None, false)
+          })
+          return Seq(ADAMVariantContext(variant, genotypes))
+        }
+        case List(allele, NON_REF_ALLELE) => {
+          require(
+            allele.isNonReference,
+            "Assertion failed when converting: " + vc.toString
+          )
+          val variant = variantFormatFn(vc, Some(allele.getDisplayString), 0)
+          val genotypes = vc.getGenotypes.map(g => {
+            genotypeFormatFn(g, variant, allele, 1, Some(2), false)
+          })
+          return Seq(ADAMVariantContext(variant, genotypes))
+        }
+        case _ => {
+          val vcb = new VariantContextBuilder(vc)
+
+          // is the last allele the non-ref allele?
+          val alleles = vc.getAlternateAlleles.toSeq
+          val referenceModelIndex = if (alleles.nonEmpty && alleles.last == NON_REF_ALLELE) {
+            Some(alleles.length - 1)
+          } else {
+            None
+          }
+          val altAlleles = if (referenceModelIndex.isDefined) {
+            alleles.dropRight(1)
+          } else {
+            alleles
+          }
+
+          return altAlleles.map(allele => {
+            val idx = vc.getAlleleIndex(allele)
+            require(idx >= 1, "Unexpected index for alternate allele: " + vc.toString)
+
+            val variant = variantFormatFn(vc, Some(allele.getDisplayString), idx)
+            val genotypes = vc.getGenotypes.map(g => {
+              genotypeFormatFn(g, variant, allele, idx, referenceModelIndex, true)
+            })
+            ADAMVariantContext(variant, genotypes)
+          })
+        }
+      }
+    } catch {
+      case t: Throwable => {
+        if (stringency == ValidationStringency.STRICT) {
+          throw t
+        } else {
+          if (stringency == ValidationStringency.LENIENT) {
+            log.warn("Caught exception %s when converting %s.".format(t, vc))
+          }
+          Seq.empty
+        }
       }
     }
   }
