@@ -186,7 +186,7 @@ private[adam] class VariantContextConverter(
         val genotypes = vc.getGenotypes.map(g => {
           genotypeFormatFn(g, variant, NON_REF_ALLELE, 0, Some(1), false)
         })
-        return Seq(ADAMVariantContext(variant, genotypes, Some(variant.getAnnotation)))
+        return Seq(ADAMVariantContext(variant, genotypes))
       }
       case List(allele) => {
         require(
@@ -197,7 +197,7 @@ private[adam] class VariantContextConverter(
         val genotypes = vc.getGenotypes.map(g => {
           genotypeFormatFn(g, variant, allele, 1, None, false)
         })
-        return Seq(ADAMVariantContext(variant, genotypes, Some(variant.getAnnotation)))
+        return Seq(ADAMVariantContext(variant, genotypes))
       }
       case List(allele, NON_REF_ALLELE) => {
         require(
@@ -208,7 +208,7 @@ private[adam] class VariantContextConverter(
         val genotypes = vc.getGenotypes.map(g => {
           genotypeFormatFn(g, variant, allele, 1, Some(2), false)
         })
-        return Seq(ADAMVariantContext(variant, genotypes, Some(variant.getAnnotation)))
+        return Seq(ADAMVariantContext(variant, genotypes))
       }
       case _ => {
         val vcb = new VariantContextBuilder(vc)
@@ -226,7 +226,7 @@ private[adam] class VariantContextConverter(
           alleles
         }
 
-        return altAlleles.flatMap(allele => {
+        return altAlleles.map(allele => {
           val idx = vc.getAlleleIndex(allele)
           require(idx >= 1, "Unexpected index for alternate allele: " + vc.toString)
 
@@ -234,7 +234,7 @@ private[adam] class VariantContextConverter(
           val genotypes = vc.getGenotypes.map(g => {
             genotypeFormatFn(g, variant, allele, idx, referenceModelIndex, true)
           })
-          Seq(ADAMVariantContext(variant, genotypes, Some(variant.getAnnotation)))
+          ADAMVariantContext(variant, genotypes)
         })
       }
     }
@@ -1824,7 +1824,7 @@ private[adam] class VariantContextConverter(
         (vcb: VariantContextBuilder, fn) => fn(v, vcb))
 
       // extract from annotations, if present
-      val convertedWithAttrs = vc.annotations
+      val convertedWithAttrs = Option(v.getAnnotation)
         .fold(convertedWithVariants)(va => {
           val convertedWithAnnotations = variantAnnotationExtractFns
             .foldLeft(convertedWithVariants)((vcb: VariantContextBuilder, fn) => fn(va, vcb))

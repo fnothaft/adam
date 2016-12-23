@@ -1818,7 +1818,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       .setAttributes(ImmutableMap.of("FLAG", "true"))
       .build
 
-    val adamVc = ADAMVariantContext(annV(va), None, Some(va))
+    val adamVc = ADAMVariantContext(annV(va), None)
 
     val flagHeader = new VCFInfoHeaderLine("FLAG",
       0,
@@ -1837,7 +1837,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       .setAttributes(ImmutableMap.of("ONE_INT", "42"))
       .build
 
-    val adamVc = ADAMVariantContext(annV(va), None, Some(va))
+    val adamVc = ADAMVariantContext(annV(va), None)
 
     val oneIntHeader = new VCFInfoHeaderLine("ONE_INT",
       1,
@@ -1856,7 +1856,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       .setAttributes(ImmutableMap.of("FOUR_INTS", "5,10,15,20"))
       .build
 
-    val adamVc = ADAMVariantContext(annV(va), None, Some(va))
+    val adamVc = ADAMVariantContext(annV(va), None)
 
     val fourIntsHeader = new VCFInfoHeaderLine("FOUR_INTS",
       4,
@@ -1879,7 +1879,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       .setAttributes(ImmutableMap.of("A_INT", "42"))
       .build
 
-    val adamVc = ADAMVariantContext(annV(va), None, Some(va))
+    val adamVc = ADAMVariantContext(annV(va), None)
 
     val aIntHeader = new VCFInfoHeaderLine("A_INT",
       VCFHeaderLineCount.A,
@@ -1898,7 +1898,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       .setAttributes(ImmutableMap.of("R_INT", "5,10"))
       .build
 
-    val adamVc = ADAMVariantContext(annV(va), None, Some(va))
+    val adamVc = ADAMVariantContext(annV(va), None)
 
     val rIntHeader = new VCFInfoHeaderLine("R_INT",
       VCFHeaderLineCount.R,
@@ -1919,7 +1919,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       .setAttributes(ImmutableMap.of("R_STRING", "foo,bar"))
       .build
 
-    val adamVc = ADAMVariantContext(annV(va), None, Some(va))
+    val adamVc = ADAMVariantContext(annV(va), None)
 
     val rStringHeader = new VCFInfoHeaderLine("R_STRING",
       VCFHeaderLineCount.R,
@@ -1940,7 +1940,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       .setAttributes(ImmutableMap.of("STRING_G", "foo,bar"))
       .build
 
-    val adamVc = ADAMVariantContext(annV(va), None, Some(va))
+    val adamVc = ADAMVariantContext(annV(va), None)
 
     val gStringHeader = new VCFInfoHeaderLine("STRING_G",
       VCFHeaderLineCount.G,
@@ -2112,7 +2112,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       .setVariantCallingAnnotations(vca)
       .build
 
-    val adamVc = ADAMVariantContext(v, Some(g), None)
+    val adamVc = ADAMVariantContext(v, Some(g))
 
     intercept[IllegalArgumentException] {
       val flagHeader = new VCFFormatHeaderLine("FLAG",
@@ -2134,7 +2134,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       .setVariantCallingAnnotations(vca)
       .build
 
-    val adamVc = ADAMVariantContext(v, Some(g), None)
+    val adamVc = ADAMVariantContext(v, Some(g))
 
     val oneIntHeader = new VCFFormatHeaderLine("ONE_INT",
       1,
@@ -2159,7 +2159,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       .setVariantCallingAnnotations(vca)
       .build
 
-    val adamVc = ADAMVariantContext(v, Some(g), None)
+    val adamVc = ADAMVariantContext(v, Some(g))
 
     val fourIntsHeader = new VCFFormatHeaderLine("FOUR_INTS",
       4,
@@ -2189,7 +2189,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       .setVariantCallingAnnotations(vca)
       .build
 
-    val adamVc = ADAMVariantContext(v, Some(g), None)
+    val adamVc = ADAMVariantContext(v, Some(g))
 
     val aIntHeader = new VCFFormatHeaderLine("A_INT",
       VCFHeaderLineCount.A,
@@ -2216,7 +2216,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       .setVariantCallingAnnotations(vca)
       .build
 
-    val adamVc = ADAMVariantContext(v, Some(g), None)
+    val adamVc = ADAMVariantContext(v, Some(g))
 
     val rIntHeader = new VCFFormatHeaderLine("R_INT",
       VCFHeaderLineCount.R,
@@ -2244,7 +2244,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       .setVariantCallingAnnotations(vca)
       .build
 
-    val adamVc = ADAMVariantContext(v, Some(g), None)
+    val adamVc = ADAMVariantContext(v, Some(g))
 
     val rStringHeader = new VCFFormatHeaderLine("R_STRING",
       VCFHeaderLineCount.R,
