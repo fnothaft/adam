@@ -1833,6 +1833,38 @@ class VariantContextConverterSuite extends ADAMFunSuite {
     assert(vc.getAttributeAsBoolean("FLAG", false))
   }
 
+  ignore("VCF INFO attribute Number=4 Type=Flag adam->htsjdk unsupported, strict") {
+    val va = VariantAnnotation.newBuilder
+      .setAttributes(ImmutableMap.of("FLAG", "true,false,true,false"))
+      .build
+
+    val adamVc = ADAMVariantContext(annV(va), None)
+
+    val flagHeader = new VCFInfoHeaderLine("FLAG",
+      4,
+      VCFHeaderLineType.Flag,
+      "Flag")
+
+    /**
+     * This test is meant to exercise the validation stringency wrapping around
+     * parsing header lines. However, we can't actually exercise these cases, due
+     * to HTSJDK's internal validation. We have two error cases:
+     *
+     * * Format line with a Flag
+     * * Info line with a multi-valued Flag
+     *
+     * HTSJDK won't let you create the former (throws an exception in the header line
+     * constructor) and it overwrites your count value to 0 in the latter case.
+     *
+     * As such, I've added this test but made it ignored as a placeholder to document
+     * this behavior.
+     */
+    intercept[IllegalArgumentException] {
+      new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ flagHeader,
+        ValidationStringency.STRICT)
+    }
+  }
+
   test("VCF INFO attribute Number=1 Type=Integer adam->htsjdk") {
     val va = VariantAnnotation.newBuilder
       .setAttributes(ImmutableMap.of("ONE_INT", "42"))

@@ -1811,7 +1811,20 @@ private[adam] class VariantContextConverter(
 
             None
           } else {
-            Some(extractorFromInfoLine(il))
+            try {
+              Some(extractorFromInfoLine(il))
+            } catch {
+              case t: Throwable => {
+                if (stringency == ValidationStringency.STRICT) {
+                  throw t
+                } else {
+                  if (stringency == ValidationStringency.LENIENT) {
+                    log.warn("Generating field extractor from header line %s failed: %s".format(il, t))
+                  }
+                  None
+                }
+              }
+            }
           }
         }
         case _ => None
@@ -1871,7 +1884,20 @@ private[adam] class VariantContextConverter(
 
             None
           } else {
-            Some(extractorFromFormatLine(fl))
+            try {
+              Some(extractorFromFormatLine(fl))
+            } catch {
+              case t: Throwable => {
+                if (stringency == ValidationStringency.STRICT) {
+                  throw t
+                } else {
+                  if (stringency == ValidationStringency.LENIENT) {
+                    log.warn("Generating field extractor from header line %s failed: %s".format(fl, t))
+                  }
+                  None
+                }
+              }
+            }
           }
         }
         case _ => None
