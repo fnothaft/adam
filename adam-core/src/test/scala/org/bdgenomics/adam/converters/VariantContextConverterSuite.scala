@@ -53,7 +53,8 @@ class VariantContextConverterSuite extends ADAMFunSuite {
   }
 
   val lenient = ValidationStringency.LENIENT
-  val converter = new VariantContextConverter(SupportedHeaderLines.allHeaderLines)
+  val converter = new VariantContextConverter(SupportedHeaderLines.allHeaderLines,
+    lenient)
 
   def htsjdkSNVBuilder: VariantContextBuilder = new VariantContextBuilder()
     .alleles(List(Allele.create("A", true), Allele.create("T")))
@@ -86,7 +87,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
     .setAlternateAllele("T")
 
   test("Convert htsjdk site-only SNV to ADAM") {
-    val adamVCs = converter.convert(htsjdkSNVBuilder.make, lenient)
+    val adamVCs = converter.convert(htsjdkSNVBuilder.make)
     assert(adamVCs.length === 1)
     val adamVC = adamVCs.head
 
@@ -107,14 +108,14 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       .chr("1")
       .attribute("SOMATIC", true)
 
-    val adamVCs = converter.convert(vcb.make, lenient)
+    val adamVCs = converter.convert(vcb.make)
     val adamVC = adamVCs.head
     val variant = adamVC.variant.variant
     assert(variant.getAnnotation.getSomatic === true)
   }
 
   test("Convert htsjdk site-only CNV to ADAM") {
-    val adamVCs = converter.convert(htsjdkCNVBuilder.make, lenient)
+    val adamVCs = converter.convert(htsjdkCNVBuilder.make)
 
     assert(adamVCs.length === 1)
     val adamVC = adamVCs.head
@@ -140,7 +141,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       .make)
       .make()
 
-    val adamVCs = converter.convert(vc, lenient)
+    val adamVCs = converter.convert(vc)
     assert(adamVCs.length === 1)
 
     val adamGTs = adamVCs.flatMap(_.genotypes)
@@ -156,7 +157,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
     vcb.genotypes(GenotypeBuilder.create("NA12878", vcb.getAlleles))
 
     { // No filters
-      val adamVCs = converter.convert(vcb.make, lenient)
+      val adamVCs = converter.convert(vcb.make)
       val adamVariant = adamVCs.map(_.variant).head
       assert(adamVariant.variant.getFiltersApplied === false)
       assert(adamVariant.variant.getFiltersPassed === null)
@@ -164,7 +165,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
     }
     { // PASSing
       vcb.unfiltered.passFilters
-      val adamVCs = converter.convert(vcb.make, lenient)
+      val adamVCs = converter.convert(vcb.make)
       val adamVariant = adamVCs.map(_.variant).head
       assert(adamVariant.variant.getFiltersApplied === true)
       assert(adamVariant.variant.getFiltersPassed === true)
@@ -172,7 +173,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
     }
     { // not PASSing
       vcb.unfiltered.filter("LowMQ")
-      val adamVCs = converter.convert(vcb.make, lenient)
+      val adamVCs = converter.convert(vcb.make)
       val adamVariant = adamVCs.map(_.variant).head
       assert(adamVariant.variant.getFiltersApplied === true)
       assert(adamVariant.variant.getFiltersPassed === false)
@@ -187,7 +188,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
     { // No filters
       gb.unfiltered
       vcb.genotypes(gb.make)
-      val adamVCs = converter.convert(vcb.make, lenient)
+      val adamVCs = converter.convert(vcb.make)
       val adamGT = adamVCs.flatMap(_.genotypes).head
       // htsjdk does not distinguish between filters not applied and filters passed in Genotype
       assert(adamGT.getVariantCallingAnnotations.getFiltersApplied === true)
@@ -197,7 +198,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
     { // PASSing
       gb.filter("PASS")
       vcb.genotypes(gb.make)
-      val adamVCs = converter.convert(vcb.make, lenient)
+      val adamVCs = converter.convert(vcb.make)
       val adamGT = adamVCs.flatMap(_.genotypes).head
       assert(adamGT.getVariantCallingAnnotations.getFiltersApplied === true)
       assert(adamGT.getVariantCallingAnnotations.getFiltersPassed === true)
@@ -207,7 +208,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       gb.filter("LowMQ")
       vcb.genotypes(gb.make)
 
-      val adamVCs = converter.convert(vcb.make, lenient)
+      val adamVCs = converter.convert(vcb.make)
       val adamGT = adamVCs.flatMap(_.genotypes).head
       assert(adamGT.getVariantCallingAnnotations.getFiltersApplied === true)
       assert(adamGT.getVariantCallingAnnotations.getFiltersPassed === false)
@@ -218,7 +219,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
   test("Convert ADAM site-only SNV to htsjdk") {
     val vc = ADAMVariantContext(adamSNVBuilder().build)
 
-    val optHtsjdkVC = converter.convert(vc, lenient)
+    val optHtsjdkVC = converter.convert(vc)
 
     assert(optHtsjdkVC.isDefined)
     val htsjdkVC = optHtsjdkVC.get
@@ -246,7 +247,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
         .build)
       .build
 
-    val optHtsjdkVC = converter.convert(ADAMVariantContext(variant, Seq(genotype)), lenient)
+    val optHtsjdkVC = converter.convert(ADAMVariantContext(variant, Seq(genotype)))
 
     assert(optHtsjdkVC.isDefined)
     val htsjdkVC = optHtsjdkVC.get
@@ -268,7 +269,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
 
   test("Convert htsjdk multi-allelic sites-only SNVs to ADAM") {
     val vc = htsjdkMultiAllelicSNVBuilder.make
-    val adamVCs = converter.convert(vc, lenient)
+    val adamVCs = converter.convert(vc)
     assert(adamVCs.length === 2)
 
     for ((allele, idx) <- vc.getAlternateAlleles.zipWithIndex) {
@@ -285,7 +286,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
     val vcb = htsjdkMultiAllelicSNVBuilder
     vcb.genotypes(gb.make)
 
-    val adamVCs = converter.convert(vcb.make, lenient)
+    val adamVCs = converter.convert(vcb.make)
     assert(adamVCs.length === 2)
 
     for (adamVC <- adamVCs) {
@@ -319,7 +320,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
     val vcb = htsjdkRefSNV
     vcb.genotypes(gb.make)
 
-    val adamVCs = converter.convert(vcb.make, lenient)
+    val adamVCs = converter.convert(vcb.make)
     assert(adamVCs.length == 1)
 
     val adamGTs = adamVCs.flatMap(_.genotypes)
@@ -339,7 +340,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
     val vcb = htsjdkSNVBuilder
     vcb.noID()
 
-    val adamVCs = converter.convert(vcb.make, lenient)
+    val adamVCs = converter.convert(vcb.make)
     assert(adamVCs.length == 1)
 
     val variant = adamVCs.head.variant
@@ -350,7 +351,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
     val vcb = htsjdkSNVBuilder
     vcb.id("rs3131972")
 
-    val adamVCs = converter.convert(vcb.make, lenient)
+    val adamVCs = converter.convert(vcb.make)
     assert(adamVCs.length == 1)
 
     val variant = adamVCs.head.variant
@@ -362,7 +363,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
     val vcb = htsjdkSNVBuilder
     vcb.id("rs3131972;rs201888535")
 
-    val adamVCs = converter.convert(vcb.make, lenient)
+    val adamVCs = converter.convert(vcb.make)
     assert(adamVCs.length == 1)
 
     val variant = adamVCs.head.variant
@@ -377,7 +378,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
 
     assert(variant.getNames.isEmpty)
 
-    val optHtsjdkVC = converter.convert(ADAMVariantContext(variant), lenient)
+    val optHtsjdkVC = converter.convert(ADAMVariantContext(variant))
 
     assert(optHtsjdkVC.isDefined)
     val htsjdkVC = optHtsjdkVC.get
@@ -389,7 +390,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       .setNames(ImmutableList.of("rs3131972"))
       .build
 
-    val optHtsjdkVC = converter.convert(ADAMVariantContext(variant), lenient)
+    val optHtsjdkVC = converter.convert(ADAMVariantContext(variant))
 
     assert(optHtsjdkVC.isDefined)
     val htsjdkVC = optHtsjdkVC.get
@@ -402,7 +403,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       .setNames(ImmutableList.of("rs3131972", "rs201888535"))
       .build
 
-    val optHtsjdkVC = converter.convert(ADAMVariantContext(variant), lenient)
+    val optHtsjdkVC = converter.convert(ADAMVariantContext(variant))
 
     assert(optHtsjdkVC.isDefined)
     val htsjdkVC = optHtsjdkVC.get
@@ -415,7 +416,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       .setFiltersApplied(null)
       .build
 
-    val optHtsjdkVC = converter.convert(ADAMVariantContext(variant), lenient)
+    val optHtsjdkVC = converter.convert(ADAMVariantContext(variant))
 
     assert(optHtsjdkVC.isDefined)
     val htsjdkVC = optHtsjdkVC.get
@@ -429,7 +430,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       .setFiltersApplied(false)
       .build
 
-    val optHtsjdkVC = converter.convert(ADAMVariantContext(variant), lenient)
+    val optHtsjdkVC = converter.convert(ADAMVariantContext(variant))
 
     assert(optHtsjdkVC.isDefined)
     val htsjdkVC = optHtsjdkVC.get
@@ -444,7 +445,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       .setFiltersPassed(true)
       .build
 
-    val optHtsjdkVC = converter.convert(ADAMVariantContext(variant), lenient)
+    val optHtsjdkVC = converter.convert(ADAMVariantContext(variant))
 
     assert(optHtsjdkVC.isDefined)
     val htsjdkVC = optHtsjdkVC.get
@@ -460,7 +461,7 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       .setFiltersFailed(ImmutableList.of("FILTER1", "FILTER2"))
       .build
 
-    val optHtsjdkVC = converter.convert(ADAMVariantContext(variant), lenient)
+    val optHtsjdkVC = converter.convert(ADAMVariantContext(variant))
 
     assert(optHtsjdkVC.isDefined)
     val htsjdkVC = optHtsjdkVC.get
@@ -1825,8 +1826,8 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       VCFHeaderLineType.Flag,
       "Flag")
 
-    val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ flagHeader)
-      .convert(adamVc, lenient).orNull
+    val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ flagHeader, lenient)
+      .convert(adamVc).orNull
 
     assert(vc.hasAttribute("FLAG"))
     assert(vc.getAttributeAsBoolean("FLAG", false))
@@ -1844,8 +1845,8 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       VCFHeaderLineType.Integer,
       "Number=1 Type=Integer")
 
-    val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ oneIntHeader)
-      .convert(adamVc, lenient).orNull
+    val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ oneIntHeader, lenient)
+      .convert(adamVc).orNull
 
     assert(vc.hasAttribute("ONE_INT"))
     assert(vc.getAttribute("ONE_INT", -1) === 42)
@@ -1863,8 +1864,8 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       VCFHeaderLineType.Integer,
       "Number=4 Type=Integer")
 
-    val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ fourIntsHeader)
-      .convert(adamVc, lenient).orNull
+    val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ fourIntsHeader, lenient)
+      .convert(adamVc).orNull
 
     assert(vc.hasAttribute("FOUR_INTS"))
     assert(vc.getAttributeAsList("FOUR_INTS").size === 4)
@@ -1886,8 +1887,8 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       VCFHeaderLineType.Integer,
       "Number=A Type=Integer")
 
-    val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ aIntHeader)
-      .convert(adamVc, lenient).orNull
+    val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ aIntHeader, lenient)
+      .convert(adamVc).orNull
 
     assert(vc.hasAttribute("A_INT"))
     assert(vc.getAttribute("A_INT", -1) === Array(42))
@@ -1905,8 +1906,8 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       VCFHeaderLineType.Integer,
       "Number=R Type=Integer")
 
-    val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ rIntHeader)
-      .convert(adamVc, lenient).orNull
+    val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ rIntHeader, lenient)
+      .convert(adamVc).orNull
 
     assert(vc.hasAttribute("R_INT"))
     assert(vc.getAttributeAsList("R_INT").size === 2)
@@ -1926,8 +1927,8 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       VCFHeaderLineType.String,
       "Number=R Type=String")
 
-    val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ rStringHeader)
-      .convert(adamVc, lenient).orNull
+    val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ rStringHeader, lenient)
+      .convert(adamVc).orNull
 
     assert(vc.hasAttribute("R_STRING"))
     assert(vc.getAttributeAsList("R_STRING").size === 2)
@@ -1948,8 +1949,8 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       "Number=G Type=String")
 
     intercept[IllegalArgumentException] {
-      val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ gStringHeader)
-        .convert(adamVc, lenient).orNull
+      val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ gStringHeader, lenient)
+        .convert(adamVc).orNull
     }
   }
 
@@ -1963,8 +1964,8 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       VCFHeaderLineType.Flag,
       "Flag")
 
-    val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ flagHeader)
-      .convert(vc, lenient)
+    val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ flagHeader, lenient)
+      .convert(vc)
       .head
 
     val v = adamVc.variant.variant
@@ -1982,8 +1983,8 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       VCFHeaderLineType.Integer,
       "Number=1 Type=Integer")
 
-    val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ oneIntHeader)
-      .convert(vc, lenient)
+    val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ oneIntHeader, lenient)
+      .convert(vc)
       .head
 
     val v = adamVc.variant.variant
@@ -2002,8 +2003,8 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       VCFHeaderLineType.Integer,
       "Number=4 Type=Integer")
 
-    val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ fourIntsHeader)
-      .convert(vc, lenient)
+    val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ fourIntsHeader, lenient)
+      .convert(vc)
       .head
 
     val v = adamVc.variant.variant
@@ -2022,8 +2023,8 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       VCFHeaderLineType.Float,
       "Number=4 Type=Float")
 
-    val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ fourFloatsHeader)
-      .convert(vc, lenient)
+    val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ fourFloatsHeader, lenient)
+      .convert(vc)
       .head
 
     val v = adamVc.variant.variant
@@ -2041,8 +2042,8 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       VCFHeaderLineType.Integer,
       "Number=A Type=Integer")
 
-    val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ aIntHeader)
-      .convert(vc, lenient)
+    val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ aIntHeader, lenient)
+      .convert(vc)
       .head
 
     val v = adamVc.variant.variant
@@ -2060,8 +2061,8 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       VCFHeaderLineType.Integer,
       "Number=R Type=Integer")
 
-    val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ rIntHeader)
-      .convert(vc, lenient)
+    val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ rIntHeader, lenient)
+      .convert(vc)
       .head
 
     val v = adamVc.variant.variant
@@ -2079,8 +2080,8 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       VCFHeaderLineType.String,
       "Number=R Type=String")
 
-    val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ rStringHeader)
-      .convert(vc, lenient)
+    val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ rStringHeader, lenient)
+      .convert(vc)
       .head
 
     val v = adamVc.variant.variant
@@ -2099,8 +2100,8 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       "Number=G Type=String")
 
     intercept[IllegalArgumentException] {
-      val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ gStringHeader)
-        .convert(vc, lenient)
+      val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ gStringHeader, lenient)
+        .convert(vc)
     }
   }
 
@@ -2120,8 +2121,8 @@ class VariantContextConverterSuite extends ADAMFunSuite {
         VCFHeaderLineType.Flag,
         "Flag")
 
-      val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ flagHeader)
-        .convert(adamVc, lenient).orNull
+      val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ flagHeader, lenient)
+        .convert(adamVc).orNull
     }
   }
 
@@ -2141,8 +2142,8 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       VCFHeaderLineType.Integer,
       "Number=1 Type=Integer")
 
-    val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ oneIntHeader)
-      .convert(adamVc, lenient).orNull
+    val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ oneIntHeader, lenient)
+      .convert(adamVc).orNull
 
     assert(vc.hasGenotypes)
     val gt = vc.getGenotype("sample")
@@ -2166,8 +2167,8 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       VCFHeaderLineType.Integer,
       "Number=4 Type=Integer")
 
-    val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ fourIntsHeader)
-      .convert(adamVc, lenient).orNull
+    val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ fourIntsHeader, lenient)
+      .convert(adamVc).orNull
 
     assert(vc.hasGenotypes)
     val gt = vc.getGenotype("sample")
@@ -2196,8 +2197,8 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       VCFHeaderLineType.Integer,
       "Number=A Type=Integer")
 
-    val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ aIntHeader)
-      .convert(adamVc, lenient).orNull
+    val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ aIntHeader, lenient)
+      .convert(adamVc).orNull
 
     assert(vc.hasGenotypes)
     val gt = vc.getGenotype("sample")
@@ -2223,8 +2224,8 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       VCFHeaderLineType.Integer,
       "Number=R Type=Integer")
 
-    val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ rIntHeader)
-      .convert(adamVc, lenient).orNull
+    val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ rIntHeader, lenient)
+      .convert(adamVc).orNull
 
     assert(vc.hasGenotypes)
     val gt = vc.getGenotype("sample")
@@ -2251,8 +2252,8 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       VCFHeaderLineType.String,
       "Number=R Type=String")
 
-    val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ rStringHeader)
-      .convert(adamVc, lenient).orNull
+    val vc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ rStringHeader, lenient)
+      .convert(adamVc).orNull
 
     assert(vc.hasGenotypes)
     val gt = vc.getGenotype("sample")
@@ -2274,8 +2275,8 @@ class VariantContextConverterSuite extends ADAMFunSuite {
         VCFHeaderLineType.Flag,
         "Flag")
 
-      val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ flagHeader)
-        .convert(vc, lenient)
+      val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ flagHeader, lenient)
+        .convert(vc)
         .head
 
       val v = adamVc.variant.variant
@@ -2297,8 +2298,8 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       VCFHeaderLineType.Integer,
       "Number=1 Type=Integer")
 
-    val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ oneIntHeader)
-      .convert(vc, lenient)
+    val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ oneIntHeader, lenient)
+      .convert(vc)
       .head
 
     assert(adamVc.genotypes.size === 1)
@@ -2320,8 +2321,8 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       VCFHeaderLineType.Integer,
       "Number=4 Type=Integer")
 
-    val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ fourIntsHeader)
-      .convert(vc, lenient)
+    val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ fourIntsHeader, lenient)
+      .convert(vc)
       .head
 
     assert(adamVc.genotypes.size === 1)
@@ -2343,8 +2344,8 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       VCFHeaderLineType.Float,
       "Number=4 Type=Float")
 
-    val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ fourFloatsHeader)
-      .convert(vc, lenient)
+    val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ fourFloatsHeader, lenient)
+      .convert(vc)
       .head
 
     assert(adamVc.genotypes.size === 1)
@@ -2366,8 +2367,8 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       VCFHeaderLineType.Integer,
       "Number=A Type=Integer")
 
-    val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ aIntHeader)
-      .convert(vc, lenient)
+    val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ aIntHeader, lenient)
+      .convert(vc)
       .head
 
     assert(adamVc.genotypes.size === 1)
@@ -2389,8 +2390,8 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       VCFHeaderLineType.Integer,
       "Number=R Type=Integer")
 
-    val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ rIntHeader)
-      .convert(vc, lenient)
+    val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ rIntHeader, lenient)
+      .convert(vc)
       .head
 
     assert(adamVc.genotypes.size === 1)
@@ -2412,8 +2413,8 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       VCFHeaderLineType.String,
       "Number=R Type=String")
 
-    val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ rStringHeader)
-      .convert(vc, lenient)
+    val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ rStringHeader, lenient)
+      .convert(vc)
       .head
 
     assert(adamVc.genotypes.size === 1)
@@ -2435,8 +2436,8 @@ class VariantContextConverterSuite extends ADAMFunSuite {
       VCFHeaderLineType.String,
       "Number=G Type=String")
 
-    val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ gStringHeader)
-      .convert(vc, lenient)
+    val adamVc = new VariantContextConverter(SupportedHeaderLines.allHeaderLines :+ gStringHeader, lenient)
+      .convert(vc)
       .head
 
     assert(adamVc.genotypes.size === 1)

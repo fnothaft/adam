@@ -152,7 +152,8 @@ private[adam] object VariantContextConverter {
  * class.
  */
 private[adam] class VariantContextConverter(
-    headerLines: Seq[VCFHeaderLine]) extends Serializable with Logging {
+    headerLines: Seq[VCFHeaderLine],
+    stringency: ValidationStringency) extends Serializable with Logging {
   import VariantContextConverter._
 
   // format fns gatk --> bdg, extract fns bdg --> gatk
@@ -173,12 +174,10 @@ private[adam] class VariantContextConverter(
    * Converts a GATK variant context into one or more ADAM variant context(s).
    *
    * @param vc GATK variant context to convert.
-   * @param stringency Validation stringency.
    * @return The specified GATK variant context converted into one or more ADAM variant context(s)
    */
   def convert(
-    vc: HtsjdkVariantContext,
-    stringency: ValidationStringency): Seq[ADAMVariantContext] = {
+    vc: HtsjdkVariantContext): Seq[ADAMVariantContext] = {
 
     try {
       vc.getAlternateAlleles.toList match {
@@ -1920,12 +1919,10 @@ private[adam] class VariantContextConverter(
    * Convert an ADAM variant context into a GATK variant context.
    *
    * @param vc ADAM variant context to convert.
-   * @param stringency Validation stringency.
    * @return The specified ADAM variant context converted into a GATK variant context.
    */
   def convert(
-    vc: ADAMVariantContext,
-    stringency: ValidationStringency): Option[HtsjdkVariantContext] = {
+    vc: ADAMVariantContext): Option[HtsjdkVariantContext] = {
 
     val vcb = new VariantContextBuilder(variantExtractFn(vc))
 
