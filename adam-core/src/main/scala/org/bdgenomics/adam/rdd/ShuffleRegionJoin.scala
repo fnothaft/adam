@@ -120,9 +120,11 @@ sealed trait ShuffleRegionJoin[T, U, RT, RU] extends RegionJoin[T, U, RT, RU] {
     if (leftIter.isEmpty || rightIter.isEmpty) {
       emptyFn(leftIter, rightIter)
     } else {
-      val bufferedLeft = leftIter.buffered
-      val currentBin = bufferedLeft.head._1._2
-      val region = bins.value.invert(currentBin)
+      val listRepresentationLeft = leftIter.toList
+      val bufferedLeft = listRepresentationLeft.toIterator.buffered
+      val startRegion = listRepresentationLeft.head._1._1
+      val endRegion = listRepresentationLeft.last._1._1
+      val region = ReferenceRegion(startRegion.referenceName, startRegion.start, endRegion.end)
       // return an Iterator[(T, U)]
       makeIterator(region, bufferedLeft, rightIter.buffered)
     }

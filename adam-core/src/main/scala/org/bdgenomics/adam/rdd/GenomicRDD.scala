@@ -357,15 +357,7 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
                                                                                   implicit tTag: ClassTag[T], xTag: ClassTag[X]): GenomicRDD[(T, X), Z] = {
       // did the user provide a set partition count?
       // if no, we will avoid repartitioning this one
-      val estPartitions = optPartitions.getOrElse(Seq(rdd.partitions.length,
-        genomicRdd.rdd.partitions.length).max)
-      // if the user provides too high of a partition count, the estimated number
-      // of partitions can go to 0
-      val partitions = if (estPartitions >= 1) {
-        estPartitions
-      } else {
-        1
-      }
+      val partitions = optPartitions.getOrElse(rdd.partitions.length)
       val leftRdd: GenomicRDD[T, U] = if (partitions != rdd.partitions.length) evenlyRepartition(partitions) else self
       val preparedRdds = prepareForShuffleRegionJoin(leftRdd, genomicRdd)
       val leftRddReadyToJoin = preparedRdds._1
@@ -376,7 +368,7 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
       val endSequences = sequences ++ genomicRdd.sequences
 
       GenericGenomicRDD[(T, X)](
-        InnerShuffleRegionJoin[T, X](endSequences, partitions, rdd.context)
+        InnerShuffleRegionJoin[T, X](endSequences, endSequences.records.map(_.length).sum / partitions, rdd.context)
           .joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadyToJoin),
         endSequences,
         kv => {
@@ -404,15 +396,7 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
                                                                                                         optPartitions: Option[Int] = None)(implicit tTag: ClassTag[T], xTag: ClassTag[X]): GenomicRDD[(T, Iterable[X]), Z] = {
       // did the user provide a set partition count?
       // if no, we will avoid repartitioning this one
-      val estPartitions = optPartitions.getOrElse(Seq(rdd.partitions.length,
-        genomicRdd.rdd.partitions.length).max)
-      // if the user provides too high of a partition count, the estimated number
-      // of partitions can go to 0
-      val partitions = if (estPartitions >= 1) {
-        estPartitions
-      } else {
-        1
-      }
+      val partitions = optPartitions.getOrElse(rdd.partitions.length)
       val leftRdd: GenomicRDD[T, U] = if (partitions != rdd.partitions.length) evenlyRepartition(partitions) else self
       val preparedRdds = prepareForShuffleRegionJoin(leftRdd, genomicRdd)
       val leftRddReadyToJoin = preparedRdds._1
@@ -425,7 +409,7 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
       assert(leftRddReadyToJoin.partitions.length == rightRddReadyToJoin.partitions.length)
 
       val joinedRDD = InnerShuffleRegionJoin[T, X](endSequences,
-        partitions,
+        endSequences.records.map(_.length).sum / partitions,
         rdd.context).joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadyToJoin).mapPartitionsWithIndex((idx, iter) => {
           if (iter.isEmpty) Iterator()
           else {
@@ -466,15 +450,7 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
                                                                                                                             implicit tTag: ClassTag[T], xTag: ClassTag[X]): GenomicRDD[(Option[T], Iterable[X]), Z] = {
       // did the user provide a set partition count?
       // if no, we will avoid repartitioning this one
-      val estPartitions = optPartitions.getOrElse(Seq(rdd.partitions.length,
-        genomicRdd.rdd.partitions.length).max)
-      // if the user provides too high of a partition count, the estimated number
-      // of partitions can go to 0
-      val partitions = if (estPartitions >= 1) {
-        estPartitions
-      } else {
-        1
-      }
+      val partitions = optPartitions.getOrElse(rdd.partitions.length)
       val leftRdd: GenomicRDD[T, U] = if (partitions != rdd.partitions.length) evenlyRepartition(partitions) else self
       val preparedRdds = prepareForShuffleRegionJoin(leftRdd, genomicRdd)
       val leftRddReadyToJoin = preparedRdds._1
@@ -485,7 +461,7 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
       val endSequences = sequences ++ genomicRdd.sequences
 
       GenericGenomicRDD[(Option[T], Iterable[X])](RightOuterShuffleRegionJoinAndGroupByLeft[T, X](endSequences,
-        partitions,
+        endSequences.records.map(_.length).sum / partitions,
         rdd.context).joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadyToJoin),
         endSequences,
         kv => {
@@ -514,15 +490,7 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
                                                                                                            implicit tTag: ClassTag[T], xTag: ClassTag[X]): GenomicRDD[(Option[T], Option[X]), Z] = {
       // did the user provide a set partition count?
       // if no, we will avoid repartitioning this one
-      val estPartitions = optPartitions.getOrElse(Seq(rdd.partitions.length,
-        genomicRdd.rdd.partitions.length).max)
-      // if the user provides too high of a partition count, the estimated number
-      // of partitions can go to 0
-      val partitions = if (estPartitions >= 1) {
-        estPartitions
-      } else {
-        1
-      }
+      val partitions = optPartitions.getOrElse(rdd.partitions.length)
       val leftRdd: GenomicRDD[T, U] = if (partitions != rdd.partitions.length) evenlyRepartition(partitions) else self
       val preparedRdds = prepareForShuffleRegionJoin(leftRdd, genomicRdd)
       val leftRddReadyToJoin = preparedRdds._1
@@ -533,7 +501,7 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
       val endSequences = sequences ++ genomicRdd.sequences
 
       GenericGenomicRDD[(Option[T], Option[X])](FullOuterShuffleRegionJoin[T, X](endSequences,
-        partitions,
+        endSequences.records.map(_.length).sum / partitions,
         rdd.context).joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadyToJoin),
         endSequences,
         kv => {
@@ -563,15 +531,7 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
                                                                                                    implicit tTag: ClassTag[T], xTag: ClassTag[X]): GenomicRDD[(T, Option[X]), Z] = {
       // did the user provide a set partition count?
       // if no, we will avoid repartitioning this one
-      val estPartitions = optPartitions.getOrElse(Seq(rdd.partitions.length,
-        genomicRdd.rdd.partitions.length).max)
-      // if the user provides too high of a partition count, the estimated number
-      // of partitions can go to 0
-      val partitions = if (estPartitions >= 1) {
-        estPartitions
-      } else {
-        1
-      }
+      val partitions = optPartitions.getOrElse(rdd.partitions.length)
       val leftRdd: GenomicRDD[T, U] = if (partitions != rdd.partitions.length) evenlyRepartition(partitions) else self
       val preparedRdds = prepareForShuffleRegionJoin(leftRdd, genomicRdd)
       val leftRddReadyToJoin = preparedRdds._1
@@ -582,7 +542,7 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
       val endSequences = sequences ++ genomicRdd.sequences
 
       GenericGenomicRDD[(T, Option[X])](LeftOuterShuffleRegionJoin[T, X](endSequences,
-        partitions,
+        endSequences.records.map(_.length).sum / partitions,
         rdd.context).joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadyToJoin),
         endSequences,
         kv => {
@@ -612,15 +572,7 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
                                                                                                     implicit tTag: ClassTag[T], xTag: ClassTag[X]): GenomicRDD[(Option[T], X), Z] = {
       // did the user provide a set partition count?
       // if no, we will avoid repartitioning this one
-      val estPartitions = optPartitions.getOrElse(Seq(rdd.partitions.length,
-        genomicRdd.rdd.partitions.length).max)
-      // if the user provides too high of a partition count, the estimated number
-      // of partitions can go to 0
-      val partitions = if (estPartitions >= 1) {
-        estPartitions
-      } else {
-        1
-      }
+      val partitions = optPartitions.getOrElse(rdd.partitions.length)
       val leftRdd: GenomicRDD[T, U] = if (partitions != rdd.partitions.length) evenlyRepartition(partitions) else self
       val preparedRdds = prepareForShuffleRegionJoin(leftRdd, genomicRdd)
       val leftRddReadyToJoin = preparedRdds._1
@@ -631,7 +583,7 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
       val endSequences = sequences ++ genomicRdd.sequences
 
       GenericGenomicRDD[(Option[T], X)](RightOuterShuffleRegionJoin[T, X](endSequences,
-        partitions,
+        endSequences.records.map(_.length).sum / partitions,
         rdd.context).joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadyToJoin),
         endSequences,
         kv => {
@@ -1289,7 +1241,7 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
     }
     val partitionedRDD = flattenRddByRegions().sortBy(f => f._1, ascending = true, partitions)
     //some really strange behavior here where it is only correct the second time
-    val partitionMap = partitionedRDD.mapPartitions(iter => getPartitionMap(iter), preservesPartitioning = true)
+    //val partitionMap = partitionedRDD.mapPartitions(iter => getPartitionMap(iter), preservesPartitioning = true)
     SortedTrait(partitionedRDD.values, partitionedRDD.mapPartitions(iter => getPartitionMap(iter), preservesPartitioning = true))
   }
 
