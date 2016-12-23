@@ -1371,7 +1371,7 @@ private[adam] class VariantContextConverter(
     }
   }
 
-  def makeVariantFormatFn(
+  private def makeVariantFormatFn(
     headerLines: Seq[VCFHeaderLine]): (HtsjdkVariantContext, Option[String], Int) => Variant = {
 
     val attributeFns: Iterable[(HtsjdkVariantContext, Int, Array[Int]) => Option[(String, String)]] = headerLines
@@ -1443,7 +1443,7 @@ private[adam] class VariantContextConverter(
     convert(_, _, _)
   }
 
-  def makeGenotypeFormatFn(
+  private def makeGenotypeFormatFn(
     headerLines: Seq[VCFHeaderLine]): (HtsjdkGenotype, Variant, Allele, Int, Option[Int], Boolean) => Genotype = {
 
     val attributeFns: Iterable[(HtsjdkGenotype, Int, Array[Int]) => Option[(String, String)]] = headerLines
@@ -1794,7 +1794,7 @@ private[adam] class VariantContextConverter(
     }
   }
 
-  def makeVariantExtractFn(
+  private def makeVariantExtractFn(
     headerLines: Seq[VCFHeaderLine]): (ADAMVariantContext) => HtsjdkVariantContext = {
 
     val attributeFns: Iterable[(Map[String, String]) => Option[(String, java.lang.Object)]] = headerLines
@@ -1867,7 +1867,7 @@ private[adam] class VariantContextConverter(
     convert(_)
   }
 
-  def makeGenotypeExtractFn(
+  private def makeGenotypeExtractFn(
     headerLines: Seq[VCFHeaderLine]): (Genotype) => HtsjdkGenotype = {
 
     val attributeFns: Iterable[(Map[String, String]) => Option[(String, java.lang.Object)]] = headerLines
