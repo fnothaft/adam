@@ -40,7 +40,10 @@ import scala.collection.JavaConversions._
  */
 case class VariantRDD(rdd: RDD[Variant],
                       sequences: SequenceDictionary,
-                      @transient headerLines: Seq[VCFHeaderLine] = SupportedHeaderLines.allHeaderLines) extends AvroGenomicRDD[Variant, VariantRDD] {
+                      @transient headerLines: Seq[VCFHeaderLine] = SupportedHeaderLines.allHeaderLines,
+                      maybePartitionMapRdd: Option[RDD[(ReferenceRegion, ReferenceRegion)]] = None) extends AvroGenomicRDD[Variant, VariantRDD] {
+
+  val sortedTrait: SortedTrait = new SortedTrait(isSorted = maybePartitionMapRdd.isDefined, maybePartitionMapRdd)
 
   override protected def saveMetadata(filePath: String) {
 
@@ -70,8 +73,9 @@ case class VariantRDD(rdd: RDD[Variant],
    * @param newRdd An RDD to replace the underlying RDD with.
    * @return Returns a new VariantRDD with the underlying RDD replaced.
    */
-  protected[rdd] def replaceRdd(newRdd: RDD[Variant]): VariantRDD = {
-    copy(rdd = newRdd)
+  protected[rdd] def replaceRdd(newRdd: RDD[Variant],
+                                newPartitionMapRdd: Option[RDD[(ReferenceRegion, ReferenceRegion)]] = None): VariantRDD = {
+    copy(rdd = newRdd, maybePartitionMapRdd = newPartitionMapRdd)
   }
 
   /**

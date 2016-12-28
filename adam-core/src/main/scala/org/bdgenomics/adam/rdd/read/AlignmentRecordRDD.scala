@@ -145,7 +145,7 @@ sealed trait AlignmentRecordRDD extends AvroReadGroupGenomicRDD[AlignmentRecord,
    *   file was saved.
    */
   private[rdd] def maybeSaveBam(args: ADAMSaveAnyArgs,
-                                isSorted: Boolean = SortedTrait.isSorted): Boolean = {
+                                isSorted: Boolean = isSorted): Boolean = {
 
     if (args.outputPath.endsWith(".sam") ||
       args.outputPath.endsWith(".bam") ||
@@ -192,7 +192,7 @@ sealed trait AlignmentRecordRDD extends AvroReadGroupGenomicRDD[AlignmentRecord,
    * @return Returns true if saving succeeded.
    */
   def save(args: ADAMSaveAnyArgs,
-           isSorted: Boolean = SortedTrait.isSorted): Boolean = {
+           isSorted: Boolean = isSorted): Boolean = {
 
     (maybeSaveBam(args, isSorted) ||
       maybeSaveFastq(args) ||
@@ -251,7 +251,7 @@ sealed trait AlignmentRecordRDD extends AvroReadGroupGenomicRDD[AlignmentRecord,
    *
    * @return Returns a SAM/BAM formatted RDD of reads, as well as the file header.
    */
-  def convertToSam(isSorted: Boolean = SortedTrait.isSorted): (RDD[SAMRecordWritable], SAMFileHeader) = ConvertToSAM.time {
+  def convertToSam(isSorted: Boolean = isSorted): (RDD[SAMRecordWritable], SAMFileHeader) = ConvertToSAM.time {
 
     // create conversion object
     val adamRecordConverter = new AlignmentRecordConverter
@@ -308,7 +308,7 @@ sealed trait AlignmentRecordRDD extends AvroReadGroupGenomicRDD[AlignmentRecord,
     filePath: String,
     asType: Option[SAMFormat] = None,
     asSingleFile: Boolean = false,
-    isSorted: Boolean = SortedTrait.isSorted,
+    isSorted: Boolean = isSorted,
     deferMerging: Boolean = false): Unit = SAMSave.time {
 
     val fileType = asType.getOrElse(SAMFormat.inferFromFilePath(filePath))
@@ -583,7 +583,7 @@ sealed trait AlignmentRecordRDD extends AvroReadGroupGenomicRDD[AlignmentRecord,
    */
   def realignIndels(
     consensusModel: ConsensusGenerator = new ConsensusGeneratorFromReads,
-    isSorted: Boolean = SortedTrait.isSorted,
+    isSorted: Boolean = isSorted,
     maxIndelSize: Int = 500,
     maxConsensusNumber: Int = 30,
     lodThreshold: Double = 5.0,
@@ -878,7 +878,10 @@ sealed trait AlignmentRecordRDD extends AvroReadGroupGenomicRDD[AlignmentRecord,
 
 case class AlignedReadRDD(rdd: RDD[AlignmentRecord],
                           sequences: SequenceDictionary,
-                          recordGroups: RecordGroupDictionary) extends AlignmentRecordRDD {
+                          recordGroups: RecordGroupDictionary,
+                          maybePartitionMapRdd: Option[RDD[(ReferenceRegion, ReferenceRegion)]] = None) extends AlignmentRecordRDD {
+
+  val sortedTrait: SortedTrait = new SortedTrait(isSorted = maybePartitionMapRdd.isDefined, maybePartitionMapRdd)
 
   protected def replaceRddAndSequences(newRdd: RDD[AlignmentRecord],
                                        newSequences: SequenceDictionary): AlignmentRecordRDD = {
@@ -887,8 +890,9 @@ case class AlignedReadRDD(rdd: RDD[AlignmentRecord],
       recordGroups)
   }
 
-  protected[rdd] def replaceRdd(newRdd: RDD[AlignmentRecord]): AlignedReadRDD = {
-    copy(rdd = newRdd)
+  protected[rdd] def replaceRdd(newRdd: RDD[AlignmentRecord],
+                                newPartitionMapRdd: Option[RDD[(ReferenceRegion, ReferenceRegion)]] = None): AlignedReadRDD = {
+    copy(rdd = newRdd, maybePartitionMapRdd = newPartitionMapRdd)
   }
 }
 
@@ -906,11 +910,14 @@ object UnalignedReadRDD {
 }
 
 case class UnalignedReadRDD(rdd: RDD[AlignmentRecord],
-                            recordGroups: RecordGroupDictionary) extends AlignmentRecordRDD
+                            recordGroups: RecordGroupDictionary,
+                            maybePartitionMapRdd: Option[RDD[(ReferenceRegion, ReferenceRegion)]] = None) extends AlignmentRecordRDD
     with Unaligned {
 
-  protected[rdd] def replaceRdd(newRdd: RDD[AlignmentRecord]): UnalignedReadRDD = {
-    copy(rdd = newRdd)
+  val sortedTrait: SortedTrait = new SortedTrait(isSorted = maybePartitionMapRdd.isDefined, maybePartitionMapRdd)
+
+  protected[rdd] def replaceRdd(newRdd: RDD[AlignmentRecord], newPartitionMapRdd: Option[RDD[(ReferenceRegion, ReferenceRegion)]] = None): UnalignedReadRDD = {
+    copy(rdd = newRdd, maybePartitionMapRdd = newPartitionMapRdd)
   }
 
   protected def replaceRddAndSequences(newRdd: RDD[AlignmentRecord],

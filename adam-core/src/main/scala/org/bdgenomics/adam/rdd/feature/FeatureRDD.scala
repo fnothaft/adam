@@ -211,7 +211,10 @@ object FeatureRDD {
  * @param sequences The reference genome this data is aligned to.
  */
 case class FeatureRDD(rdd: RDD[Feature],
-                      sequences: SequenceDictionary) extends AvroGenomicRDD[Feature, FeatureRDD] with Logging {
+                      sequences: SequenceDictionary,
+                      maybePartitionMapRdd: Option[RDD[(ReferenceRegion, ReferenceRegion)]] = None) extends AvroGenomicRDD[Feature, FeatureRDD] with Logging {
+
+  val sortedTrait: SortedTrait = new SortedTrait(isSorted = maybePartitionMapRdd.isDefined, maybePartitionMapRdd)
 
   /**
    * Java friendly save function. Automatically detects the output format.
@@ -261,8 +264,9 @@ case class FeatureRDD(rdd: RDD[Feature],
    * @param newRdd The RDD to replace the underlying RDD with.
    * @return Returns a new FeatureRDD with the underlying RDD replaced.
    */
-  protected[rdd] def replaceRdd(newRdd: RDD[Feature]): FeatureRDD = {
-    copy(rdd = newRdd)
+  protected[rdd] def replaceRdd(newRdd: RDD[Feature],
+                                newPartitionMapRdd: Option[RDD[(ReferenceRegion, ReferenceRegion)]] = None): FeatureRDD = {
+    copy(rdd = newRdd, maybePartitionMapRdd = newPartitionMapRdd)
   }
 
   /**

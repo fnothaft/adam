@@ -34,7 +34,10 @@ import org.bdgenomics.formats.avro.VariantAnnotation
  */
 case class VariantAnnotationRDD(rdd: RDD[VariantAnnotation],
                                 sequences: SequenceDictionary,
-                                @transient headerLines: Seq[VCFHeaderLine] = SupportedHeaderLines.allHeaderLines) extends AvroGenomicRDD[VariantAnnotation, VariantAnnotationRDD] {
+                                @transient headerLines: Seq[VCFHeaderLine] = SupportedHeaderLines.allHeaderLines,
+                                maybePartitionMapRdd: Option[RDD[(ReferenceRegion, ReferenceRegion)]] = None) extends AvroGenomicRDD[VariantAnnotation, VariantAnnotationRDD] {
+
+  val sortedTrait: SortedTrait = new SortedTrait(isSorted = maybePartitionMapRdd.isDefined, maybePartitionMapRdd)
 
   /**
    * Java-friendly method for saving to Parquet.
@@ -49,12 +52,13 @@ case class VariantAnnotationRDD(rdd: RDD[VariantAnnotation],
    * @param newRdd An RDD for replacing the underlying RDD.
    * @return A new VariantAnnotationRDD with the underlying RDD replaced.
    */
-  protected[rdd] def replaceRdd(newRdd: RDD[VariantAnnotation]): VariantAnnotationRDD = {
-    copy(rdd = newRdd)
+  protected[rdd] def replaceRdd(newRdd: RDD[VariantAnnotation],
+                                newPartitionMapRdd: Option[RDD[(ReferenceRegion, ReferenceRegion)]] = None): VariantAnnotationRDD = {
+    copy(rdd = newRdd, maybePartitionMapRdd = newPartitionMapRdd)
   }
 
   /**
-   * @param elem Variant annotation to extract a region from.
+   * @param annotation Variant annotation to extract a region from.
    * @return Returns the singular region covered by the variant for the
    *    specified variant annotation.
    */

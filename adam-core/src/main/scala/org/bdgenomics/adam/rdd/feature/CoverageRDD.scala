@@ -34,7 +34,10 @@ import scala.annotation.tailrec
  * @param sequences A dictionary describing the reference genome.
  */
 case class CoverageRDD(rdd: RDD[Coverage],
-                       sequences: SequenceDictionary) extends GenomicRDD[Coverage, CoverageRDD] {
+                       sequences: SequenceDictionary,
+                       maybePartitionMapRdd: Option[RDD[(ReferenceRegion, ReferenceRegion)]] = None) extends GenomicRDD[Coverage, CoverageRDD] {
+
+  val sortedTrait: SortedTrait = new SortedTrait(isSorted = maybePartitionMapRdd.isDefined, maybePartitionMapRdd)
 
   /**
    * Saves coverage as feature file.
@@ -191,8 +194,9 @@ case class CoverageRDD(rdd: RDD[Coverage],
    * @param newRdd The RDD to replace the underlying RDD with.
    * @return Returns a new CoverageRDD with the underlying RDD replaced.
    */
-  protected[rdd] def replaceRdd(newRdd: RDD[Coverage]): CoverageRDD = {
-    copy(rdd = newRdd)
+  protected[rdd] def replaceRdd(newRdd: RDD[Coverage],
+                                newPartitionMapRdd: Option[RDD[(ReferenceRegion, ReferenceRegion)]] = None): CoverageRDD = {
+    copy(rdd = newRdd, maybePartitionMapRdd = newPartitionMapRdd)
   }
 
   /**

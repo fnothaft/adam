@@ -44,7 +44,10 @@ import org.bdgenomics.formats.avro.{ Contig, Genotype, Sample }
 case class GenotypeRDD(rdd: RDD[Genotype],
                        sequences: SequenceDictionary,
                        @transient samples: Seq[Sample],
-                       @transient headerLines: Seq[VCFHeaderLine] = SupportedHeaderLines.allHeaderLines) extends MultisampleAvroGenomicRDD[Genotype, GenotypeRDD] {
+                       @transient headerLines: Seq[VCFHeaderLine] = SupportedHeaderLines.allHeaderLines,
+                       maybePartitionMapRdd: Option[RDD[(ReferenceRegion, ReferenceRegion)]] = None) extends MultisampleAvroGenomicRDD[Genotype, GenotypeRDD] {
+
+  val sortedTrait: SortedTrait = new SortedTrait(isSorted = maybePartitionMapRdd.isDefined, maybePartitionMapRdd)
 
   /**
    * Java-friendly method for saving.
@@ -114,8 +117,9 @@ case class GenotypeRDD(rdd: RDD[Genotype],
    * @param newRdd An RDD to replace the underlying RDD with.
    * @return Returns a new GenotypeRDD with the underlying RDD replaced.
    */
-  protected[rdd] def replaceRdd(newRdd: RDD[Genotype]): GenotypeRDD = {
-    copy(rdd = newRdd)
+  protected[rdd] def replaceRdd(newRdd: RDD[Genotype],
+                                newPartitionMapRdd: Option[RDD[(ReferenceRegion, ReferenceRegion)]] = None): GenotypeRDD = {
+    copy(rdd = newRdd, maybePartitionMapRdd = newPartitionMapRdd)
   }
 
   /**

@@ -56,8 +56,11 @@ import scala.collection.JavaConversions._
 case class VariantContextRDD(rdd: RDD[VariantContext],
                              sequences: SequenceDictionary,
                              @transient samples: Seq[Sample],
-                             @transient headerLines: Seq[VCFHeaderLine] = SupportedHeaderLines.allHeaderLines) extends MultisampleGenomicRDD[VariantContext, VariantContextRDD]
+                             @transient headerLines: Seq[VCFHeaderLine] = SupportedHeaderLines.allHeaderLines,
+                             maybePartitionMapRdd: Option[RDD[(ReferenceRegion, ReferenceRegion)]] = None) extends MultisampleGenomicRDD[VariantContext, VariantContextRDD]
     with Logging {
+
+  val sortedTrait: SortedTrait = new SortedTrait(isSorted = maybePartitionMapRdd.isDefined, maybePartitionMapRdd)
 
   /**
    * Left outer join database variant annotations.
@@ -105,7 +108,7 @@ case class VariantContextRDD(rdd: RDD[VariantContext],
    * Converts an RDD of ADAM VariantContexts to HTSJDK VariantContexts
    * and saves to disk as VCF.
    *
-   * @param filePath The filepath to save to.
+   * @param args The arguments for saving the data
    * @param sortOnSave Whether to sort before saving.
    */
   def saveAsVcf(args: SaveArgs,
@@ -202,8 +205,9 @@ case class VariantContextRDD(rdd: RDD[VariantContext],
    * @return Returns a new VariantContextRDD where the underlying RDD has
    *   been replaced.
    */
-  protected[rdd] def replaceRdd(newRdd: RDD[VariantContext]): VariantContextRDD = {
-    copy(rdd = newRdd)
+  protected[rdd] def replaceRdd(newRdd: RDD[VariantContext],
+                                newPartitionMapRdd: Option[RDD[(ReferenceRegion, ReferenceRegion)]] = None): VariantContextRDD = {
+    copy(rdd = newRdd, maybePartitionMapRdd = newPartitionMapRdd)
   }
 
   /**

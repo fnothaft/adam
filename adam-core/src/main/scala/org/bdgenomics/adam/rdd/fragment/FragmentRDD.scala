@@ -59,7 +59,10 @@ private[rdd] object FragmentRDD {
  */
 case class FragmentRDD(rdd: RDD[Fragment],
                        sequences: SequenceDictionary,
-                       recordGroups: RecordGroupDictionary) extends AvroReadGroupGenomicRDD[Fragment, FragmentRDD] {
+                       recordGroups: RecordGroupDictionary,
+                       maybePartitionMapRdd: Option[RDD[(ReferenceRegion, ReferenceRegion)]] = None) extends AvroReadGroupGenomicRDD[Fragment, FragmentRDD] {
+
+  val sortedTrait: SortedTrait = new SortedTrait(isSorted = maybePartitionMapRdd.isDefined, maybePartitionMapRdd)
 
   /**
    * Replaces the underlying RDD with a new RDD.
@@ -68,8 +71,9 @@ case class FragmentRDD(rdd: RDD[Fragment],
    * @return Returns a new FragmentRDD where the underlying RDD has been
    *   swapped out.
    */
-  protected[rdd] def replaceRdd(newRdd: RDD[Fragment]): FragmentRDD = {
-    copy(rdd = newRdd)
+  protected[rdd] def replaceRdd(newRdd: RDD[Fragment],
+                                newPartitionMapRdd: Option[RDD[(ReferenceRegion, ReferenceRegion)]] = None): FragmentRDD = {
+    copy(rdd = newRdd, maybePartitionMapRdd = newPartitionMapRdd)
   }
 
   /**
