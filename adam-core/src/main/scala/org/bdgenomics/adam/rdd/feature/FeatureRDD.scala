@@ -212,9 +212,9 @@ object FeatureRDD {
  */
 case class FeatureRDD(rdd: RDD[Feature],
                       sequences: SequenceDictionary,
-                      maybePartitionMapRdd: Option[RDD[(ReferenceRegion, ReferenceRegion)]] = None) extends AvroGenomicRDD[Feature, FeatureRDD] with Logging {
+                      optPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None) extends AvroGenomicRDD[Feature, FeatureRDD] with Logging {
 
-  val sortedTrait: SortedTrait = new SortedTrait(isSorted = maybePartitionMapRdd.isDefined, maybePartitionMapRdd)
+  val sortedTrait: SortedTrait = new SortedTrait(sorted = optPartitionMap.isDefined, optPartitionMap)
 
   /**
    * Java friendly save function. Automatically detects the output format.
@@ -265,8 +265,8 @@ case class FeatureRDD(rdd: RDD[Feature],
    * @return Returns a new FeatureRDD with the underlying RDD replaced.
    */
   protected[rdd] def replaceRdd(newRdd: RDD[Feature],
-                                newPartitionMapRdd: Option[RDD[(ReferenceRegion, ReferenceRegion)]] = None): FeatureRDD = {
-    copy(rdd = newRdd, maybePartitionMapRdd = newPartitionMapRdd)
+                                newPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None): FeatureRDD = {
+    copy(rdd = newRdd, optPartitionMap = newPartitionMap)
   }
 
   /**

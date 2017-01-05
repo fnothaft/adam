@@ -49,7 +49,8 @@ private[rdd] object GenomicRDD {
    * Replaces file references in a command.
    *
    * @see pipe
-    * @param cmd Command to split and replace references in.
+   *
+   * @param cmd Command to split and replace references in.
    * @param files List of paths to files.
    * @return Returns a split up command string, with file paths subbed in.
    */
@@ -116,87 +117,108 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
     replaceRdd(tFn(rdd))
   }
 
-  val self = this
-  def isSorted = sortedTrait.getIsSorted
-  def partitionMap = sortedTrait.getPartitionMap
-  private def getPartitionMapRDD = sortedTrait.getPartitionMapRDD
+  private[rdd] val sortedTrait: SortedTrait
+  private[rdd] val sorted = sortedTrait.sorted
+  private[rdd] val partitionMap = sortedTrait.partitionMap
 
-  val sortedTrait: SortedTrait
   /**
-   * This Singleton object is the source of all sorted operation
-   * handling in ADAM. This is handled with a singleton to prohibit
-   * class instantiation and duplicate issues.
+   * This case class is the source of all sorted knowledge handling in ADAM.
    */
-  private[rdd] case class SortedTrait(isSorted: Boolean,
-                                 partitionMapRdd: Option[RDD[(ReferenceRegion, ReferenceRegion)]]) extends Serializable {
-    /**
-     * Whether or not the RDD[T] is sorted. This is variable
-     * because in the future, it should be allowed to change without
-     * requiring a completely new U to be created. We take advantage of
-     * this when reading in a sorted GenomicRDD from parquet
-     */
-    //private var isSorted: Boolean = false
-    /**
-     * The partition map for the RDD[T]. We keep this
-     * form because there are operations we perform in which we never
-     * need the partitionMap and therefore never should pay the collect
-     * cost
-     */
-    //private var partitionMapRdd: RDD[(ReferenceRegion, ReferenceRegion)] = null
-    /**
-     * The partition map in Seq form. We keep this lazy
-     * so we can take advantage of the lazy operation and avoid
-     * materializing this in memory if we never use it.
-     */
-    private lazy val partitionMap: Seq[(ReferenceRegion, ReferenceRegion)] = {
-      if(partitionMapRdd.isDefined) partitionMapRdd.get.collect
-      else Seq()
+  private[rdd] case class SortedTrait(sorted: Boolean,
+                                      partitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]]) extends Serializable
+  /**
+   * This repartition method repartitions all data in this.rdd and distributes it as evenly as possible
+   * into the number of partitions provided. The data in this.rdd is already sorted (by ReferenceRegion.start)
+   * so we ensure that it is kept that way as we move data around.
+   *
+   * Data is repartitioned in lists to maintain the sorted order. After the repartition, the lists are placed
+   * in the correct order based on their original sorted order.
+   *
+   * @param partitions the number of partitions to repartition this.rdd into
+   * @return a new SortedGenomicRDDMixIn with the RDD partitioned evenly
+   */
+  private def evenlyRepartition(partitions: Int)(implicit tTag: ClassTag[T]): GenomicRDD[T, U] = {
+    assert(sorted)
+    // the average number of records on each node will help us evenly repartition
+    val average: Double = rdd.count.toDouble / partitions
+    // we already have a sorted rdd, so let's just move the data
+    // but we want to move it in blocks to maintain order
+    // zipWithIndex seems to be the cheapest way to guarantee this
+    val finalPartitionedRDD = rdd.zipWithIndex
+      .mapPartitionsWithIndex((idx, iter) => {
+        // here we get the destination partition number
+        // this will calculate so that each partition has a nearly
+        // equal amount of data on it
+        getBalancedPartitionNumber(iter.map(_.swap), partitionMap.get(idx), average)
+      }, preservesPartitioning = true)
+      .partitionBy(new GenomicPositionRangePartitioner(partitions))
+      .mapPartitions(iter => {
+        // sorting an Iterator doesn't seem straight forward, so we cast to a list
+        val listRepresentation = iter.map(_._2).toList.sortBy(_._2.head._1)
+        // we take advantage of this casting to also get the bounds on the partition
+        // and package that into the RDD so additional computation isn't needed
+        Iterator(((listRepresentation.head._1._1, listRepresentation.last._1._2), listRepresentation.map(f => f._2)))
+      }, preservesPartitioning = true)
+
+    replaceRdd(finalPartitionedRDD.flatMap(f => f._2.flatten.map(f => f._2)), Some(finalPartitionedRDD.keys.collect))
+  }
+
+  /**
+   * Infers the correct reference region for each T given a the bounds of the partition (partitionMap)
+   * and returns the iterator with each T paired with the ReferenceRegion that it represents in that
+   * sorted location. This is important because a T can map to multiple ReferenceRegions.
+   *
+   * @param iter The iterator (that partition's data) of T objects
+   * @param partitionMap the bounds of the partition where _._1 is the lower bound and _._2 is the
+   *                     upper bound
+   * @return An iterator of all T's keyed with the specific ReferenceRegion that the T represents in
+   *         the global sort
+   */
+  private def inferCorrectReferenceRegionsForPartition(iter: Iterator[T], partitionMap: (ReferenceRegion, ReferenceRegion)): Iterator[((ReferenceRegion, T))] = {
+    //converting to a list and making sure that we only look at values that are in our range
+    val listRepresentation = iter.map(f => (getReferenceRegions(f).filter(g => g == partitionMap._1 ||
+      (g.start >= partitionMap._1.start && g.start <= partitionMap._2.end && g.referenceName.compareTo(partitionMap._1.referenceName) >= 0) ||
+      (g.end >= partitionMap._1.start && g.end <= partitionMap._2.end && g.referenceName.compareTo(partitionMap._2.referenceName) <= 0)
+    ).sorted, f)).toList
+    //for now we are using Listbuffers, in the future something else may be better
+    val listBuffer = new ListBuffer[(ReferenceRegion, T)]
+    for (i <- listRepresentation.indices) {
+      //the first record on the partition is always the first to be added, and contains the lower bound (or next value after lower bound)
+      if (i == 0) {
+        listBuffer += ((listRepresentation(i)._1.head, listRepresentation(i)._2))
+      } else {
+        var j = 0
+        val previousReferenceRegion = listBuffer.last._1
+        //we should never run off the end of the list because there will always be at least the same number
+        //of regions as there are T's in this partition.
+        while (List(listRepresentation(i)._1(j), previousReferenceRegion).sorted.head != previousReferenceRegion) {
+          j += 1
+        }
+        listBuffer += ((listRepresentation(i)._1(j), listRepresentation(i)._2))
+      }
     }
+    listBuffer.toIterator
+  }
 
-    def getIsSorted = isSorted
-    def getPartitionMap = partitionMap
-    def getPartitionMapRDD = partitionMapRdd
-
-    /**
-     * This repartition method repartitions all data in this.rdd and distributes it as evenly as possible
-     * into the number of partitions provided. The data in this.rdd is already sorted (by ReferenceRegion.start)
-     * so we ensure that it is kept that way as we move data around.
-     *
-     * Data is repartitioned in lists to maintain the sorted order. After the repartition, the lists are placed
-     * in the correct order based on their original sorted order.
-     *
-     * @param partitions the number of partitions to repartition this.rdd into
-     * @return a new SortedGenomicRDDMixIn with the RDD partitioned evenly
-     */
-    private def evenlyRepartition(partitions: Int)(implicit tTag: ClassTag[T]): GenomicRDD[T, U] = {
-      val collectedPartitionMap = partitionMap
-      // we want to know exactly how much data is on each node
-      val partitionTupleCounts: Array[Int] = rdd.mapPartitions(f => Iterator(f.size)).collect
-      // the average number of records on each node will help us evenly repartition
-      val average: Double = partitionTupleCounts.sum.asInstanceOf[Double] / partitions
-      // we already have a sorted rdd, so let's just move the data
-      // but we want to move it in blocks to maintain order
-      // zipWithIndex seems to be the cheapest way to guarantee this
-      val finalPartitionedRDD = rdd.zipWithIndex
-        .mapPartitionsWithIndex((idx, iter) => {
-          getBalancedPartitionNumber(iter.map(_.swap), collectedPartitionMap(idx), average)
-        }, preservesPartitioning = true)
-        .partitionBy(new GenomicPositionRangePartitioner(partitions)) //should we make a new partitioner for this trait?
-        .mapPartitions(iter => {
-          // trying to avoid iterator access issues
-          val listRepresentation = iter.map(_._2).toList.sortBy(_._2.head._1)
-          Iterator(((listRepresentation.head._1._1, listRepresentation.last._1._2), listRepresentation.map(f => f._2)))
-        }, preservesPartitioning = true)
-
-      replaceRdd(finalPartitionedRDD.flatMap(f => f._2.flatten.map(f => f._2)), Some(finalPartitionedRDD.keys))
-    }
+  /**
+   * This is a function that splits each partition (iter) into lists keyed with the destination
+   * partition number. It preserves the order of the data received and thus is good for moving
+   * around sorted data. Each partition is given the same amount of data.
+   *
+   * @param iter The partition data. (k,v) where k is the index in the RDD and v is T
+   * @param average the average number of tuples on all partitions
+   * @return grouped lists keyed with the destination partition number. These lists maintain
+   *         their original order
+   */
+  private def getBalancedPartitionNumber(iter: Iterator[(Long, T)], partitionMap: (ReferenceRegion, ReferenceRegion),
+                                         average: Double): Iterator[(Int, ((ReferenceRegion, ReferenceRegion), List[(Long, T)]))] = {
 
     /**
      * Infers the correct reference region for each T given a the bounds of the partition (partitionMap)
      * and returns the iterator with each T paired with the ReferenceRegion that it represents in that
      * sorted location. This is important because a T can map to multiple ReferenceRegions.
      *
-     * This version of the method works with getBalancedPartitionNumber
+     * This version of the method works with getBalancedPartitionNumber.
      *
      * @param iter The iterator (that partition's data) with each T zipped
      * @param partitionMap the bounds of the partition where _._1 is the lower bound and _._2 is the
@@ -204,452 +226,43 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
      * @return An iterator of all T's keyed with the specific ReferenceRegion that the T represents in
      *         the global sort, then keyed with the globally zipped position
      */
-    private def inferCorrectReferenceRegionsForPartitionWithZip(iter: Iterator[(Long, T)], partitionMap: (ReferenceRegion, ReferenceRegion)): Iterator[(Long, (ReferenceRegion, T))] = {
+    def inferCorrectReferenceRegionsForPartitionWithZip(iter: Iterator[(Long, T)],
+                                                        partitionMap: (ReferenceRegion, ReferenceRegion)): Iterator[(Long, (ReferenceRegion, T))] = {
       //converting to a list and making sure that we only look at values that are in our range
-      val listRepresentation = iter.toList.map(f => (f._1, (getReferenceRegions(f._2).filter(g => List(g, partitionMap._1).sorted.head == partitionMap._1 || g == partitionMap._1).sorted, f._2)))
+      val listRepresentation = iter.map(f => (f._1, (getReferenceRegions(f._2).filter(g => g == partitionMap._1 ||
+        (g.start >= partitionMap._1.start && g.start <= partitionMap._2.end) ||
+        (g.end >= partitionMap._1.start && g.end <= partitionMap._2.end)
+      ).sorted, f._2))).toList
       //for now we are using Listbuffers, in the future something else may be better
-      val listBuffer = new ListBuffer[(Long, (ReferenceRegion, T))]
+      val listOfInferredData = new ListBuffer[(Long, (ReferenceRegion, T))]
 
       for (i <- listRepresentation.indices) {
-        //the first record on the partition is always the first to be added, and contains the lower bound (or next value after lower bound)
+        // the first record on the partition is always the first to be added,
+        // and contains the lower bound (or next value after lower bound)
         if (i == 0) {
-          listBuffer += ((listRepresentation(i)._1, (listRepresentation(i)._2._1.head, listRepresentation(i)._2._2)))
+          listOfInferredData +=
+            ((listRepresentation(i)._1, (listRepresentation(i)._2._1.head, listRepresentation(i)._2._2)))
         } else {
-          val previousReferenceRegion = listBuffer.last._2._1
+          val previousReferenceRegion = listOfInferredData.last._2._1
           var j = 0
-          //we should never run off the end of the list because there will always be at least the same number
-          //of regions as there are T's in this partition.
-          while (List(listRepresentation(i)._2._1(j), previousReferenceRegion).sorted.head != previousReferenceRegion) {
+          // we should never run off the end of the list because there will
+          // always be at least the same number of regions as there are T's
+          // in this partition. we are finding the next lowest ReferenceRegion
+          // after the previous ReferenceRegion.
+          while (listRepresentation(i)._2._1(j).compareTo(previousReferenceRegion) <= 0) {
             j += 1
           }
-          listBuffer += ((listRepresentation(i)._1, (listRepresentation(i)._2._1(j), listRepresentation(i)._2._2)))
+          listOfInferredData +=
+            ((listRepresentation(i)._1, (listRepresentation(i)._2._1(j), listRepresentation(i)._2._2)))
         }
       }
-      listBuffer.toIterator
+      listOfInferredData.toIterator
     }
 
-    /**
-     * Infers the correct reference region for each T given a the bounds of the partition (partitionMap)
-     * and returns the iterator with each T paired with the ReferenceRegion that it represents in that
-     * sorted location. This is important because a T can map to multiple ReferenceRegions.
-     *
-     * @param iter The iterator (that partition's data) of T objects
-     * @param partitionMap the bounds of the partition where _._1 is the lower bound and _._2 is the
-     *                     upper bound
-     * @return An iterator of all T's keyed with the specific ReferenceRegion that the T represents in
-     *         the global sort
-     */
-    def inferCorrectReferenceRegionsForPartition(iter: Iterator[T], partitionMap: (ReferenceRegion, ReferenceRegion)): Iterator[((ReferenceRegion, T))] = {
-      val x = iter.toList
-      //converting to a list and making sure that we only look at values that are in our range
-      val listRepresentation = x.map(f => (getReferenceRegions(f).filter(g => g == partitionMap._1 ||
-        (g.start >= partitionMap._1.start && g.start <= partitionMap._2.end && g.referenceName.compareTo(partitionMap._1.referenceName) >= 0) ||
-        (g.end >= partitionMap._1.start && g.end <= partitionMap._2.end && g.referenceName.compareTo(partitionMap._2.referenceName) <= 0)
-      ).sorted, f))
-      //for now we are using Listbuffers, in the future something else may be better
-      val listBuffer = new ListBuffer[(ReferenceRegion, T)]
-      try {
-      for (i <- listRepresentation.indices) {
-        //the first record on the partition is always the first to be added, and contains the lower bound (or next value after lower bound)
-        var j = 0
-        if (i == 0) {
-
-            listBuffer += ((listRepresentation(i)._1(j), listRepresentation(i)._2))
-
-          j += 1
-        } else {
-          val previousReferenceRegion = listBuffer.last._1
-          //we should never run off the end of the list because there will always be at least the same number
-          //of regions as there are T's in this partition.
-          while (List(listRepresentation(i)._1(j), previousReferenceRegion).sorted.head != previousReferenceRegion) {
-            j += 1
-          }
-          listBuffer += ((listRepresentation(i)._1(j), listRepresentation(i)._2))
-        }
-      }
-      } catch {
-        case e: Exception => {
-          println(partitionMap)
-          println(x.map(f => (getReferenceRegions(f), f)).sortBy(_._1.sorted.head).head)
-          println(listRepresentation.map(_._1))
-          e.printStackTrace()
-          sys.exit
-        }
-      }
-      listBuffer.toIterator
-    }
-
-    /**
-     * This is a function that splits each partition (iter) into lists keyed with the destination
-     * partition number. It preserves the order of the data received and thus is good for moving
-     * around sorted data. Each partition is given the same amount of data.
-     *
-     * @param iter The partition data. (k,v) where k is the index in the RDD and v is T
-     * @param average the average number of tuples on all partitions
-     * @return grouped lists keyed with the destination partition number. These lists maintain
-     *         their original order
-     */
-    def getBalancedPartitionNumber(iter: Iterator[(Long, T)], partitionMap: (ReferenceRegion, ReferenceRegion), average: Double): Iterator[(Int, ((ReferenceRegion, ReferenceRegion), List[(Long, T)]))] = {
-      // converting to list so we can package data that is going to the same node with a groupBy
-      val correctPartition = inferCorrectReferenceRegionsForPartitionWithZip(iter, partitionMap)
-      correctPartition.map(f => ((f._1 / average).toInt, f)).toList.groupBy(_._1).mapValues(f => f.map(_._2))
-        .map(f => (f._1, ((f._2.head._2._1, f._2.last._2._1), f._2.map(g => (g._1, g._2._2))))).toIterator
-    }
-
-    /**
-     * The purpose of this method is to co-partition two RDDs according to their ReferenceRegions.
-     * It is useful during ShuffleRegionJoins because it guarantees no extra shuffling to get correct
-     * and complete region joins. RDD is already sorted coming in, so we take precaution to keep it
-     * that way.
-     *
-     * The simplest way of sending data to the correct node is to just send everything that has a
-     * start position falls within the boundaries
-     *
-     * This is best used under the condition that (repeatedly) repartitioning is more expensive than
-     * calculating the proper location of the records of this.rdd. It requires a pass through the
-     * co-located RDD to get the correct partition(s) for each record. It will assign a record to
-     * multiple partitions if necessary.
-     *
-     * @param rddToCoPartitionWith the rdd that this.rdd will be copartitioned with
-     * @return returns the newly repartitioned rdd that is co-partitioned with rddToCoPartitionWith
-     */
-    def coPartitionByGenomicRegion[X, Y <: GenomicRDD[X, Y]](rddToCoPartitionWith: GenomicRDD[X, Y])(implicit tTag: ClassTag[T], xTag: ClassTag[X]): U = {
-      require(rddToCoPartitionWith.isSorted)
-      //the partition map to co-partition to
-      val collectedDestinationPartitionMap = rddToCoPartitionWith.partitionMap
-      //the partition map for <this>, used to infer the correct ReferenceRegion for every T
-      val collectedSourcePartitionMap = partitionMap
-      //number of partitions we will have after repartition
-      val partitions = collectedDestinationPartitionMap.length
-      // there are a lot of parts here, but in the end we get a repartitioned RDD where every
-      // T is copartitioned with the destination ReferenceRegions that it may join to
-      val finalPartitionedRDD = rdd.mapPartitionsWithIndex((idx, iter) => {
-        // First, we get the ReferenceRegion for every T
-        val listRepresentation = inferCorrectReferenceRegionsForPartition(iter, collectedSourcePartitionMap(idx)).toList
-        // Then we use this loop to key each T with the partition index(es) it belongs to
-        for (partition <- collectedDestinationPartitionMap.zipWithIndex) yield {
-          // The key becomes the destination partition
-          // The value is a list of (ReferenceRegion, T) that will end up in this partition
-          (partition._2, listRepresentation.filter(f => (f._1.start >= partition._1._1.start && f._1.start <= partition._1._2.end) ||
-            (f._1.end >= partition._1._1.start && f._1.end <= partition._1._2.end)))
-        }
-      }.toIterator.filter(_._2.nonEmpty), preservesPartitioning = true)
-        .partitionBy(new GenomicPositionRangePartitioner(partitions))
-        // Here, we sort by the first ReferenceRegion in every list, then flatten
-        .mapPartitions(iter => {
-          iter.toList.sortBy(_._2.head._1).flatMap(_._2).toIterator
-        }, preservesPartitioning = true)
-
-      // here we get the new partition map
-      // for now, we can't use the left RDD's partition map because
-      // the bounds don't always include the values we copartitioned with.
-      // in other words, joins allow data that starts before a given
-      // ReferenceRegion to combine given they overlap.
-      // this means that we cannot use the bounds of the left RDD because
-      // they may not neccessarily be the bounds of the right RDD
-      val newPartitionMap = finalPartitionedRDD.mapPartitions(iter => {
-        getPartitionMapBoundsFromRdd(iter)
-      }, preservesPartitioning = true)
-
-      replaceRdd(finalPartitionedRDD.values, rddToCoPartitionWith.getPartitionMapRDD)
-    }
-
-    /**
-     * All shuffleRegionJoins share the same code to prepare, so this is a helper function that prepares all the data
-     * for joining. It starts by repartitioning (if needed) the leftRdd, which is <this>. Next, it copartitions the
-     * right Rdd with it. Before returning the RDDs, it puts them in the format that the joins need. The ReferenceRegion
-     * is inferred for each T/X.
-     *
-     * @param leftRdd Usually <this>, unless a repartition had to occur. The repartition only happens in cases where
-     *                the number of partitions requested for the join differs from the <this.partitions>.
-     * @param genomicRdd The RDD to join to.
-     * @return A tuple containing both RDDs ready to join. _._1 is the leftRdd and _._2 is the rightRdd
-     */
-    private def prepareForShuffleRegionJoin[X, Y <: GenomicRDD[X, Y], Z <: GenomicRDD[(T, X), Z]](leftRdd: GenomicRDD[T, U], genomicRdd: GenomicRDD[X, Y])(implicit tTag: ClassTag[T], xTag: ClassTag[X]): ((RDD[((ReferenceRegion, Int), T)], RDD[((ReferenceRegion, Int), X)])) = {
-      assert(leftRdd.isSorted)
-      val rightRdd: GenomicRDD[X, Y] =
-        // if both are sorted, great! let's just co-partition the data properly
-        if (genomicRdd.isSorted) {
-          genomicRdd.sortedTrait.coPartitionByGenomicRegion(leftRdd)
-        } // otherwise we will co-partition then sort each partition locally
-        else {
-          genomicRdd.coPartitionByGenomicRegion(leftRdd)
-        }
-      assert(rightRdd.isSorted)
-
-      // Partition Map for the left side
-      val leftPmap = leftRdd.partitionMap
-      val leftRddReadyToJoin = leftRdd.rdd.mapPartitionsWithIndex((idx, iter) => {
-        leftRdd.sortedTrait.inferCorrectReferenceRegionsForPartition(iter, leftPmap(idx)).map(f => ((f._1, idx), f._2))
-      })
-
-      // Partition map for the right side
-      val rightPmap = leftRdd.partitionMap
-      val rightRddReadyToJoin = rightRdd.rdd.mapPartitionsWithIndex((idx, iter) => {
-        rightRdd.sortedTrait.inferCorrectReferenceRegionsForPartition(iter, rightPmap(idx)).map(f => ((f._1, idx), f._2))
-      })
-      // Co-partitioned and properly keyed with ReferenceRegions and partition index
-      (leftRddReadyToJoin, rightRddReadyToJoin)
-    }
-
-    /**
-     * Performs a sort-merge inner join between this RDD and another RDD.
-     *
-     * In a sort-merge join, both RDDs are co-partitioned and sorted. The
-     * partitions are then zipped, and we do a merge join on each partition.
-     * The key equality function used for this join is the reference region
-     * overlap function. Since this is an inner join, all values who do not
-     * overlap a value from the other RDD are dropped.
-     *
-     * @param genomicRdd The right RDD in the join.
-     * @param optPartitions An Option to give the number of partitions you would like
-     * @return Returns a new genomic RDD containing all pairs of keys that
-     *   overlapped in the genomic coordinate space.
-     */
-    def shuffleRegionJoin[X, Y <: GenomicRDD[X, Y], Z <: GenomicRDD[(T, X), Z]](genomicRdd: GenomicRDD[X, Y],
-                                                                                optPartitions: Option[Int] = None)(
-                                                                                  implicit tTag: ClassTag[T], xTag: ClassTag[X]): GenomicRDD[(T, X), Z] = {
-      // did the user provide a set partition count?
-      // if no, we will avoid repartitioning the left RDD
-      val partitions = optPartitions.getOrElse(rdd.partitions.length)
-      val leftRdd: GenomicRDD[T, U] = if (partitions != rdd.partitions.length) evenlyRepartition(partitions) else self
-      // 
-      val preparedRdds = prepareForShuffleRegionJoin(leftRdd, genomicRdd)
-      val leftRddReadyToJoin = preparedRdds._1
-      val rightRddReadyToJoin = preparedRdds._2
-      // did we co-partition the data into the same number of partitions?
-      assert(leftRddReadyToJoin.partitions.length == rightRddReadyToJoin.partitions.length)
-
-      // what sequences do we wind up with at the end?
-      val endSequences = sequences ++ genomicRdd.sequences
-
-      GenericGenomicRDD[(T, X)](
-        InnerShuffleRegionJoin[T, X](endSequences, 
-          endSequences.records.map(_.length).sum / partitions, rdd.context)
-          .joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadyToJoin),
-        endSequences,
-        kv => {
-          getReferenceRegions(kv._1) ++ genomicRdd.getReferenceRegions(kv._2)
-        }).asInstanceOf[GenomicRDD[(T, X), Z]]
-    }
-
-    /**
-     * Performs a sort-merge inner join between this RDD and another RDD,
-     * followed by a groupBy on the left value.
-     *
-     * In a sort-merge join, both RDDs are co-partitioned and sorted. The
-     * partitions are then zipped, and we do a merge join on each partition.
-     * The key equality function used for this join is the reference region
-     * overlap function. Since this is an inner join, all values who do not
-     * overlap a value from the other RDD are dropped. In the same operation,
-     * we group all values by the left item in the RDD.
-     *
-     * @param genomicRdd The right RDD in the join.
-     * @return Returns a new genomic RDD containing all pairs of keys that
-     *   overlapped in the genomic coordinate space, grouped together by
-     *   the value they overlapped in the left RDD..
-     */
-    def shuffleRegionJoinAndGroupByLeft[X, Y <: GenomicRDD[X, Y], Z <: GenomicRDD[(T, Iterable[X]), Z]](genomicRdd: GenomicRDD[X, Y],
-                                                                                                        optPartitions: Option[Int] = None)(implicit tTag: ClassTag[T], xTag: ClassTag[X]): GenomicRDD[(T, Iterable[X]), Z] = {
-      // did the user provide a set partition count?
-      // if no, we will avoid repartitioning this one
-      val partitions = optPartitions.getOrElse(rdd.partitions.length)
-      val leftRdd: GenomicRDD[T, U] = if (partitions != rdd.partitions.length) evenlyRepartition(partitions) else self
-      val preparedRdds = prepareForShuffleRegionJoin(leftRdd, genomicRdd)
-      val leftRddReadyToJoin = preparedRdds._1
-      val rightRddReadyToJoin = preparedRdds._2
-      assert(leftRddReadyToJoin.partitions.length == rightRddReadyToJoin.partitions.length)
-
-      // what sequences do we wind up with at the end?
-      val endSequences = sequences ++ genomicRdd.sequences
-
-      assert(leftRddReadyToJoin.partitions.length == rightRddReadyToJoin.partitions.length)
-
-      // We do a simple local group by at the end of this join
-      // local group by works because each T on the left only occurs once per ReferenceRegion
-      val joinedRDD = InnerShuffleRegionJoin[T, X](endSequences,
-        endSequences.records.map(_.length).sum / partitions,
-        rdd.context).joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadyToJoin).mapPartitionsWithIndex((idx, iter) => {
-          if (iter.isEmpty) Iterator()
-          else {
-            val listRepresentation = iter.toList
-            listRepresentation.groupBy(_._1).mapValues(_.map(_._2).toIterable).toIterator
-          }
-        }, preservesPartitioning = true)
-
-      GenericGenomicRDD[(T, Iterable[X])](
-        joinedRDD,
-        endSequences,
-        kv => {
-          (kv._2.flatMap(v => genomicRdd.getReferenceRegions(v)) ++
-            getReferenceRegions(kv._1)).toSeq
-        }).asInstanceOf[GenomicRDD[(T, Iterable[X]), Z]]
-    }
-
-    /**
-     * Performs a sort-merge right outer join between this RDD and another RDD,
-     * followed by a groupBy on the left value, if not null.
-     *
-     * In a sort-merge join, both RDDs are co-partitioned and sorted. The
-     * partitions are then zipped, and we do a merge join on each partition.
-     * The key equality function used for this join is the reference region
-     * overlap function. In the same operation, we group all values by the left
-     * item in the RDD. Since this is a right outer join, all values from the
-     * right RDD who did not overlap a value from the left RDD are placed into
-     * a length-1 Iterable with a `None` key.
-     *
-     * @param genomicRdd The right RDD in the join.
-     * @return Returns a new genomic RDD containing all pairs of keys that
-     *   overlapped in the genomic coordinate space, grouped together by
-     *   the value they overlapped in the left RDD, and all values from the
-     *   right RDD that did not overlap an item in the left RDD.
-     */
-    def rightOuterShuffleRegionJoinAndGroupByLeft[X, Y <: GenomicRDD[X, Y], Z <: GenomicRDD[(Option[T], Iterable[X]), Z]](genomicRdd: GenomicRDD[X, Y],
-                                                                                                                          optPartitions: Option[Int] = None)(
-                                                                                                                            implicit tTag: ClassTag[T], xTag: ClassTag[X]): GenomicRDD[(Option[T], Iterable[X]), Z] = {
-      // did the user provide a set partition count?
-      // if no, we will avoid repartitioning this one
-      val partitions = optPartitions.getOrElse(rdd.partitions.length)
-      val leftRdd: GenomicRDD[T, U] = if (partitions != rdd.partitions.length) evenlyRepartition(partitions) else self
-      val preparedRdds = prepareForShuffleRegionJoin(leftRdd, genomicRdd)
-      val leftRddReadyToJoin = preparedRdds._1
-      val rightRddReadyToJoin = preparedRdds._2
-      assert(leftRddReadyToJoin.partitions.length == rightRddReadyToJoin.partitions.length)
-
-      // what sequences do we wind up with at the end?
-      val endSequences = sequences ++ genomicRdd.sequences
-
-      GenericGenomicRDD[(Option[T], Iterable[X])](RightOuterShuffleRegionJoinAndGroupByLeft[T, X](endSequences,
-        endSequences.records.map(_.length).sum / partitions,
-        rdd.context).joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadyToJoin),
-        endSequences,
-        kv => {
-          (kv._2.flatMap(v => genomicRdd.getReferenceRegions(v)) ++
-            kv._1.toSeq.flatMap(v => getReferenceRegions(v))).toSeq
-        }).asInstanceOf[GenomicRDD[(Option[T], Iterable[X]), Z]]
-    }
-
-    /**
-     * Performs a sort-merge full outer join between this RDD and another RDD.
-     *
-     * In a sort-merge join, both RDDs are co-partitioned and sorted. The
-     * partitions are then zipped, and we do a merge join on each partition.
-     * The key equality function used for this join is the reference region
-     * overlap function. Since this is a full outer join, if a value from either
-     * RDD does not overlap any values in the other RDD, it will be paired with
-     * a `None` in the product of the join.
-     *
-     * @param genomicRdd The right RDD in the join.
-     * @return Returns a new genomic RDD containing all pairs of keys that
-     *   overlapped in the genomic coordinate space, and values that did not
-     *   overlap will be paired with a `None`.
-     */
-    def fullOuterShuffleRegionJoin[X, Y <: GenomicRDD[X, Y], Z <: GenomicRDD[(Option[T], Option[X]), Z]](genomicRdd: GenomicRDD[X, Y],
-                                                                                                         optPartitions: Option[Int] = None)(
-                                                                                                           implicit tTag: ClassTag[T], xTag: ClassTag[X]): GenomicRDD[(Option[T], Option[X]), Z] = {
-      // did the user provide a set partition count?
-      // if no, we will avoid repartitioning this one
-      val partitions = optPartitions.getOrElse(rdd.partitions.length)
-      val leftRdd: GenomicRDD[T, U] = if (partitions != rdd.partitions.length) evenlyRepartition(partitions) else self
-      val preparedRdds = prepareForShuffleRegionJoin(leftRdd, genomicRdd)
-      val leftRddReadyToJoin = preparedRdds._1
-      val rightRddReadyToJoin = preparedRdds._2
-      assert(leftRddReadyToJoin.partitions.length == rightRddReadyToJoin.partitions.length)
-
-      // what sequences do we wind up with at the end?
-      val endSequences = sequences ++ genomicRdd.sequences
-
-      GenericGenomicRDD[(Option[T], Option[X])](FullOuterShuffleRegionJoin[T, X](endSequences,
-        endSequences.records.map(_.length).sum / partitions,
-        rdd.context).joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadyToJoin),
-        endSequences,
-        kv => {
-          Seq(kv._2.map(v => genomicRdd.getReferenceRegions(v)),
-            kv._1.map(v => getReferenceRegions(v))).flatten.flatten
-        }).asInstanceOf[GenomicRDD[(Option[T], Option[X]), Z]]
-    }
-
-    /**
-     * Performs a sort-merge left outer join between this RDD and another RDD.
-     *
-     * In a sort-merge join, both RDDs are co-partitioned and sorted. The
-     * partitions are then zipped, and we do a merge join on each partition.
-     * The key equality function used for this join is the reference region
-     * overlap function. Since this is a left outer join, all values in the
-     * right RDD that do not overlap a value from the left RDD are dropped.
-     * If a value from the left RDD does not overlap any values in the right
-     * RDD, it will be paired with a `None` in the product of the join.
-     *
-     * @param genomicRdd The right RDD in the join.
-     * @return Returns a new genomic RDD containing all pairs of keys that
-     *   overlapped in the genomic coordinate space, and all keys from the
-     *   left RDD that did not overlap a key in the right RDD.
-     */
-    def leftOuterShuffleRegionJoin[X, Y <: GenomicRDD[X, Y], Z <: GenomicRDD[(T, Option[X]), Z]](genomicRdd: GenomicRDD[X, Y],
-                                                                                                 optPartitions: Option[Int] = None)(
-                                                                                                   implicit tTag: ClassTag[T], xTag: ClassTag[X]): GenomicRDD[(T, Option[X]), Z] = {
-      // did the user provide a set partition count?
-      // if no, we will avoid repartitioning this one
-      val partitions = optPartitions.getOrElse(rdd.partitions.length)
-      val leftRdd: GenomicRDD[T, U] = if (partitions != rdd.partitions.length) evenlyRepartition(partitions) else self
-      val preparedRdds = prepareForShuffleRegionJoin(leftRdd, genomicRdd)
-      val leftRddReadyToJoin = preparedRdds._1
-      val rightRddReadyToJoin = preparedRdds._2
-      assert(leftRddReadyToJoin.partitions.length == rightRddReadyToJoin.partitions.length)
-
-      // what sequences do we wind up with at the end?
-      val endSequences = sequences ++ genomicRdd.sequences
-
-      GenericGenomicRDD[(T, Option[X])](LeftOuterShuffleRegionJoin[T, X](endSequences,
-        endSequences.records.map(_.length).sum / partitions,
-        rdd.context).joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadyToJoin),
-        endSequences,
-        kv => {
-          Seq(kv._2.map(v => genomicRdd.getReferenceRegions(v))).flatten.flatten ++
-            getReferenceRegions(kv._1)
-        }).asInstanceOf[GenomicRDD[(T, Option[X]), Z]]
-    }
-
-    /**
-     * Performs a sort-merge right outer join between this RDD and another RDD.
-     *
-     * In a sort-merge join, both RDDs are co-partitioned and sorted. The
-     * partitions are then zipped, and we do a merge join on each partition.
-     * The key equality function used for this join is the reference region
-     * overlap function. Since this is a right outer join, all values in the
-     * left RDD that do not overlap a value from the right RDD are dropped.
-     * If a value from the right RDD does not overlap any values in the left
-     * RDD, it will be paired with a `None` in the product of the join.
-     *
-     * @param genomicRdd The right RDD in the join.
-     * @return Returns a new genomic RDD containing all pairs of keys that
-     *   overlapped in the genomic coordinate space, and all keys from the
-     *   right RDD that did not overlap a key in the left RDD.
-     */
-    def rightOuterShuffleRegionJoin[X, Y <: GenomicRDD[X, Y], Z <: GenomicRDD[(Option[T], X), Z]](genomicRdd: GenomicRDD[X, Y],
-                                                                                                  optPartitions: Option[Int] = None)(
-                                                                                                    implicit tTag: ClassTag[T], xTag: ClassTag[X]): GenomicRDD[(Option[T], X), Z] = {
-      // did the user provide a set partition count?
-      // if no, we will avoid repartitioning this one
-      val partitions = optPartitions.getOrElse(rdd.partitions.length)
-      val leftRdd: GenomicRDD[T, U] = if (partitions != rdd.partitions.length) evenlyRepartition(partitions) else self
-      val preparedRdds = prepareForShuffleRegionJoin(leftRdd, genomicRdd)
-      val leftRddReadyToJoin = preparedRdds._1
-      val rightRddReadyToJoin = preparedRdds._2
-      assert(leftRddReadyToJoin.partitions.length == rightRddReadyToJoin.partitions.length)
-
-      // what sequences do we wind up with at the end?
-      val endSequences = sequences ++ genomicRdd.sequences
-
-      GenericGenomicRDD[(Option[T], X)](RightOuterShuffleRegionJoin[T, X](endSequences,
-        endSequences.records.map(_.length).sum / partitions,
-        rdd.context).joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadyToJoin),
-        endSequences,
-        kv => {
-          Seq(kv._1.map(v => getReferenceRegions(v))).flatten.flatten ++
-            genomicRdd.getReferenceRegions(kv._2)
-        }).asInstanceOf[GenomicRDD[(Option[T], X), Z]]
-    }
+    // converting to list so we can package data that is going to the same node with a groupBy
+    val correctPartition = inferCorrectReferenceRegionsForPartitionWithZip(iter, partitionMap)
+    correctPartition.map(f => ((f._1 / average).toInt, f)).toList.groupBy(_._1).mapValues(f => f.map(_._2))
+      .map(f => (f._1, ((f._2.head._2._1, f._2.last._2._1), f._2.map(g => (g._1, g._2._2))))).toIterator
   }
 
   /**
@@ -657,7 +270,8 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
    * by index.
    *
    * @return Returns a new RDD containing sorted data.
-    * @note Does not support data that is unaligned or where objects align to
+   *
+   * @note Does not support data that is unaligned or where objects align to
    *   multiple positions.
    * @see sortLexicographically
    */
@@ -687,7 +301,8 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
    * lexicographically.
    *
    * @return Returns a new RDD containing sorted data.
-    * @note Does not support data that is unaligned or where objects align to
+   *
+   * @note Does not support data that is unaligned or where objects align to
    *   multiple positions.
    * @see sort
    */
@@ -725,6 +340,7 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
    *   in the environment for the newly created process. Default is empty.
    * @param flankSize Number of bases to flank each command invocation by.
    * @return Returns a new GenomicRDD of type Y.
+   *
    * @tparam X The type of the record created by the piped command.
    * @tparam Y A GenomicRDD containing X's.
    * @tparam V The InFormatter to use for formatting the data being piped to the
@@ -865,11 +481,11 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
     }
   }
 
-  protected[rdd] def replaceRdd(newRdd: RDD[T], newPartitionMapRdd: Option[RDD[(ReferenceRegion, ReferenceRegion)]] = None): U
+  protected def replaceRdd(newRdd: RDD[T], newPartitionMapRdd: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None): U
 
-  protected[rdd] def getReferenceRegions(elem: T): Seq[ReferenceRegion]
+  protected def getReferenceRegions(elem: T): Seq[ReferenceRegion]
 
-  protected[rdd] def flattenRddByRegions(): RDD[(ReferenceRegion, T)] = {
+  protected def flattenRddByRegions(): RDD[(ReferenceRegion, T)] = {
     rdd.flatMap(elem => {
       getReferenceRegions(elem).map(r => (r, elem))
     })
@@ -891,7 +507,7 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
 
       // do any of these overlap with our query region?
       regions.exists(_.overlaps(query))
-    }), getPartitionMapRDD)
+    }), partitionMap)
   }
 
   /**
@@ -909,7 +525,7 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
       querys.map(query => {
         regions.exists(_.overlaps(query))
       }).fold(false)((a, b) => a || b)
-    }), getPartitionMapRDD)
+    }), partitionMap)
   }
 
   /**
@@ -1059,6 +675,50 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
   }
 
   /**
+   * All shuffleRegionJoins share the same code to prepare, so this is a helper
+   * function that prepares all the data for joining. It starts by repartitioning
+   * (if needed) the leftRdd. Next, it copartitions the right Rdd with it. Before
+   * returning the RDDs, it puts them in the format that the joins need. The
+   * ReferenceRegion is inferred for each individual record in the RDD.
+   *
+   * @param leftRdd Usually the object that invoked the function, unless a
+   *                repartition had to occur. The repartition only happens in cases where
+   *                the number of partitions requested for the join differs from the
+   *                number of partitions.
+   * @param genomicRdd The RDD to join to.
+   * @return A tuple containing both RDDs ready to join. _._1 is the leftRdd and _._2 is the rightRdd
+   */
+  private def prepareForShuffleRegionJoin[X, Y <: GenomicRDD[X, Y], Z <: GenomicRDD[(T, X), Z]](leftRdd: GenomicRDD[T, U],
+                                                                                                genomicRdd: GenomicRDD[X, Y])(
+                                                                                                  implicit tTag: ClassTag[T],
+                                                                                                  xTag: ClassTag[X]): ((RDD[((ReferenceRegion, Int), T)], RDD[((ReferenceRegion, Int), X)])) = {
+    assert(leftRdd.sorted)
+    val rightRdd: GenomicRDD[X, Y] =
+      // if both are sorted, great! let's just co-partition the data properly
+      if (genomicRdd.sorted) {
+        genomicRdd.copartitionByGenomicRegion(leftRdd)
+        // otherwise we will co-partition then sort each partition locally
+      } else {
+        genomicRdd.copartitionByGenomicRegion(leftRdd)
+      }
+    assert(rightRdd.sorted)
+
+    // Partition Map for the left side
+    val leftPmap = leftRdd.partitionMap.get
+    val leftRddReadyToJoin = leftRdd.rdd.mapPartitionsWithIndex((idx, iter) => {
+      leftRdd.inferCorrectReferenceRegionsForPartition(iter, leftPmap(idx)).map(f => ((f._1, idx), f._2))
+    })
+
+    // Partition map for the right side
+    val rightPmap = leftRdd.partitionMap.get
+    val rightRddReadyToJoin = rightRdd.rdd.mapPartitionsWithIndex((idx, iter) => {
+      rightRdd.inferCorrectReferenceRegionsForPartition(iter, rightPmap(idx)).map(f => ((f._1, idx), f._2))
+    })
+    // Co-partitioned and properly keyed with ReferenceRegions and partition index
+    (leftRddReadyToJoin, rightRddReadyToJoin)
+  }
+
+  /**
    * Performs a sort-merge inner join between this RDD and another RDD.
    *
    * In a sort-merge join, both RDDs are co-partitioned and sorted. The
@@ -1071,15 +731,39 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
    * @return Returns a new genomic RDD containing all pairs of keys that
    *   overlapped in the genomic coordinate space.
    */
-  def shuffleRegionJoin[X, Y <: GenomicRDD[X, Y], Z <: GenomicRDD[(T, X), Z]](genomicRdd: GenomicRDD[X, Y],
-                                                                              optPartitions: Option[Int] = None)(
-                                                                                implicit tTag: ClassTag[T], xTag: ClassTag[X]): GenomicRDD[(T, X), Z] = {
+  def shuffleRegionJoin[X, Y <: GenomicRDD[X, Y], Z <: GenomicRDD[(T, X), Z]](
+    genomicRdd: GenomicRDD[X, Y],
+    optPartitions: Option[Int] = None)(
+      implicit tTag: ClassTag[T], xTag: ClassTag[X]): GenomicRDD[(T, X), Z] = {
+
     // did the user provide a set partition count?
     // if no, take the max partition count from our rdds
     val partitions = optPartitions.getOrElse(Seq(rdd.partitions.length,
       genomicRdd.rdd.partitions.length).max)
-    val leftRdd = if(isSorted) this else repartitionAndSortByGenomicCoordinate(partitions)
-    leftRdd.sortedTrait.shuffleRegionJoin(genomicRdd, optPartitions)
+
+    val leftRdd: GenomicRDD[T, U] = if (sorted) {
+      if (partitions != rdd.partitions.length) evenlyRepartition(partitions) else this
+    } else {
+      repartitionAndSort(partitions)
+    }
+
+    val preparedRdds = prepareForShuffleRegionJoin(leftRdd, genomicRdd)
+    val leftRddReadyToJoin = preparedRdds._1
+    val rightRddReadyToJoin = preparedRdds._2
+    // did we co-partition the data into the same number of partitions?
+    assert(leftRddReadyToJoin.partitions.length == rightRddReadyToJoin.partitions.length)
+
+    // what sequences do we wind up with at the end?
+    val endSequences = sequences ++ genomicRdd.sequences
+
+    GenericGenomicRDD[(T, X)](
+      InnerShuffleRegionJoin[T, X](endSequences,
+        endSequences.records.map(_.length).sum / partitions, rdd.context)
+        .joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadyToJoin),
+      endSequences,
+      kv => {
+        getReferenceRegions(kv._1) ++ genomicRdd.getReferenceRegions(kv._2)
+      }).asInstanceOf[GenomicRDD[(T, X), Z]]
   }
 
   /**
@@ -1098,17 +782,36 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
    *   overlapped in the genomic coordinate space, and all keys from the
    *   right RDD that did not overlap a key in the left RDD.
    */
-  def rightOuterShuffleRegionJoin[X, Y <: GenomicRDD[X, Y], Z <: GenomicRDD[(Option[T], X), Z]](genomicRdd: GenomicRDD[X, Y],
-                                                                                                optPartitions: Option[Int] = None)(
-                                                                                                  implicit tTag: ClassTag[T], xTag: ClassTag[X]): GenomicRDD[(Option[T], X), Z] = {
+  def rightOuterShuffleRegionJoin[X, Y <: GenomicRDD[X, Y], Z <: GenomicRDD[(Option[T], X), Z]](
+    genomicRdd: GenomicRDD[X, Y],
+    optPartitions: Option[Int] = None)(
+      implicit tTag: ClassTag[T], xTag: ClassTag[X]): GenomicRDD[(Option[T], X), Z] = {
 
     // did the user provide a set partition count?
     // if no, take the max partition count from our rdds
     val partitions = optPartitions.getOrElse(Seq(rdd.partitions.length,
       genomicRdd.rdd.partitions.length).max)
 
-    val leftRdd = if(isSorted) this else repartitionAndSortByGenomicCoordinate(partitions)
-    leftRdd.sortedTrait.rightOuterShuffleRegionJoin(genomicRdd, optPartitions)
+    val leftRdd: GenomicRDD[T, U] = if (sorted) {
+      if (partitions != rdd.partitions.length) evenlyRepartition(partitions) else this
+    } else repartitionAndSort(partitions)
+
+    val preparedRdds = prepareForShuffleRegionJoin(leftRdd, genomicRdd)
+    val leftRddReadyToJoin = preparedRdds._1
+    val rightRddReadyToJoin = preparedRdds._2
+    assert(leftRddReadyToJoin.partitions.length == rightRddReadyToJoin.partitions.length)
+
+    // what sequences do we wind up with at the end?
+    val endSequences = sequences ++ genomicRdd.sequences
+
+    GenericGenomicRDD[(Option[T], X)](RightOuterShuffleRegionJoin[T, X](endSequences,
+      endSequences.records.map(_.length).sum / partitions,
+      rdd.context).joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadyToJoin),
+      endSequences,
+      kv => {
+        Seq(kv._1.map(v => getReferenceRegions(v))).flatten.flatten ++
+          genomicRdd.getReferenceRegions(kv._2)
+      }).asInstanceOf[GenomicRDD[(Option[T], X), Z]]
   }
 
   /**
@@ -1127,16 +830,38 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
    *   overlapped in the genomic coordinate space, and all keys from the
    *   left RDD that did not overlap a key in the right RDD.
    */
-  def leftOuterShuffleRegionJoin[X, Y <: GenomicRDD[X, Y], Z <: GenomicRDD[(T, Option[X]), Z]](genomicRdd: GenomicRDD[X, Y],
-                                                                                               optPartitions: Option[Int] = None)(
-                                                                                                 implicit tTag: ClassTag[T], xTag: ClassTag[X]): GenomicRDD[(T, Option[X]), Z] = {
+  def leftOuterShuffleRegionJoin[X, Y <: GenomicRDD[X, Y], Z <: GenomicRDD[(T, Option[X]), Z]](
+    genomicRdd: GenomicRDD[X, Y],
+    optPartitions: Option[Int] = None)(
+      implicit tTag: ClassTag[T], xTag: ClassTag[X]): GenomicRDD[(T, Option[X]), Z] = {
+
     // did the user provide a set partition count?
     // if no, take the max partition count from our rdds
     val partitions = optPartitions.getOrElse(Seq(rdd.partitions.length,
       genomicRdd.rdd.partitions.length).max)
 
-    val leftRdd = if(isSorted) this else repartitionAndSortByGenomicCoordinate(partitions)
-    leftRdd.sortedTrait.leftOuterShuffleRegionJoin(genomicRdd, optPartitions)
+    val leftRdd: GenomicRDD[T, U] = if (sorted) {
+      if (partitions != rdd.partitions.length) evenlyRepartition(partitions) else this
+    } else {
+      repartitionAndSort(partitions)
+    }
+
+    val preparedRdds = prepareForShuffleRegionJoin(leftRdd, genomicRdd)
+    val leftRddReadyToJoin = preparedRdds._1
+    val rightRddReadyToJoin = preparedRdds._2
+    assert(leftRddReadyToJoin.partitions.length == rightRddReadyToJoin.partitions.length)
+
+    // what sequences do we wind up with at the end?
+    val endSequences = sequences ++ genomicRdd.sequences
+
+    GenericGenomicRDD[(T, Option[X])](LeftOuterShuffleRegionJoin[T, X](endSequences,
+      endSequences.records.map(_.length).sum / partitions,
+      rdd.context).joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadyToJoin),
+      endSequences,
+      kv => {
+        Seq(kv._2.map(v => genomicRdd.getReferenceRegions(v))).flatten.flatten ++
+          getReferenceRegions(kv._1)
+      }).asInstanceOf[GenomicRDD[(T, Option[X]), Z]]
   }
 
   /**
@@ -1154,16 +879,37 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
    *   overlapped in the genomic coordinate space, and values that did not
    *   overlap will be paired with a `None`.
    */
-  def fullOuterShuffleRegionJoin[X, Y <: GenomicRDD[X, Y], Z <: GenomicRDD[(Option[T], Option[X]), Z]](genomicRdd: GenomicRDD[X, Y],
-                                                                                                       optPartitions: Option[Int] = None)(
-                                                                                                         implicit tTag: ClassTag[T], xTag: ClassTag[X]): GenomicRDD[(Option[T], Option[X]), Z] = {
+  def fullOuterShuffleRegionJoin[X, Y <: GenomicRDD[X, Y], Z <: GenomicRDD[(Option[T], Option[X]), Z]](
+    genomicRdd: GenomicRDD[X, Y],
+    optPartitions: Option[Int] = None)(
+      implicit tTag: ClassTag[T], xTag: ClassTag[X]): GenomicRDD[(Option[T], Option[X]), Z] = {
+
     // did the user provide a set partition count?
     // if no, take the max partition count from our rdds
-    val partitions = optPartitions.getOrElse(Seq(rdd.partitions.length,
-      genomicRdd.rdd.partitions.length).max)
+    val partitions = optPartitions.getOrElse(rdd.partitions.length)
 
-    val leftRdd = if(isSorted) this else repartitionAndSortByGenomicCoordinate(partitions)
-    leftRdd.sortedTrait.fullOuterShuffleRegionJoin(genomicRdd, optPartitions)
+    val leftRdd: GenomicRDD[T, U] = if (sorted) {
+      if (partitions != rdd.partitions.length) evenlyRepartition(partitions) else this
+    } else {
+      repartitionAndSort(partitions)
+    }
+
+    val preparedRdds = prepareForShuffleRegionJoin(leftRdd, genomicRdd)
+    val leftRddReadyToJoin = preparedRdds._1
+    val rightRddReadyToJoin = preparedRdds._2
+    assert(leftRddReadyToJoin.partitions.length == rightRddReadyToJoin.partitions.length)
+
+    // what sequences do we wind up with at the end?
+    val endSequences = sequences ++ genomicRdd.sequences
+
+    GenericGenomicRDD[(Option[T], Option[X])](FullOuterShuffleRegionJoin[T, X](endSequences,
+      endSequences.records.map(_.length).sum / partitions,
+      rdd.context).joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadyToJoin),
+      endSequences,
+      kv => {
+        Seq(kv._2.map(v => genomicRdd.getReferenceRegions(v)),
+          kv._1.map(v => getReferenceRegions(v))).flatten.flatten
+      }).asInstanceOf[GenomicRDD[(Option[T], Option[X]), Z]]
   }
 
   /**
@@ -1182,16 +928,41 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
    *   overlapped in the genomic coordinate space, grouped together by
    *   the value they overlapped in the left RDD..
    */
-  def shuffleRegionJoinAndGroupByLeft[X, Y <: GenomicRDD[X, Y], Z <: GenomicRDD[(T, Iterable[X]), Z]](genomicRdd: GenomicRDD[X, Y],
-                                                                                                      optPartitions: Option[Int] = None)(
-                                                                                                        implicit tTag: ClassTag[T], xTag: ClassTag[X]): GenomicRDD[(T, Iterable[X]), Z] = {
+  def shuffleRegionJoinAndGroupByLeft[X, Y <: GenomicRDD[X, Y], Z <: GenomicRDD[(T, Iterable[X]), Z]](
+    genomicRdd: GenomicRDD[X, Y],
+    optPartitions: Option[Int] = None)(
+      implicit tTag: ClassTag[T], xTag: ClassTag[X]): GenomicRDD[(T, Iterable[X]), Z] = {
+
     // did the user provide a set partition count?
     // if no, take the max partition count from our rdds
     val partitions = optPartitions.getOrElse(Seq(rdd.partitions.length,
       genomicRdd.rdd.partitions.length).max)
 
-    val leftRdd = if(isSorted) this else repartitionAndSortByGenomicCoordinate(partitions)
-    leftRdd.sortedTrait.shuffleRegionJoinAndGroupByLeft(genomicRdd, optPartitions)
+    val leftRdd: GenomicRDD[T, U] = if (sorted) {
+      if (partitions != rdd.partitions.length) evenlyRepartition(partitions) else this
+    } else {
+      repartitionAndSort(partitions)
+    }
+
+    val preparedRdds = prepareForShuffleRegionJoin(leftRdd, genomicRdd)
+    val leftRddReadyToJoin = preparedRdds._1
+    val rightRddReadyToJoin = preparedRdds._2
+    assert(leftRddReadyToJoin.partitions.length == rightRddReadyToJoin.partitions.length)
+
+    // what sequences do we wind up with at the end?
+    val endSequences = sequences ++ genomicRdd.sequences
+
+    assert(leftRddReadyToJoin.partitions.length == rightRddReadyToJoin.partitions.length)
+
+    GenericGenomicRDD[(T, Iterable[X])](
+      InnerShuffleRegionJoinAndGroupByLeft[T, X](endSequences,
+        endSequences.records.map(_.length).sum / partitions,
+        rdd.context).joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadyToJoin),
+      endSequences,
+      kv => {
+        (kv._2.flatMap(v => genomicRdd.getReferenceRegions(v)) ++
+          getReferenceRegions(kv._1)).toSeq
+      }).asInstanceOf[GenomicRDD[(T, Iterable[X]), Z]]
   }
 
   /**
@@ -1213,20 +984,42 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
    *   the value they overlapped in the left RDD, and all values from the
    *   right RDD that did not overlap an item in the left RDD.
    */
-  def rightOuterShuffleRegionJoinAndGroupByLeft[X, Y <: GenomicRDD[X, Y], Z <: GenomicRDD[(Option[T], Iterable[X]), Z]](genomicRdd: GenomicRDD[X, Y],
-                                                                                                                        optPartitions: Option[Int] = None)(
-                                                                                                                          implicit tTag: ClassTag[T], xTag: ClassTag[X]): GenomicRDD[(Option[T], Iterable[X]), Z] = {
+  def rightOuterShuffleRegionJoinAndGroupByLeft[X, Y <: GenomicRDD[X, Y], Z <: GenomicRDD[(Option[T], Iterable[X]), Z]](
+    genomicRdd: GenomicRDD[X, Y],
+    optPartitions: Option[Int] = None)(
+      implicit tTag: ClassTag[T], xTag: ClassTag[X]): GenomicRDD[(Option[T], Iterable[X]), Z] = {
+
     // did the user provide a set partition count?
     // if no, take the max partition count from our rdds
     val partitions = optPartitions.getOrElse(Seq(rdd.partitions.length,
       genomicRdd.rdd.partitions.length).max)
 
-    val leftRdd = if(isSorted) this else repartitionAndSortByGenomicCoordinate(partitions)
-    leftRdd.sortedTrait.rightOuterShuffleRegionJoinAndGroupByLeft(genomicRdd, optPartitions)
+    val leftRdd = if (sorted) {
+      if (partitions != rdd.partitions.length) evenlyRepartition(partitions) else this
+    } else {
+      repartitionAndSort(partitions)
+    }
+
+    val preparedRdds = prepareForShuffleRegionJoin(leftRdd, genomicRdd)
+    val leftRddReadyToJoin = preparedRdds._1
+    val rightRddReadyToJoin = preparedRdds._2
+    assert(leftRddReadyToJoin.partitions.length == rightRddReadyToJoin.partitions.length)
+
+    // what sequences do we wind up with at the end?
+    val endSequences = sequences ++ genomicRdd.sequences
+
+    GenericGenomicRDD[(Option[T], Iterable[X])](RightOuterShuffleRegionJoinAndGroupByLeft[T, X](endSequences,
+      endSequences.records.map(_.length).sum / partitions,
+      rdd.context).joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadyToJoin),
+      endSequences,
+      kv => {
+        (kv._2.flatMap(v => genomicRdd.getReferenceRegions(v)) ++
+          kv._1.toSeq.flatMap(v => getReferenceRegions(v))).toSeq
+      }).asInstanceOf[GenomicRDD[(Option[T], Iterable[X]), Z]]
   }
 
   /**
-   * The purpose of this method is to co-partition two RDDs according to their ReferenceRegions.
+   * The purpose of this method is to Copartition two RDDs according to their ReferenceRegions.
    * It is useful during ShuffleRegionJoins because it guarantees no extra shuffling to get correct
    * and complete region joins. RDD is already sorted coming in, so we take precaution to keep it
    * that way.
@@ -1240,55 +1033,120 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
    * multiple partitions if necessary.
    *
    * @param rddToCoPartitionWith the rdd that this.rdd will be copartitioned with
-   * @return returns the newly repartitioned rdd that is co-partitioned with rddToCoPartitionWith
+   * @return returns the newly repartitioned rdd that is copartitioned with rddToCoPartitionWith
    */
-  def coPartitionByGenomicRegion[X, Y <: GenomicRDD[X, Y]](rddToCoPartitionWith: GenomicRDD[X, Y])(implicit tTag: ClassTag[T], xTag: ClassTag[X]): U = {
-    // if the other RDD is not sorted, we can't guarantee copartition
-    assert(rddToCoPartitionWith.isSorted)
-    // materialize the partition map if it's not already in memory
-    val collectedDestinationPartitionMap = rddToCoPartitionWith.partitionMap
-    //number of partitions
-    val partitions = collectedDestinationPartitionMap.length
-    // We end up with an RDD that has the same partition map as the rddToCoPartitionWith
-    val finalPartitionedRDD = flattenRddByRegions.mapPartitionsWithIndex((idx, iter) => {
-      val listRepresentation = iter.map(_.swap).toList
-      // key this by the destination partition index
-      // we end up with a (k, v) pair for each partition such that the key is the 
-      // destination partition index and the value is the list of data that will be 
-      // put in that partition. The data is still unsorted at this point
-      for (partition <- collectedDestinationPartitionMap.zipWithIndex) yield {
-        (partition._2, listRepresentation.filter(f => (f._2.start >= partition._1._1.start && f._2.start <= partition._1._2.end) ||
-          (f._2.end >= partition._1._1.start && f._2.end <= partition._1._2.end)))
-      }
-    }.toIterator.filter(_._2.nonEmpty), preservesPartitioning = true)
-      .partitionBy(new GenomicPositionRangePartitioner(partitions))
-      // now we sort all the data on a partition
-      // it is more efficient this way because we avoid a shuffle operation
-      // and we have to go through all the data anyway
-      .mapPartitions(iter => {
-        iter.flatMap(_._2).toList.sortBy(_._2).toIterator
-      }, preservesPartitioning = true)
+  private[rdd] def copartitionByGenomicRegion[X, Y <: GenomicRDD[X, Y]](rddToCoPartitionWith: GenomicRDD[X, Y])(implicit tTag: ClassTag[T], xTag: ClassTag[X]): U = {
 
+    // if the other RDD is not sorted, we can't guarantee copartition
+    assert(rddToCoPartitionWith.sorted)
+    // materialize the partition map if it's not already in memory
+    val destinationPartitionMap = rddToCoPartitionWith.partitionMap.get
+    //number of partitions we will have after repartition
+    val numPartitions = destinationPartitionMap.length
+
+    val finalPartitionedRDD =
+      if (sorted) {
+        // we're working with sorted data here, so it's important to keep things in
+        // the order. We are going to be moving the data around in a Seq to control
+        // the order.
+        rdd.mapPartitionsWithIndex((idx, iter) => {
+          // we need to derive the ReferenceRegion for each T before we do anything
+          // else.
+          inferCorrectReferenceRegionsForPartition(iter, partitionMap.get(idx)).map(f => {
+            // inside the map over the partition we do a map over the partition map
+            // this implementation is in lieu of for...yield
+            destinationPartitionMap.zipWithIndex.map(partition => {
+              // if there is overlap between the partition map and the current value
+              if ((f._1.start >= partition._1._1.start && f._1.start <= partition._1._2.end) ||
+                (f._1.end >= partition._1._1.start && f._1.end <= partition._1._2.end)) {
+                // we use Options here so scala doesn't lose typing information
+                // it is important to note that the Seq will contain the same data
+                // in the first value of the tuple.
+                Some((partition._2, f))
+              } else None
+            })
+          })
+        }, preservesPartitioning = true)
+          // next we get rid of the None values from each Seq
+          .map(f => f.filter(_.isDefined))
+          // this part is less intuitive. it's important that things stay ordered
+          // for the sake of preventing another sort. when we arrive here in the
+          // code, we have an RDD[Option[Seq[(Int, (ReferenceRegion, T))]]], which
+          // is quite nasty. what we need is for every Seq to be keyed by the
+          // first ReferenceRegion so the partitioner can assign it correctly.
+          .mapPartitions(iter => {
+            // since each Seq contains the same first value for each tuple, we
+            // just pull the first one out of the Seq and drop the rest
+            iter.map(f => (f.head.get._2._1, f.map(g => g.get._2)))
+          })
+          .repartitionAndSortWithinPartitions(
+            new GenomicPositionRangePartitioner(numPartitions, destinationPartitionMap))
+          // return to an RDD[(ReferenceRegion, T)]
+          .flatMap(f => f._2)
+
+        // // Here, we sort by the first ReferenceRegion in every list, then flatten
+        // .mapPartitions(iter => {
+        //   // is there another way to sort an Iterator?
+        //   iter.toList.sortBy(_._2.head._1).flatMap(_._2).toIterator
+        // }, preservesPartitioning = true)
+      } else {
+        // we aren't working with sorted data here, so maintaining order
+        // isn't important. we also avoid presorting the data because
+        // we end up shuffling the data around less. We simply perform a
+        // partition then sort by ReferenceRegion
+        flattenRddByRegions()
+          .repartitionAndSortWithinPartitions(
+            new GenomicPositionRangePartitioner(numPartitions, destinationPartitionMap))
+
+        // .mapPartitionsWithIndex((idx, iter) => {
+        //   // this is how we determine the destination partition number
+        //   iter.map(f => {
+        //     // inside the map over the partition we do a map over the partition map
+        //     // this implementation is in lieu of for...yield
+        //     destinationPartitionMap.zipWithIndex.map(partition => {
+        //       // if there is overlap between the partition map and the current value
+        //       if ((f._1.start >= partition._1._1.start && f._1.start <= partition._1._2.end) ||
+        //         (f._1.end >= partition._1._1.start && f._1.end <= partition._1._2.end)) {
+        //         // we use Options here so scala doesn't lose typing information
+        //         Some((partition._2, f))
+        //       } else None
+        //     })
+        //   })
+        // }, preservesPartitioning = true)
+        //   // finally we filter out the None values and flatten down
+        //   // the result is an RDD[(Int, (ReferenceRegion, T))].
+        //   // the Int is the destination partition index
+        //   .flatMap(f => f.filter(_.isDefined).map(g => g.get))
+        //   .partitionBy(new GenomicPositionRangePartitioner(numPartitions))
+        //   // now we sort all the data on a partition
+        //   // it is more efficient to wait until now to sort
+        //   // because we avoid a shuffle operation
+        //   // and we have to go through all the data anyway
+        //   .mapPartitions(iter => {
+        //     // is there another way to sort an Iterator?
+        //     iter.map(_._2).toList.sorted.toIterator
+        //   }, preservesPartitioning = true)
+      }
     // here we get the new partition map
     // for now, we can't use the left RDD's partition map because
     // the bounds don't always include the values we copartitioned with.
     // in other words, joins allow data that starts before a given
     // ReferenceRegion to combine given they overlap.
     // this means that we cannot use the bounds of the left RDD because
-    // they may not neccessarily be the bounds of the right RDD
+    // they may not necessarily be the bounds of the right RDD
     val newPartitionMap = finalPartitionedRDD.mapPartitions(iter => {
-      getPartitionMapBoundsFromRdd(iter.map(_.swap))
-    }, preservesPartitioning = true)
+      getPartitionMapBoundsFromRdd(iter)
+    }, preservesPartitioning = true).collect
 
-    replaceRdd(finalPartitionedRDD.keys, Some(newPartitionMap))
+    replaceRdd(finalPartitionedRDD.values, Some(newPartitionMap))
   }
 
   /**
-    * Gets the partition bounds from a ReferenceRegion keyed Iterator
-    *
-    * @param iter The data on a given partition. ReferenceRegion keyed
-    * @return The bounds of the ReferenceRegions on that partition, in an Iterator
-    */
+   * Gets the partition bounds from a ReferenceRegion keyed Iterator
+   *
+   * @param iter The data on a given partition. ReferenceRegion keyed
+   * @return The bounds of the ReferenceRegions on that partition, in an Iterator
+   */
   private def getPartitionMapBoundsFromRdd(iter: Iterator[(ReferenceRegion, T)]): Iterator[(ReferenceRegion, ReferenceRegion)] = {
     if (iter.isEmpty) Iterator()
     else {
@@ -1317,22 +1175,38 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
    * @return A SortedGenomicRDDMixIn that contains the sorted and partitioned
    *         RDD
    */
-  def repartitionAndSortByGenomicCoordinate(partitions: Int = rdd.partitions.length)(implicit c: ClassTag[T]): U = {
+  def repartitionAndSort(partitions: Int = rdd.partitions.length)(implicit c: ClassTag[T]): U = {
     // here we let spark do the heavy lifting
-    val partitionedRDD = flattenRddByRegions().sortBy(f => f._1, ascending = true, partitions)
-    val newPartitionMapRdd = partitionedRDD.mapPartitions(iter => getPartitionMapBoundsFromRdd(iter), preservesPartitioning = true)
-    replaceRdd(partitionedRDD.values, Some(newPartitionMapRdd))
+    val partitionedRDD = flattenRddByRegions()
+      .sortBy(f => f._1, ascending = true, partitions)
+
+    replaceRdd(partitionedRDD.values,
+      Some(partitionedRDD.mapPartitions(iter => getPartitionMapBoundsFromRdd(iter), preservesPartitioning = true).collect))
   }
 
-  private[rdd] class GenomicPositionRangePartitioner[V](partitions: Int, elements: Int = 0) extends Partitioner {
+  private[rdd] class GenomicPositionRangePartitioner[V](
+      partitions: Int,
+      partitionMap: Seq[(ReferenceRegion, ReferenceRegion)] = Seq.empty[(ReferenceRegion, ReferenceRegion)]) extends Partitioner {
 
     override def numPartitions: Int = partitions
 
+    def assignPartitionIndexFromPartitionMap(region: ReferenceRegion): Int = {
+      for (i <- partitionMap.indices) {
+        if ((region.start >= partitionMap(i)._1.start && region.start <= partitionMap(i)._2.end) ||
+          (region.end >= partitionMap(i)._1.start && region.end <= partitionMap(i)._2.end)) {
+          return i
+        }
+      }
+      numPartitions - 1
+    }
+
     def getPartition(key: Any): Int = {
       key match {
-        case (f1: Int, f2: Boolean) => f1
-        case f: Int                 => f
-        case _                      => throw new Exception("Reference Region Key require to partition on Genomic Position")
+        case region: ReferenceRegion => {
+          assignPartitionIndexFromPartitionMap(region)
+        }
+        case f: Int => f
+        case _      => throw new Exception("Reference Region Key require to partition on Genomic Position")
       }
     }
   }
@@ -1341,16 +1215,16 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
 private case class GenericGenomicRDD[T](rdd: RDD[T],
                                         sequences: SequenceDictionary,
                                         regionFn: T => Seq[ReferenceRegion],
-                                        maybePartitionMapRdd: Option[RDD[(ReferenceRegion, ReferenceRegion)]] = None) extends GenomicRDD[T, GenericGenomicRDD[T]] {
+                                        newPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None) extends GenomicRDD[T, GenericGenomicRDD[T]] {
 
-  override val sortedTrait = new SortedTrait(isSorted = maybePartitionMapRdd.isDefined, maybePartitionMapRdd)
+  override val sortedTrait = new SortedTrait(sorted = partitionMap.isDefined, partitionMap)
 
-  protected[rdd] def getReferenceRegions(elem: T): Seq[ReferenceRegion] = {
+  protected def getReferenceRegions(elem: T): Seq[ReferenceRegion] = {
     regionFn(elem)
   }
 
-  protected[rdd] def replaceRdd(newRdd: RDD[T], newPartitionMapRdd: Option[RDD[(ReferenceRegion, ReferenceRegion)]] = None): GenericGenomicRDD[T] = {
-    copy(rdd = newRdd, maybePartitionMapRdd= newPartitionMapRdd)
+  protected def replaceRdd(newRdd: RDD[T], newPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None): GenericGenomicRDD[T] = {
+    copy(rdd = newRdd, newPartitionMap = newPartitionMap)
   }
 }
 
@@ -1383,10 +1257,11 @@ abstract class AvroReadGroupGenomicRDD[T <% IndexedRecord: Manifest, U <: AvroRe
     // convert sequence dictionary to avro form and save
     val contigs = sequences.toAvro
     val contigSchema = Contig.SCHEMA$
-    if (isSorted) {
+    if (sorted) {
       contigSchema.addProp("sorted", "true".asInstanceOf[Any])
-      contigSchema.addProp("partitionMap", partitionMap.mkString(",").asInstanceOf[Any])
+      contigSchema.addProp("partitionMap", partitionMap.get.mkString(",").asInstanceOf[Any])
     }
+
     saveAvro("%s/_seqdict.avro".format(filePath),
       rdd.context,
       contigSchema,
@@ -1397,10 +1272,11 @@ abstract class AvroReadGroupGenomicRDD[T <% IndexedRecord: Manifest, U <: AvroRe
       .map(_.toMetadata)
 
     val recordGroupMetaData = RecordGroupMetadata.SCHEMA$
-    if (isSorted) {
+    if (sorted) {
       recordGroupMetaData.addProp("sorted", "true".asInstanceOf[Any])
-      recordGroupMetaData.addProp("partitionMap", partitionMap.mkString(",").asInstanceOf[Any])
+      recordGroupMetaData.addProp("partitionMap", partitionMap.get.mkString(",").asInstanceOf[Any])
     }
+
     saveAvro("%s/_rgdict.avro".format(filePath),
       rdd.context,
       recordGroupMetaData,
@@ -1423,10 +1299,11 @@ abstract class MultisampleAvroGenomicRDD[T <% IndexedRecord: Manifest, U <: Mult
   override protected def saveMetadata(filePath: String) {
 
     val sampleSchema = Sample.SCHEMA$
-    if (isSorted) {
+    if (sorted) {
       sampleSchema.addProp("sorted", "true".asInstanceOf[Any])
-      sampleSchema.addProp("partitionMap", partitionMap.mkString(",").asInstanceOf[Any])
+      sampleSchema.addProp("partitionMap", partitionMap.get.mkString(",").asInstanceOf[Any])
     }
+
     // write vcf headers to file
     VCFHeaderUtils.write(new VCFHeader(headerLines.toSet),
       new Path("%s/_header".format(filePath)),
@@ -1438,9 +1315,9 @@ abstract class MultisampleAvroGenomicRDD[T <% IndexedRecord: Manifest, U <: Mult
       samples)
 
     val contigSchema = Contig.SCHEMA$
-    if (isSorted) {
+    if (sorted) {
       contigSchema.addProp("sorted", "true".asInstanceOf[Any])
-      contigSchema.addProp("partitionMap", partitionMap.mkString(",").asInstanceOf[Any])
+      contigSchema.addProp("partitionMap", partitionMap.get.mkString(",").asInstanceOf[Any])
     }
 
     // convert sequence dictionary to avro form and save
@@ -1473,11 +1350,12 @@ abstract class AvroGenomicRDD[T <% IndexedRecord: Manifest, U <: AvroGenomicRDD[
     // convert sequence dictionary to avro form and save
     val contigs = sequences.toAvro
     val contigSchema = Contig.SCHEMA$
-    if (isSorted) {
+    if (sorted) {
       println("Adding sorted to avro")
       contigSchema.addProp("sorted", "true".asInstanceOf[Any])
-      contigSchema.addProp("partitionMap", partitionMap.mkString(",").asInstanceOf[Any])
+      contigSchema.addProp("partitionMap", partitionMap.get.mkString(",").asInstanceOf[Any])
     }
+
     saveAvro("%s/_seqdict.avro".format(filePath),
       rdd.context,
       contigSchema,

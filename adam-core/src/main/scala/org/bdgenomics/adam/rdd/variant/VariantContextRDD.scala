@@ -57,10 +57,10 @@ case class VariantContextRDD(rdd: RDD[VariantContext],
                              sequences: SequenceDictionary,
                              @transient samples: Seq[Sample],
                              @transient headerLines: Seq[VCFHeaderLine] = SupportedHeaderLines.allHeaderLines,
-                             maybePartitionMapRdd: Option[RDD[(ReferenceRegion, ReferenceRegion)]] = None) extends MultisampleGenomicRDD[VariantContext, VariantContextRDD]
+                             optPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None) extends MultisampleGenomicRDD[VariantContext, VariantContextRDD]
     with Logging {
 
-  val sortedTrait: SortedTrait = new SortedTrait(isSorted = maybePartitionMapRdd.isDefined, maybePartitionMapRdd)
+  val sortedTrait: SortedTrait = new SortedTrait(sorted = optPartitionMap.isDefined, optPartitionMap)
 
   /**
    * Left outer join database variant annotations.
@@ -206,8 +206,8 @@ case class VariantContextRDD(rdd: RDD[VariantContext],
    *   been replaced.
    */
   protected[rdd] def replaceRdd(newRdd: RDD[VariantContext],
-                                newPartitionMapRdd: Option[RDD[(ReferenceRegion, ReferenceRegion)]] = None): VariantContextRDD = {
-    copy(rdd = newRdd, maybePartitionMapRdd = newPartitionMapRdd)
+                                newPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None): VariantContextRDD = {
+    copy(rdd = newRdd, optPartitionMap = newPartitionMap)
   }
 
   /**

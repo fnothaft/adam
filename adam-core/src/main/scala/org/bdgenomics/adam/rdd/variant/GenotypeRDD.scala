@@ -45,9 +45,9 @@ case class GenotypeRDD(rdd: RDD[Genotype],
                        sequences: SequenceDictionary,
                        @transient samples: Seq[Sample],
                        @transient headerLines: Seq[VCFHeaderLine] = SupportedHeaderLines.allHeaderLines,
-                       maybePartitionMapRdd: Option[RDD[(ReferenceRegion, ReferenceRegion)]] = None) extends MultisampleAvroGenomicRDD[Genotype, GenotypeRDD] {
+                       optPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None) extends MultisampleAvroGenomicRDD[Genotype, GenotypeRDD] {
 
-  val sortedTrait: SortedTrait = new SortedTrait(isSorted = maybePartitionMapRdd.isDefined, maybePartitionMapRdd)
+  val sortedTrait: SortedTrait = new SortedTrait(sorted = optPartitionMap.isDefined, optPartitionMap)
 
   /**
    * Java-friendly method for saving.
@@ -118,8 +118,8 @@ case class GenotypeRDD(rdd: RDD[Genotype],
    * @return Returns a new GenotypeRDD with the underlying RDD replaced.
    */
   protected[rdd] def replaceRdd(newRdd: RDD[Genotype],
-                                newPartitionMapRdd: Option[RDD[(ReferenceRegion, ReferenceRegion)]] = None): GenotypeRDD = {
-    copy(rdd = newRdd, maybePartitionMapRdd = newPartitionMapRdd)
+                                newPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None): GenotypeRDD = {
+    copy(rdd = newRdd, optPartitionMap = newPartitionMap)
   }
 
   /**

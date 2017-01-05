@@ -71,9 +71,9 @@ private[rdd] object NucleotideContigFragmentRDD extends Serializable {
 case class NucleotideContigFragmentRDD(
     rdd: RDD[NucleotideContigFragment],
     sequences: SequenceDictionary,
-    maybePartitionMapRdd: Option[RDD[(ReferenceRegion, ReferenceRegion)]] = None) extends AvroGenomicRDD[NucleotideContigFragment, NucleotideContigFragmentRDD] with ReferenceFile {
+    optPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None) extends AvroGenomicRDD[NucleotideContigFragment, NucleotideContigFragmentRDD] with ReferenceFile {
 
-  val sortedTrait: SortedTrait = new SortedTrait(isSorted = maybePartitionMapRdd.isDefined, maybePartitionMapRdd)
+  val sortedTrait: SortedTrait = new SortedTrait(sorted = optPartitionMap.isDefined, optPartitionMap)
 
   /**
    * Converts an RDD of nucleotide contig fragments into reads. Adjacent contig fragments are
@@ -93,8 +93,8 @@ case class NucleotideContigFragmentRDD(
    *   has been replaced.
    */
   protected[rdd] def replaceRdd(newRdd: RDD[NucleotideContigFragment],
-                                newPartitionMapRdd: Option[RDD[(ReferenceRegion, ReferenceRegion)]] = None): NucleotideContigFragmentRDD = {
-    copy(rdd = newRdd, maybePartitionMapRdd = newPartitionMapRdd)
+                                newPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None): NucleotideContigFragmentRDD = {
+    copy(rdd = newRdd, optPartitionMap = newPartitionMap)
   }
 
   /**

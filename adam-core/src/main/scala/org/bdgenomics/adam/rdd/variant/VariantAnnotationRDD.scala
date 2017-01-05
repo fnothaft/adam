@@ -35,9 +35,9 @@ import org.bdgenomics.formats.avro.VariantAnnotation
 case class VariantAnnotationRDD(rdd: RDD[VariantAnnotation],
                                 sequences: SequenceDictionary,
                                 @transient headerLines: Seq[VCFHeaderLine] = SupportedHeaderLines.allHeaderLines,
-                                maybePartitionMapRdd: Option[RDD[(ReferenceRegion, ReferenceRegion)]] = None) extends AvroGenomicRDD[VariantAnnotation, VariantAnnotationRDD] {
+                                optPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None) extends AvroGenomicRDD[VariantAnnotation, VariantAnnotationRDD] {
 
-  val sortedTrait: SortedTrait = new SortedTrait(isSorted = maybePartitionMapRdd.isDefined, maybePartitionMapRdd)
+  val sortedTrait: SortedTrait = new SortedTrait(sorted = optPartitionMap.isDefined, optPartitionMap)
 
   /**
    * Java-friendly method for saving to Parquet.
@@ -53,8 +53,8 @@ case class VariantAnnotationRDD(rdd: RDD[VariantAnnotation],
    * @return A new VariantAnnotationRDD with the underlying RDD replaced.
    */
   protected[rdd] def replaceRdd(newRdd: RDD[VariantAnnotation],
-                                newPartitionMapRdd: Option[RDD[(ReferenceRegion, ReferenceRegion)]] = None): VariantAnnotationRDD = {
-    copy(rdd = newRdd, maybePartitionMapRdd = newPartitionMapRdd)
+                                newPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None): VariantAnnotationRDD = {
+    copy(rdd = newRdd, optPartitionMap = newPartitionMap)
   }
 
   /**

@@ -139,13 +139,13 @@ sealed trait AlignmentRecordRDD extends AvroReadGroupGenomicRDD[AlignmentRecord,
    * or .bam.
    *
    * @param args Arguments defining where to save the file.
-   * @param isSorted True if input data is sorted. Sets the ordering in the SAM
+   * @param sorted True if input data is sorted. Sets the ordering in the SAM
    *   file header.
    * @return Returns true if the extension in args ended in .sam/.bam and the
    *   file was saved.
    */
   private[rdd] def maybeSaveBam(args: ADAMSaveAnyArgs,
-                                isSorted: Boolean = isSorted): Boolean = {
+                                sorted: Boolean = sorted): Boolean = {
 
     if (args.outputPath.endsWith(".sam") ||
       args.outputPath.endsWith(".bam") ||
@@ -153,7 +153,7 @@ sealed trait AlignmentRecordRDD extends AvroReadGroupGenomicRDD[AlignmentRecord,
       log.info("Saving data in SAM/BAM/CRAM format")
       saveAsSam(
         args.outputPath,
-        isSorted = isSorted,
+        sorted = sorted,
         asSingleFile = args.asSingleFile,
         deferMerging = args.deferMerging
       )
@@ -188,13 +188,13 @@ sealed trait AlignmentRecordRDD extends AvroReadGroupGenomicRDD[AlignmentRecord,
    * as Parquet.
    *
    * @param args Save configuration arguments.
-   * @param isSorted If the output is sorted, this will modify the SAM/BAM header.
+   * @param sorted If the output is sorted, this will modify the SAM/BAM header.
    * @return Returns true if saving succeeded.
    */
   def save(args: ADAMSaveAnyArgs,
-           isSorted: Boolean = isSorted): Boolean = {
+           sorted: Boolean = sorted): Boolean = {
 
-    (maybeSaveBam(args, isSorted) ||
+    (maybeSaveBam(args, sorted) ||
       maybeSaveFastq(args) ||
       { saveAsParquet(args); true })
   }
@@ -203,12 +203,12 @@ sealed trait AlignmentRecordRDD extends AvroReadGroupGenomicRDD[AlignmentRecord,
    * Saves this RDD to disk, with the type identified by the extension.
    *
    * @param filePath Path to save the file at.
-   * @param isSorted Whether the file is sorted or not.
+   * @param sorted Whether the file is sorted or not.
    * @return Returns true if saving succeeded.
    */
   def save(filePath: java.lang.String,
-           isSorted: java.lang.Boolean): java.lang.Boolean = {
-    save(new JavaSaveArgs(filePath), isSorted)
+           sorted: java.lang.Boolean): java.lang.Boolean = {
+    save(new JavaSaveArgs(filePath), sorted)
   }
 
   /**
@@ -251,14 +251,14 @@ sealed trait AlignmentRecordRDD extends AvroReadGroupGenomicRDD[AlignmentRecord,
    *
    * @return Returns a SAM/BAM formatted RDD of reads, as well as the file header.
    */
-  def convertToSam(isSorted: Boolean = isSorted): (RDD[SAMRecordWritable], SAMFileHeader) = ConvertToSAM.time {
+  def convertToSam(sorted: Boolean = sorted): (RDD[SAMRecordWritable], SAMFileHeader) = ConvertToSAM.time {
 
     // create conversion object
     val adamRecordConverter = new AlignmentRecordConverter
 
     // create header and set sort order if needed
     val header = adamRecordConverter.createSAMHeader(sequences, recordGroups)
-    if (isSorted) {
+    if (sorted) {
       header.setSortOrder(SAMFileHeader.SortOrder.coordinate)
     } else {
       header.setSortOrder(SAMFileHeader.SortOrder.unsorted)
@@ -300,7 +300,7 @@ sealed trait AlignmentRecordRDD extends AvroReadGroupGenomicRDD[AlignmentRecord,
    * @param asType Selects whether to save as SAM, BAM, or CRAM. The default
    *   value is None, which means the file type is inferred from the extension.
    * @param asSingleFile If true, saves output as a single file.
-   * @param isSorted If the output is sorted, this will modify the header.
+   * @param sorted If the output is sorted, this will modify the header.
    * @param deferMerging If true and asSingleFile is true, we will save the
    *   output shards as a headerless file, but we will not merge the shards.
    */
@@ -308,14 +308,14 @@ sealed trait AlignmentRecordRDD extends AvroReadGroupGenomicRDD[AlignmentRecord,
     filePath: String,
     asType: Option[SAMFormat] = None,
     asSingleFile: Boolean = false,
-    isSorted: Boolean = isSorted,
+    sorted: Boolean = sorted,
     deferMerging: Boolean = false): Unit = SAMSave.time {
 
     val fileType = asType.getOrElse(SAMFormat.inferFromFilePath(filePath))
 
     // convert the records
     val (convertRecords: RDD[SAMRecordWritable], header: SAMFileHeader) =
-      convertToSam(isSorted)
+      convertToSam(sorted)
 
     // add keys to our records
     val withKey = convertRecords.keyBy(v => new LongWritable(v.get.getAlignmentStart))
@@ -374,7 +374,7 @@ sealed trait AlignmentRecordRDD extends AvroReadGroupGenomicRDD[AlignmentRecord,
       // we'll defer the writing to the cram container stream writer, and will
       // do validation here
 
-      require(isSorted, "To save as CRAM, input must be sorted.")
+      require(sorted, "To save as CRAM, input must be sorted.")
       require(sequences.records.forall(_.md5.isDefined),
         "To save as CRAM, all sequences must have an attached MD5. See %s".format(
           sequences))
@@ -464,17 +464,17 @@ sealed trait AlignmentRecordRDD extends AvroReadGroupGenomicRDD[AlignmentRecord,
    * @param asType The SAMFormat to save as. If left null, we will infer the
    *   format from the file extension.
    * @param asSingleFile If true, saves output as a single file.
-   * @param isSorted If the output is sorted, this will modify the header.
+   * @param sorted If the output is sorted, this will modify the header.
    */
   def saveAsSam(
     filePath: java.lang.String,
     asType: SAMFormat,
     asSingleFile: java.lang.Boolean,
-    isSorted: java.lang.Boolean) {
+    sorted: java.lang.Boolean) {
     saveAsSam(filePath,
       asType = Option(asType),
       asSingleFile = asSingleFile,
-      isSorted = isSorted)
+      sorted = sorted)
   }
 
   /**
@@ -570,7 +570,7 @@ sealed trait AlignmentRecordRDD extends AvroReadGroupGenomicRDD[AlignmentRecord,
    *
    * @param consensusModel The model to use for generating consensus sequences
    *   to realign against.
-   * @param isSorted If the input data is sorted, setting this parameter to true
+   * @param sorted If the input data is sorted, setting this parameter to true
    *   avoids a second sort.
    * @param maxIndelSize The size of the largest indel to use for realignment.
    * @param maxConsensusNumber The maximum number of consensus sequences to
@@ -583,12 +583,12 @@ sealed trait AlignmentRecordRDD extends AvroReadGroupGenomicRDD[AlignmentRecord,
    */
   def realignIndels(
     consensusModel: ConsensusGenerator = new ConsensusGeneratorFromReads,
-    isSorted: Boolean = isSorted,
+    sorted: Boolean = sorted,
     maxIndelSize: Int = 500,
     maxConsensusNumber: Int = 30,
     lodThreshold: Double = 5.0,
     maxTargetSize: Int = 3000): AlignmentRecordRDD = RealignIndelsInDriver.time {
-    replaceRdd(RealignIndels(rdd, consensusModel, isSorted, maxIndelSize, maxConsensusNumber, lodThreshold))
+    replaceRdd(RealignIndels(rdd, consensusModel, sorted, maxIndelSize, maxConsensusNumber, lodThreshold))
   }
 
   /**
@@ -879,9 +879,13 @@ sealed trait AlignmentRecordRDD extends AvroReadGroupGenomicRDD[AlignmentRecord,
 case class AlignedReadRDD(rdd: RDD[AlignmentRecord],
                           sequences: SequenceDictionary,
                           recordGroups: RecordGroupDictionary,
-                          maybePartitionMapRdd: Option[RDD[(ReferenceRegion, ReferenceRegion)]] = None) extends AlignmentRecordRDD {
+                          optPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None) extends AlignmentRecordRDD {
 
-  val sortedTrait: SortedTrait = new SortedTrait(isSorted = maybePartitionMapRdd.isDefined, maybePartitionMapRdd)
+  val sortedTrait: SortedTrait = {
+    println(optPartitionMap.isDefined)
+    println(optPartitionMap)
+    new SortedTrait(sorted = optPartitionMap.isDefined, optPartitionMap)
+  }
 
   protected def replaceRddAndSequences(newRdd: RDD[AlignmentRecord],
                                        newSequences: SequenceDictionary): AlignmentRecordRDD = {
@@ -891,8 +895,8 @@ case class AlignedReadRDD(rdd: RDD[AlignmentRecord],
   }
 
   protected[rdd] def replaceRdd(newRdd: RDD[AlignmentRecord],
-                                newPartitionMapRdd: Option[RDD[(ReferenceRegion, ReferenceRegion)]] = None): AlignedReadRDD = {
-    copy(rdd = newRdd, maybePartitionMapRdd = newPartitionMapRdd)
+                                newPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None): AlignedReadRDD = {
+    copy(rdd = newRdd, optPartitionMap = newPartitionMap)
   }
 }
 
@@ -911,13 +915,17 @@ object UnalignedReadRDD {
 
 case class UnalignedReadRDD(rdd: RDD[AlignmentRecord],
                             recordGroups: RecordGroupDictionary,
-                            maybePartitionMapRdd: Option[RDD[(ReferenceRegion, ReferenceRegion)]] = None) extends AlignmentRecordRDD
+                            optPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None) extends AlignmentRecordRDD
     with Unaligned {
 
-  val sortedTrait: SortedTrait = new SortedTrait(isSorted = maybePartitionMapRdd.isDefined, maybePartitionMapRdd)
+  val sortedTrait: SortedTrait = {
+    println(optPartitionMap.isDefined)
+    println(optPartitionMap)
+    new SortedTrait(sorted = optPartitionMap.isDefined, optPartitionMap)
+  }
 
-  protected[rdd] def replaceRdd(newRdd: RDD[AlignmentRecord], newPartitionMapRdd: Option[RDD[(ReferenceRegion, ReferenceRegion)]] = None): UnalignedReadRDD = {
-    copy(rdd = newRdd, maybePartitionMapRdd = newPartitionMapRdd)
+  protected[rdd] def replaceRdd(newRdd: RDD[AlignmentRecord], newPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None): UnalignedReadRDD = {
+    copy(rdd = newRdd, optPartitionMap = newPartitionMap)
   }
 
   protected def replaceRddAndSequences(newRdd: RDD[AlignmentRecord],

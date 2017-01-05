@@ -106,7 +106,7 @@ sealed trait ShuffleRegionJoin[T, U, RT, RU] extends RegionJoin[T, U, RT, RU] {
   }
 
   def joinCoPartitionedRdds(leftRDD: RDD[((ReferenceRegion, Int), T)], rightRDD: RDD[((ReferenceRegion, Int), U)])(implicit tManifest: ClassTag[T], uManifest: ClassTag[U]): RDD[(RT, RU)] = {
-    leftRDD.zipPartitions(rightRDD)(sweep)
+    leftRDD.zipPartitions(rightRDD, preservesPartitioning = true)(sweep)
   }
 
   protected def makeIterator(region: ReferenceRegion,
@@ -120,11 +120,8 @@ sealed trait ShuffleRegionJoin[T, U, RT, RU] extends RegionJoin[T, U, RT, RU] {
     if (leftIter.isEmpty || rightIter.isEmpty) {
       emptyFn(leftIter, rightIter)
     } else {
-      val listRepresentationLeft = leftIter.toList
-      val bufferedLeft = listRepresentationLeft.toIterator.buffered
-      val startRegion = listRepresentationLeft.head._1._1
-      val endRegion = listRepresentationLeft.last._1._1
-      val region = ReferenceRegion(startRegion.referenceName, startRegion.start, endRegion.end)
+      val bufferedLeft = leftIter.buffered
+      val region = bufferedLeft.head._1._1
       // return an Iterator[(T, U)]
       makeIterator(region, bufferedLeft, rightIter.buffered)
     }

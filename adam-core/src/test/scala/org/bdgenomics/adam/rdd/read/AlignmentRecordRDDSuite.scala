@@ -213,7 +213,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
     ardd.saveAsSam(tempFile,
       asType = Some(SAMFormat.CRAM),
       asSingleFile = true,
-      isSorted = true)
+      sorted = true)
 
     val rddB = sc.loadBam(tempFile)
 
@@ -244,7 +244,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
     ardd.saveAsSam(tempFile,
       asType = Some(SAMFormat.CRAM),
       asSingleFile = false,
-      isSorted = true)
+      sorted = true)
 
     val rddB = sc.loadBam(tempFile + "/part-r-00000")
 
@@ -363,7 +363,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
     val actualSortedPath = tmpFile("sorted.sam")
     ardd.sortReadsByReferencePosition()
       .saveAsSam(actualSortedPath,
-        isSorted = true,
+        sorted = true,
         asSingleFile = true)
 
     checkFiles(testFile("sorted.sam"), actualSortedPath)
@@ -376,7 +376,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
 
     val actualUnorderedPath = tmpFile("unordered.sam")
     ardd.saveAsSam(actualUnorderedPath,
-      isSorted = false,
+      sorted = false,
       asSingleFile = true)
 
     checkFiles(unsortedPath, actualUnorderedPath)
@@ -389,7 +389,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
 
     val actualSortedPath = tmpFile("ordered.sam")
     reads.saveAsSam(actualSortedPath,
-      isSorted = true,
+      sorted = true,
       asSingleFile = true)
 
     checkFiles(testFile("ordered.sam"), actualSortedPath)
@@ -560,7 +560,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
     reads.saveAsSam(outputPath,
       asType = Some(SAMFormat.SAM),
       asSingleFile = true,
-      isSorted = true)
+      sorted = true)
     assert(new File(outputPath).exists())
   }
 
@@ -589,7 +589,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
     reads.saveAsSam(outputPath,
       asType = Some(SAMFormat.BAM),
       asSingleFile = true,
-      isSorted = true)
+      sorted = true)
     assert(new File(outputPath).exists())
   }
 

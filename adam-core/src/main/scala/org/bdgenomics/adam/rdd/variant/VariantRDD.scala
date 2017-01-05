@@ -41,9 +41,9 @@ import scala.collection.JavaConversions._
 case class VariantRDD(rdd: RDD[Variant],
                       sequences: SequenceDictionary,
                       @transient headerLines: Seq[VCFHeaderLine] = SupportedHeaderLines.allHeaderLines,
-                      maybePartitionMapRdd: Option[RDD[(ReferenceRegion, ReferenceRegion)]] = None) extends AvroGenomicRDD[Variant, VariantRDD] {
+                      optPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None) extends AvroGenomicRDD[Variant, VariantRDD] {
 
-  val sortedTrait: SortedTrait = new SortedTrait(isSorted = maybePartitionMapRdd.isDefined, maybePartitionMapRdd)
+  val sortedTrait: SortedTrait = new SortedTrait(sorted = optPartitionMap.isDefined, optPartitionMap)
 
   override protected def saveMetadata(filePath: String) {
 
@@ -74,8 +74,8 @@ case class VariantRDD(rdd: RDD[Variant],
    * @return Returns a new VariantRDD with the underlying RDD replaced.
    */
   protected[rdd] def replaceRdd(newRdd: RDD[Variant],
-                                newPartitionMapRdd: Option[RDD[(ReferenceRegion, ReferenceRegion)]] = None): VariantRDD = {
-    copy(rdd = newRdd, maybePartitionMapRdd = newPartitionMapRdd)
+                                newPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None): VariantRDD = {
+    copy(rdd = newRdd, optPartitionMap = newPartitionMap)
   }
 
   /**
