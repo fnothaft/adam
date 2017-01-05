@@ -118,8 +118,8 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
   }
 
   private[rdd] val sortedTrait: SortedTrait
-  private[rdd] val sorted = sortedTrait.sorted
-  private[rdd] val partitionMap = sortedTrait.partitionMap
+  private[rdd] def sorted = sortedTrait.sorted
+  private[rdd] def partitionMap = sortedTrait.partitionMap
 
   /**
    * This case class is the source of all sorted knowledge handling in ADAM.
