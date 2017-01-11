@@ -85,31 +85,14 @@ class SortedGenomicRDDSuite extends SparkFunSuite {
     val e = b.rdd.map(f => (f._1.getStart, f._2.getEnd)).collect.toSet
 
     val setDiff = d -- e
-    println(b.partitionMap)
-    println(setDiff)
-
-    println(d.size)
-    println(e.size)
+    assert(setDiff.isEmpty)
     assert(b.rdd.count == c.rdd.count)
   }
   sparkTest("testing that sorted fullOuterShuffleRegionJoin matches unsorted") {
     val x = sc.loadBam(getClass.getResource("/bqsr1.sam").getFile)
-
     val z = x.repartitionAndSort(16)
-    //val y = x.repartitionAndSortByGenomicCoordinate(1)
-    val d = x.fullOuterShuffleRegionJoin(z, Some(1)) //.rdd.collect
-    val e = z.fullOuterShuffleRegionJoin(x, Some(16)) //.rdd.collect
-    println(d.rdd.mapPartitions(iter => Iterator(iter.length)).collect.mkString(","))
-    println(e.rdd.mapPartitions(iter => Iterator(iter.length)).collect.mkString(","))
-    //val f = y.fullOuterShuffleRegionJoin(x, Some(16))
-    println(d.rdd.count + "\t" + e.rdd.count + "\t") // + f.rdd.collect.length)
-    println(d.partitionMap)
-    //    for (i <- d.rdd.collect.indices) {
-    //      if (d.rdd.collect.apply(i) != e.rdd.collect.apply(i)) {
-    //        println(d.rdd.collect.apply(i) + "\n" + e.rdd.collect.apply(i) + "\n" + i)
-    //        sys.exit()
-    //      }
-    //    }
+    val d = x.fullOuterShuffleRegionJoin(z, Some(1))
+    val e = z.fullOuterShuffleRegionJoin(x, Some(16))
     assert(d.rdd.count == e.rdd.count)
   }
   sparkTest("testing that sorted rightOuterShuffleRegionJoin matches unsorted") {
@@ -130,11 +113,11 @@ class SortedGenomicRDDSuite extends SparkFunSuite {
     val x = sc.loadBam(getClass.getResource("/bqsr1.sam").getFile)
     val z = x.repartitionAndSort(16)
     try {
-      z.save(getClass.getResource("/sortedAlignments.parquet.txt").getFile, true)
+      z.save(testFile("/sortedAlignments.parquet.txt"), true)
     } catch {
       case exists: org.apache.hadoop.mapred.FileAlreadyExistsException =>
     }
-    val t = sc.loadParquetAlignments(getClass.getResource("/sortedAlignments.parquet.txt").getFile)
+    val t = sc.loadParquetAlignments(testFile("/sortedAlignments.parquet.txt"))
     assert(t.sorted)
 
     val j = t.shuffleRegionJoin(x, Some(1))
