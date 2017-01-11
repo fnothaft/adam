@@ -28,9 +28,36 @@ import org.bdgenomics.adam.rdd.{
   JavaSaveArgs,
   SAMHeaderWriter
 }
+import org.bdgenomics.adam.serialization.AvroSerializer
 import org.bdgenomics.formats.avro.{ Feature, Strand }
+import org.bdgenomics.utils.interval.array.{
+  IntervalArray,
+  IntervalArraySerializer
+}
 import org.bdgenomics.utils.misc.Logging
 import scala.collection.JavaConversions._
+import scala.reflect.ClassTag
+
+private[adam] case class FeatureArray(
+    array: Array[(ReferenceRegion, Feature)],
+    maxIntervalWidth: Long) extends IntervalArray[ReferenceRegion, Feature] {
+
+  protected def replace(arr: Array[(ReferenceRegion, Feature)],
+                        maxWidth: Long): IntervalArray[ReferenceRegion, Feature] = {
+    FeatureArray(arr, maxWidth)
+  }
+}
+
+private[adam] class FeatureArraySerializer extends IntervalArraySerializer[ReferenceRegion, Feature, FeatureArray] {
+
+  protected val kSerializer = new ReferenceRegionSerializer
+  protected val tSerializer = new AvroSerializer[Feature]
+
+  protected def builder(arr: Array[(ReferenceRegion, Feature)],
+                        maxIntervalWidth: Long): FeatureArray = {
+    FeatureArray(arr, maxIntervalWidth)
+  }
+}
 
 private trait FeatureOrdering[T <: Feature] extends Ordering[T] {
   def allowNull(s: java.lang.String): java.lang.Integer = {
@@ -215,6 +242,11 @@ case class FeatureRDD(rdd: RDD[Feature],
                       optPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None) extends AvroGenomicRDD[Feature, FeatureRDD] with Logging {
 
   val sortedTrait: SortedTrait = new SortedTrait(sorted = optPartitionMap.isDefined, optPartitionMap)
+
+  protected def buildTree(rdd: RDD[(ReferenceRegion, Feature)])(
+    implicit tTag: ClassTag[Feature]): IntervalArray[ReferenceRegion, Feature] = {
+    IntervalArray(rdd, FeatureArray.apply(_, _))
+  }
 
   /**
    * Java friendly save function. Automatically detects the output format.

@@ -139,11 +139,30 @@ class ADAMKryoRegistrator extends KryoRegistrator {
     kryo.register(classOf[org.bdgenomics.adam.models.SequenceDictionary])
     kryo.register(classOf[org.bdgenomics.adam.models.SequenceRecord])
     kryo.register(classOf[org.bdgenomics.adam.models.SnpTable])
-    kryo.register(classOf[org.bdgenomics.adam.models.VariantContext])
+    kryo.register(classOf[org.bdgenomics.adam.models.VariantContext],
+      new org.bdgenomics.adam.models.VariantContextSerializer)
 
     // org.bdgenomics.adam.rdd
     kryo.register(classOf[org.bdgenomics.adam.rdd.GenomeBins])
     kryo.register(Class.forName("org.bdgenomics.adam.rdd.SortedIntervalPartitionJoinAndGroupByLeft$$anonfun$postProcessHits$1"))
+
+    // IntervalArray registrations for org.bdgenomics.adam.rdd
+    kryo.register(classOf[org.bdgenomics.adam.rdd.read.AlignmentRecordArray],
+      new org.bdgenomics.adam.rdd.read.AlignmentRecordArraySerializer)
+    kryo.register(classOf[org.bdgenomics.adam.rdd.feature.CoverageArray],
+      new org.bdgenomics.adam.rdd.feature.CoverageArraySerializer(kryo))
+    kryo.register(classOf[org.bdgenomics.adam.rdd.feature.FeatureArray],
+      new org.bdgenomics.adam.rdd.feature.FeatureArraySerializer)
+    kryo.register(classOf[org.bdgenomics.adam.rdd.fragment.FragmentArray],
+      new org.bdgenomics.adam.rdd.fragment.FragmentArraySerializer)
+    kryo.register(classOf[org.bdgenomics.adam.rdd.variant.GenotypeArray],
+      new org.bdgenomics.adam.rdd.variant.GenotypeArraySerializer)
+    kryo.register(classOf[org.bdgenomics.adam.rdd.contig.NucleotideContigFragmentArray],
+      new org.bdgenomics.adam.rdd.contig.NucleotideContigFragmentArraySerializer)
+    kryo.register(classOf[org.bdgenomics.adam.rdd.variant.VariantArray],
+      new org.bdgenomics.adam.rdd.variant.VariantArraySerializer)
+    kryo.register(classOf[org.bdgenomics.adam.rdd.variant.VariantContextArray],
+      new org.bdgenomics.adam.rdd.variant.VariantContextArraySerializer)
 
     // org.bdgenomics.adam.rdd.read
     kryo.register(classOf[org.bdgenomics.adam.rdd.read.FlagStatMetrics])
@@ -220,24 +239,6 @@ class ADAMKryoRegistrator extends KryoRegistrator {
     kryo.register(classOf[org.bdgenomics.formats.avro.VariantCallingAnnotations],
       new AvroSerializer[org.bdgenomics.formats.avro.VariantCallingAnnotations])
 
-    // org.bdgenomics.utils.intervalarray
-    // this is only exposed officially through the genomicrdd trait, thus, we'll only
-    // register it for said traits
-    kryo.register(classOf[org.bdgenomics.utils.intervalarray.IntervalArray[org.bdgenomics.adam.models.ReferenceRegion, org.bdgenomics.formats.avro.AlignmentRecord]],
-      new org.bdgenomics.utils.intervalarray.IntervalArraySerializer[org.bdgenomics.adam.models.ReferenceRegion, org.bdgenomics.formats.avro.AlignmentRecord](kryo))
-    kryo.register(classOf[org.bdgenomics.utils.intervalarray.IntervalArray[org.bdgenomics.adam.models.ReferenceRegion, org.bdgenomics.formats.avro.Feature]],
-      new org.bdgenomics.utils.intervalarray.IntervalArraySerializer[org.bdgenomics.adam.models.ReferenceRegion, org.bdgenomics.formats.avro.Feature](kryo))
-    kryo.register(classOf[org.bdgenomics.utils.intervalarray.IntervalArray[org.bdgenomics.adam.models.ReferenceRegion, org.bdgenomics.formats.avro.Fragment]],
-      new org.bdgenomics.utils.intervalarray.IntervalArraySerializer[org.bdgenomics.adam.models.ReferenceRegion, org.bdgenomics.formats.avro.Fragment](kryo))
-    kryo.register(classOf[org.bdgenomics.utils.intervalarray.IntervalArray[org.bdgenomics.adam.models.ReferenceRegion, org.bdgenomics.formats.avro.Genotype]],
-      new org.bdgenomics.utils.intervalarray.IntervalArraySerializer[org.bdgenomics.adam.models.ReferenceRegion, org.bdgenomics.formats.avro.Genotype](kryo))
-    kryo.register(classOf[org.bdgenomics.utils.intervalarray.IntervalArray[org.bdgenomics.adam.models.ReferenceRegion, org.bdgenomics.formats.avro.NucleotideContigFragment]],
-      new org.bdgenomics.utils.intervalarray.IntervalArraySerializer[org.bdgenomics.adam.models.ReferenceRegion, org.bdgenomics.formats.avro.NucleotideContigFragment](kryo))
-    kryo.register(classOf[org.bdgenomics.utils.intervalarray.IntervalArray[org.bdgenomics.adam.models.ReferenceRegion, org.bdgenomics.formats.avro.Variant]],
-      new org.bdgenomics.utils.intervalarray.IntervalArraySerializer[org.bdgenomics.adam.models.ReferenceRegion, org.bdgenomics.formats.avro.Variant](kryo))
-    kryo.register(classOf[org.bdgenomics.utils.intervalarray.IntervalArray[org.bdgenomics.adam.models.ReferenceRegion, org.bdgenomics.adam.models.VariantContext]],
-      new org.bdgenomics.utils.intervalarray.IntervalArraySerializer[org.bdgenomics.adam.models.ReferenceRegion, org.bdgenomics.adam.models.VariantContext](kryo))
-
     // org.codehaus.jackson.node
     kryo.register(classOf[org.codehaus.jackson.node.NullNode])
     kryo.register(classOf[org.codehaus.jackson.node.BooleanNode])
@@ -274,6 +275,7 @@ class ADAMKryoRegistrator extends KryoRegistrator {
     kryo.register(classOf[scala.Array[scala.collection.Seq[_]]])
     kryo.register(classOf[scala.Array[Int]])
     kryo.register(classOf[scala.Array[String]])
+    kryo.register(classOf[scala.Array[Option[_]]])
     kryo.register(Class.forName("scala.Tuple2$mcCC$sp"))
 
     // scala.collection
@@ -316,27 +318,27 @@ class ADAMKryoRegistrator extends KryoRegistrator {
 
     // Added to Spark in 1.6.0; needed here for Spark < 1.6.0.
     kryo.register(classOf[Array[Tuple1[Any]]])
-    kryo.register(classOf[Array[Tuple2[Any, Any]]])
-    kryo.register(classOf[Array[Tuple3[Any, Any, Any]]])
-    kryo.register(classOf[Array[Tuple4[Any, Any, Any, Any]]])
-    kryo.register(classOf[Array[Tuple5[Any, Any, Any, Any, Any]]])
-    kryo.register(classOf[Array[Tuple6[Any, Any, Any, Any, Any, Any]]])
-    kryo.register(classOf[Array[Tuple7[Any, Any, Any, Any, Any, Any, Any]]])
-    kryo.register(classOf[Array[Tuple8[Any, Any, Any, Any, Any, Any, Any, Any]]])
-    kryo.register(classOf[Array[Tuple9[Any, Any, Any, Any, Any, Any, Any, Any, Any]]])
-    kryo.register(classOf[Array[Tuple10[Any, Any, Any, Any, Any, Any, Any, Any, Any, Any]]])
-    kryo.register(classOf[Array[Tuple11[Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any]]])
-    kryo.register(classOf[Array[Tuple12[Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any]]])
-    kryo.register(classOf[Array[Tuple13[Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any]]])
-    kryo.register(classOf[Array[Tuple14[Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any]]])
-    kryo.register(classOf[Array[Tuple15[Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any]]])
-    kryo.register(classOf[Array[Tuple16[Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any]]])
-    kryo.register(classOf[Array[Tuple17[Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any]]])
-    kryo.register(classOf[Array[Tuple18[Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any]]])
-    kryo.register(classOf[Array[Tuple19[Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any]]])
-    kryo.register(classOf[Array[Tuple20[Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any]]])
-    kryo.register(classOf[Array[Tuple21[Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any]]])
-    kryo.register(classOf[Array[Tuple22[Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any]]])
+    kryo.register(classOf[Array[(Any, Any)]])
+    kryo.register(classOf[Array[(Any, Any, Any)]])
+    kryo.register(classOf[Array[(Any, Any, Any, Any)]])
+    kryo.register(classOf[Array[(Any, Any, Any, Any, Any)]])
+    kryo.register(classOf[Array[(Any, Any, Any, Any, Any, Any)]])
+    kryo.register(classOf[Array[(Any, Any, Any, Any, Any, Any, Any)]])
+    kryo.register(classOf[Array[(Any, Any, Any, Any, Any, Any, Any, Any)]])
+    kryo.register(classOf[Array[(Any, Any, Any, Any, Any, Any, Any, Any, Any)]])
+    kryo.register(classOf[Array[(Any, Any, Any, Any, Any, Any, Any, Any, Any, Any)]])
+    kryo.register(classOf[Array[(Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any)]])
+    kryo.register(classOf[Array[(Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any)]])
+    kryo.register(classOf[Array[(Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any)]])
+    kryo.register(classOf[Array[(Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any)]])
+    kryo.register(classOf[Array[(Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any)]])
+    kryo.register(classOf[Array[(Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any)]])
+    kryo.register(classOf[Array[(Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any)]])
+    kryo.register(classOf[Array[(Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any)]])
+    kryo.register(classOf[Array[(Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any)]])
+    kryo.register(classOf[Array[(Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any)]])
+    kryo.register(classOf[Array[(Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any)]])
+    kryo.register(classOf[Array[(Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any, Any)]])
 
     kryo.register(Map.empty.getClass)
     kryo.register(Nil.getClass)

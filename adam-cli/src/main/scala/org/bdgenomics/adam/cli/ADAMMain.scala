@@ -36,7 +36,6 @@ object ADAMMain {
           CountContigKmers,
           Transform,
           TransformFeatures,
-          Flatten,
           MergeShards,
           Reads2Coverage
         )
@@ -46,7 +45,6 @@ object ADAMMain {
         List(
           Vcf2ADAM,
           ADAM2Vcf,
-          VcfAnnotation2ADAM,
           Fasta2ADAM,
           ADAM2Fasta,
           ADAM2Fastq,

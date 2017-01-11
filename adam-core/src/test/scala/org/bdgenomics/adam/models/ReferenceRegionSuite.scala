@@ -17,12 +17,16 @@
  */
 package org.bdgenomics.adam.models
 
+import htsjdk.samtools.ValidationStringency
 import htsjdk.variant.variantcontext.{
   Allele,
   GenotypeBuilder,
   VariantContextBuilder
 }
-import org.bdgenomics.adam.converters.VariantContextConverter
+import org.bdgenomics.adam.converters.{
+  SupportedHeaderLines,
+  VariantContextConverter
+}
 import org.bdgenomics.formats.avro._
 import org.scalatest.FunSuite
 import scala.collection.JavaConversions._
@@ -440,7 +444,8 @@ class ReferenceRegionSuite extends FunSuite {
   }
 
   test("convert a genotype and then get the reference region") {
-    val converter = new VariantContextConverter
+    val converter = new VariantContextConverter(SupportedHeaderLines.allHeaderLines,
+      ValidationStringency.LENIENT)
     val vcb = new VariantContextBuilder()
       .alleles(List(Allele.create("A", true), Allele.create("T")))
       .start(1L)
