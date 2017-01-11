@@ -223,7 +223,7 @@ case class VariantContextRDD(rdd: RDD[VariantContext],
    *   been replaced.
    */
   protected def replaceRdd(newRdd: RDD[VariantContext],
-                                newPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None): VariantContextRDD = {
+                           newPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None): VariantContextRDD = {
     copy(rdd = newRdd, optPartitionMap = newPartitionMap)
   }
 

@@ -126,7 +126,7 @@ case class NucleotideContigFragmentRDD(
    *   has been replaced.
    */
   protected def replaceRdd(newRdd: RDD[NucleotideContigFragment],
-                                newPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None): NucleotideContigFragmentRDD = {
+                           newPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None): NucleotideContigFragmentRDD = {
     copy(rdd = newRdd, optPartitionMap = newPartitionMap)
   }
 

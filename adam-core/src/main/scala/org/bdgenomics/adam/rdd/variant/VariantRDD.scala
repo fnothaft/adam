@@ -140,7 +140,7 @@ case class VariantRDD(rdd: RDD[Variant],
    * @return Returns a new VariantRDD with the underlying RDD replaced.
    */
   protected def replaceRdd(newRdd: RDD[Variant],
-                                newPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None): VariantRDD = {
+                           newPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None): VariantRDD = {
     copy(rdd = newRdd, optPartitionMap = newPartitionMap)
   }
 

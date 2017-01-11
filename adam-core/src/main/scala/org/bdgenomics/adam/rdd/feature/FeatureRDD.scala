@@ -297,7 +297,7 @@ case class FeatureRDD(rdd: RDD[Feature],
    * @return Returns a new FeatureRDD with the underlying RDD replaced.
    */
   protected def replaceRdd(newRdd: RDD[Feature],
-                                newPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None): FeatureRDD = {
+                           newPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None): FeatureRDD = {
     copy(rdd = newRdd, optPartitionMap = newPartitionMap)
   }
 

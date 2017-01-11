@@ -265,8 +265,6 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
           // in this partition. we are finding the next lowest ReferenceRegion
           // after the previous ReferenceRegion.
           while (listRepresentation(i)._2._1(j).compareTo(previousReferenceRegion) < 0) {
-            println(previousReferenceRegion)
-            println(listRepresentation(i)._2._1(j))
             j += 1
           }
           listOfInferredData +=
@@ -1063,8 +1061,6 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
     //number of partitions we will have after repartition
     val numPartitions = destinationPartitionMap.length
 
-    println(numPartitions)
-
     val finalPartitionedRDD =
       if (sorted) {
         // we're working with sorted data here, so it's important to keep things in
@@ -1122,7 +1118,6 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
                   (f._1.compareTo(partition._1._1) >= 0 && f._1.compareTo(partition._1._2) <= 0) ||
                   (f._1.compareTo(partition._1._2) >= 0)) {
                   // we use Options here so scala doesn't lose typing information
-                  //println(f._1 + "\t" + partition._2)
                   Some((partition._2, f))
                 } else None
               })
@@ -1147,20 +1142,6 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
     val newPartitionMap = finalPartitionedRDD.mapPartitions(iter => {
       getPartitionMapBoundsFromRdd(iter)
     }, preservesPartitioning = true).collect
-
-    //    val x = rddToCoPartitionWith.rdd.mapPartitionsWithIndex((idx, iter) => {
-    //      if(idx == 0) iter.map(f => (rddToCoPartitionWith.getReferenceRegions(f))).flatten
-    //      else Iterator()
-    //    })
-    //    val y = finalPartitionedRDD.mapPartitionsWithIndex((idx, iter) =>
-    //      if(idx == 0) iter.map(f => f._1)
-    //      else Iterator()
-    //    )
-    //    println(x.collect.mkString(","))
-    //    println(y.collect.mkString(","))
-    //    println(destinationPartitionMap(0))
-    println("\t" + newPartitionMap.mkString(","))
-    println("\t" + rddToCoPartitionWith.partitionMap.get.mkString(","))
 
     replaceRdd(finalPartitionedRDD.values, Some(newPartitionMap))
   }
@@ -1215,22 +1196,8 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
 
     override def numPartitions: Int = partitions
 
-    def assignPartitionIndexFromPartitionMap(region: ReferenceRegion): Int = {
-      println(region)
-      for (i <- partitionMap.indices) {
-        if ((region.start >= partitionMap(i)._1.start && region.start <= partitionMap(i)._2.end) ||
-          (region.end >= partitionMap(i)._1.start && region.end <= partitionMap(i)._2.end)) {
-          return i
-        }
-      }
-      numPartitions - 1
-    }
-
     def getPartition(key: Any): Int = {
       key match {
-        case region: ReferenceRegion => {
-          assignPartitionIndexFromPartitionMap(region)
-        }
         case f: Int                         => f
         case (f1: ReferenceRegion, f2: Int) => f2
         case _                              => throw new Exception("Reference Region Key require to partition on Genomic Position")
@@ -1384,7 +1351,6 @@ abstract class AvroGenomicRDD[T <% IndexedRecord: Manifest, U <: AvroGenomicRDD[
     val contigs = sequences.toAvro
     val contigSchema = Contig.SCHEMA$
     if (sorted) {
-      println("Adding sorted to avro")
       contigSchema.addProp("sorted", "true".asInstanceOf[Any])
       contigSchema.addProp("partitionMap", partitionMap.get.mkString(",").asInstanceOf[Any])
     }

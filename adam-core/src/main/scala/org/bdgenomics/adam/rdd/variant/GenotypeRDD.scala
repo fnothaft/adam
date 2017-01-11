@@ -168,7 +168,7 @@ case class GenotypeRDD(rdd: RDD[Genotype],
    * @return Returns a new GenotypeRDD with the underlying RDD replaced.
    */
   protected def replaceRdd(newRdd: RDD[Genotype],
-                                newPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None): GenotypeRDD = {
+                           newPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None): GenotypeRDD = {
     copy(rdd = newRdd, optPartitionMap = newPartitionMap)
   }
 

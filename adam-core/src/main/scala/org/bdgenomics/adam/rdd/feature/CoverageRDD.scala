@@ -229,7 +229,7 @@ case class CoverageRDD(rdd: RDD[Coverage],
    * @return Returns a new CoverageRDD with the underlying RDD replaced.
    */
   protected def replaceRdd(newRdd: RDD[Coverage],
-                                newPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None): CoverageRDD = {
+                           newPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None): CoverageRDD = {
     copy(rdd = newRdd, optPartitionMap = newPartitionMap)
   }
 

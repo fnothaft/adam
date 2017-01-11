@@ -105,7 +105,7 @@ case class FragmentRDD(rdd: RDD[Fragment],
    *   swapped out.
    */
   protected def replaceRdd(newRdd: RDD[Fragment],
-                                newPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None): FragmentRDD = {
+                           newPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None): FragmentRDD = {
     copy(rdd = newRdd, optPartitionMap = newPartitionMap)
   }
 

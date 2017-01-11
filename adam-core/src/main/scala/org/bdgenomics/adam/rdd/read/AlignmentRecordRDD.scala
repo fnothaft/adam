@@ -914,8 +914,6 @@ case class AlignedReadRDD(rdd: RDD[AlignmentRecord],
                           optPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None) extends AlignmentRecordRDD {
 
   val sortedTrait: SortedTrait = {
-    println(optPartitionMap.isDefined)
-    println(optPartitionMap)
     new SortedTrait(sorted = optPartitionMap.isDefined, optPartitionMap)
   }
 
@@ -927,7 +925,7 @@ case class AlignedReadRDD(rdd: RDD[AlignmentRecord],
   }
 
   protected def replaceRdd(newRdd: RDD[AlignmentRecord],
-                                newPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None): AlignedReadRDD = {
+                           newPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None): AlignedReadRDD = {
     copy(rdd = newRdd, optPartitionMap = newPartitionMap)
   }
 }
@@ -951,8 +949,6 @@ case class UnalignedReadRDD(rdd: RDD[AlignmentRecord],
     with Unaligned {
 
   val sortedTrait: SortedTrait = {
-    println(optPartitionMap.isDefined)
-    println(optPartitionMap)
     new SortedTrait(sorted = optPartitionMap.isDefined, optPartitionMap)
   }
 
