@@ -750,7 +750,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
     // we can't guarantee that we get exactly the number of partitions requested,
     // we get close though
     assert(jRdd.rdd.partitions.length === 1)
-    assert(jRdd0.rdd.partitions.length === 5)
+    assert(jRdd0.rdd.partitions.length === 4)
 
     assert(jRdd.rdd.count === 5)
     assert(jRdd0.rdd.count === 5)
@@ -771,7 +771,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
     // we can't guarantee that we get exactly the number of partitions requested,
     // we get close though
     assert(jRdd.rdd.partitions.length === 1)
-    assert(jRdd0.rdd.partitions.length === 5)
+    assert(jRdd0.rdd.partitions.length === 4)
 
     val c = jRdd.rdd.collect
     val c0 = jRdd0.rdd.collect
@@ -796,7 +796,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
     // we can't guarantee that we get exactly the number of partitions requested,
     // we get close though
     assert(jRdd.rdd.partitions.length === 1)
-    assert(jRdd0.rdd.partitions.length === 5)
+    assert(jRdd0.rdd.partitions.length === 4)
 
     val c = jRdd.rdd.collect
     val c0 = jRdd0.rdd.collect
@@ -821,7 +821,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
     // we can't guarantee that we get exactly the number of partitions requested,
     // we get close though
     assert(jRdd.rdd.partitions.length === 1)
-    assert(jRdd0.rdd.partitions.length === 5)
+    assert(jRdd0.rdd.partitions.length === 4)
 
     val c = jRdd.rdd.collect
     val c0 = jRdd0.rdd.collect
@@ -850,7 +850,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
     // we can't guarantee that we get exactly the number of partitions requested,
     // we get close though
     assert(jRdd.rdd.partitions.length === 1)
-    assert(jRdd0.rdd.partitions.length === 5)
+    assert(jRdd0.rdd.partitions.length === 4)
 
     val c = jRdd.rdd.collect
     val c0 = jRdd0.rdd.collect
@@ -875,7 +875,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
     // we can't guarantee that we get exactly the number of partitions requested,
     // we get close though
     assert(jRdd.rdd.partitions.length === 1)
-    assert(jRdd0.rdd.partitions.length === 5)
+    assert(jRdd0.rdd.partitions.length === 4)
 
     val c = jRdd0.rdd.collect // FIXME
     val c0 = jRdd0.rdd.collect

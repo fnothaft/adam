@@ -58,34 +58,59 @@ class SortedGenomicRDDSuite extends SparkFunSuite {
     // make sure that we didn't lose any data
     assert(partitionTupleCounts.sum == partitionTupleCounts2.sum)
   }
+  sparkTest("testing copartition maintains or adds sort") {
+    val x = sc.loadBam(getClass.getResource("/bqsr1.sam").getFile)
+    val z = x.repartitionAndSort(16)
+    val y = x.repartitionAndSort(32)
+    val a = x.copartitionByReferenceRegion(y)
+    val b = z.copartitionByReferenceRegion(y)
+    println(a.rdd.partitions.length)
+    println(a.rdd.mapPartitions(iter => Iterator(iter.length)).collect.mkString(","))
+    println(a.partitionMap.get.mkString(","))
+    println(y.partitionMap.get.mkString(","))
+    assert(isSorted(a.partitionMap.get))
+    assert(isSorted(b.partitionMap.get))
+
+    val starts = z.rdd.map(f => f.getStart)
+  }
   sparkTest("testing that sorted shuffleRegionJoin matches unsorted") {
     val x = sc.loadBam(getClass.getResource("/bqsr1.sam").getFile)
     // sort and make into 16 partitions
     val z = x.repartitionAndSort(16)
     // perform join using 32 partitions
-    val b = z.shuffleRegionJoin(x, Some(32)).rdd.collect
+    val b = z.shuffleRegionJoin(x, Some(90))
     // this will default to 1 partition
-    val c = x.shuffleRegionJoin(z).rdd.collect
-    assert(b.length == c.length)
+    val c = z.shuffleRegionJoin(x, Some(1))
+    val d = c.rdd.map(f => (f._1.getStart, f._2.getEnd)).collect.toSet
+    val e = b.rdd.map(f => (f._1.getStart, f._2.getEnd)).collect.toSet
+
+    val setDiff = d -- e
+    println(b.partitionMap)
+    println(setDiff)
+
+    println(d.size)
+    println(e.size)
+    assert(b.rdd.count == c.rdd.count)
   }
   sparkTest("testing that sorted fullOuterShuffleRegionJoin matches unsorted") {
     val x = sc.loadBam(getClass.getResource("/bqsr1.sam").getFile)
+
     val z = x.repartitionAndSort(16)
     //val y = x.repartitionAndSortByGenomicCoordinate(1)
-    val d = z.fullOuterShuffleRegionJoin(x, Some(96)) //.rdd.collect
-    val e = x.fullOuterShuffleRegionJoin(z, Some(1)) //.rdd.collect
+    val d = x.fullOuterShuffleRegionJoin(z, Some(1)) //.rdd.collect
+    val e = z.fullOuterShuffleRegionJoin(x, Some(16)) //.rdd.collect
     println(d.rdd.mapPartitions(iter => Iterator(iter.length)).collect.mkString(","))
     println(e.rdd.mapPartitions(iter => Iterator(iter.length)).collect.mkString(","))
     //val f = y.fullOuterShuffleRegionJoin(x, Some(16))
     println(d.rdd.count + "\t" + e.rdd.count + "\t") // + f.rdd.collect.length)
-    for (i <- d.rdd.collect.indices) {
-      if (d.rdd.collect.apply(i) != e.rdd.collect.apply(i)) {
-        println(d.rdd.collect.apply(i) + "\n" + e.rdd.collect.apply(i) + "\n" + i)
-        sys.exit()
-      }
-    }
-    sys.exit
-    assert(d.rdd.collect.length == e.rdd.collect.length)
+    println(d.partitionMap)
+    //    for (i <- d.rdd.collect.indices) {
+    //      if (d.rdd.collect.apply(i) != e.rdd.collect.apply(i)) {
+    //        println(d.rdd.collect.apply(i) + "\n" + e.rdd.collect.apply(i) + "\n" + i)
+    //        sys.exit()
+    //      }
+    //    }
+    assert(d.rdd.count == e.rdd.count)
   }
   sparkTest("testing that sorted rightOuterShuffleRegionJoin matches unsorted") {
     val x = sc.loadBam(getClass.getResource("/bqsr1.sam").getFile)
