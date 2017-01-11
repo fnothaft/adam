@@ -220,7 +220,7 @@ case class CoverageRDD(rdd: RDD[Coverage],
    * @param elem The Coverage to get an underlying region for.
    * @return Sequence of ReferenceRegions extracted from Coverage.
    */
-  protected[rdd] def getReferenceRegions(elem: Coverage): Seq[ReferenceRegion] = {
+  protected def getReferenceRegions(elem: Coverage): Seq[ReferenceRegion] = {
     Seq(ReferenceRegion(elem.contigName, elem.start, elem.end))
   }
 
@@ -228,7 +228,7 @@ case class CoverageRDD(rdd: RDD[Coverage],
    * @param newRdd The RDD to replace the underlying RDD with.
    * @return Returns a new CoverageRDD with the underlying RDD replaced.
    */
-  protected[rdd] def replaceRdd(newRdd: RDD[Coverage],
+  protected def replaceRdd(newRdd: RDD[Coverage],
                                 newPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None): CoverageRDD = {
     copy(rdd = newRdd, optPartitionMap = newPartitionMap)
   }

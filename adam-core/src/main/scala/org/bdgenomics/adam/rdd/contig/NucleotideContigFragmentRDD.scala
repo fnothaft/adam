@@ -125,7 +125,7 @@ case class NucleotideContigFragmentRDD(
    * @return Returns a new NucleotideContigFragmentRDD where the underlying RDD
    *   has been replaced.
    */
-  protected[rdd] def replaceRdd(newRdd: RDD[NucleotideContigFragment],
+  protected def replaceRdd(newRdd: RDD[NucleotideContigFragment],
                                 newPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None): NucleotideContigFragmentRDD = {
     copy(rdd = newRdd, optPartitionMap = newPartitionMap)
   }
@@ -136,7 +136,7 @@ case class NucleotideContigFragmentRDD(
    *   reference region. If the fragment start position and name is not defined,
    *   returns no regions.
    */
-  protected[rdd] def getReferenceRegions(elem: NucleotideContigFragment): Seq[ReferenceRegion] = {
+  protected def getReferenceRegions(elem: NucleotideContigFragment): Seq[ReferenceRegion] = {
     ReferenceRegion(elem).toSeq
   }
 
