@@ -20,7 +20,7 @@ package org.bdgenomics.adam.models
 import htsjdk.samtools.SAMReadGroupRecord
 import org.scalatest.FunSuite
 
-class moRecordGroupDictionarySuite extends FunSuite {
+class RecordGroupDictionarySuite extends FunSuite {
 
   test("simple conversion to and from sam read group") {
     val origSAMRGR = new SAMReadGroupRecord("myId")

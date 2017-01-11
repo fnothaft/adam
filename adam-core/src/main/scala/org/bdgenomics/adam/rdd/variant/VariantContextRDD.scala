@@ -90,35 +90,11 @@ case class VariantContextRDD(rdd: RDD[VariantContext],
                              optPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None) extends MultisampleGenomicRDD[VariantContext, VariantContextRDD]
     with Logging {
 
-<<<<<<< HEAD
   val sortedTrait: SortedTrait = new SortedTrait(sorted = optPartitionMap.isDefined, optPartitionMap)
 
-  /**
-   * Left outer join database variant annotations.
-   *
-   * @param ann Annotation RDD to join against.
-   * @return Returns a VariantContextRDD where annotations have been filled in.
-   */
-  def joinVariantAnnotations(ann: VariantAnnotationRDD): VariantContextRDD = {
-    replaceRdd(rdd.keyBy(_.variant)
-      .leftOuterJoin(ann.rdd.keyBy(dba => RichVariant(dba.getVariant)))
-      .values
-      .map(kv => VariantContext(kv._1, kv._2)))
-  }
-
-  /**
-   * @return Returns a VariantAnnotationRDD containing the variant
-   *   annotations attached to this VariantContextRDD.
-   */
-  def toVariantAnnotationRDD: VariantAnnotationRDD = {
-    VariantAnnotationRDD(rdd.flatMap(_.annotations),
-      sequences,
-      headerLines)
-=======
   protected def buildTree(rdd: RDD[(ReferenceRegion, VariantContext)])(
     implicit tTag: ClassTag[VariantContext]): IntervalArray[ReferenceRegion, VariantContext] = {
     IntervalArray(rdd, VariantContextArray.apply(_, _))
->>>>>>> master
   }
 
   /**

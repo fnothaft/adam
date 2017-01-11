@@ -123,7 +123,8 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
   private[rdd] def partitionMap = sortedTrait.partitionMap
 
   /**
-   * This case class is the source of all sorted knowledge handling in ADAM.
+   * This case class is the source of all sorted knowledge handling in ADAM. We
+   * have it as an inner class currently because there were some access issues
    */
   private[rdd] case class SortedTrait(sorted: Boolean,
                                       partitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]]) extends Serializable
@@ -356,6 +357,7 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
    *   in the environment for the newly created process. Default is empty.
    * @param flankSize Number of bases to flank each command invocation by.
    * @return Returns a new GenomicRDD of type Y.
+   *
    * @tparam X The type of the record created by the piped command.
    * @tparam Y A GenomicRDD containing X's.
    * @tparam V The InFormatter to use for formatting the data being piped to the
