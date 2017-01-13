@@ -776,7 +776,7 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
     GenericGenomicRDD[(T, X)](
       InnerShuffleRegionJoin[T, X](endSequences,
         endSequences.records.map(_.length).sum / partitions, rdd.context)
-        .joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadyToJoin),
+      .joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadyToJoin),
       endSequences,
       kv => {
         getReferenceRegions(kv._1) ++ genomicRdd.getReferenceRegions(kv._2)
@@ -809,26 +809,27 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
     val partitions = optPartitions.getOrElse(Seq(rdd.partitions.length,
       genomicRdd.rdd.partitions.length).max)
 
-    val leftRdd: GenomicRDD[T, U] = if (sorted) {
-      if (partitions != rdd.partitions.length) evenlyRepartition(partitions) else this
-    } else repartitionAndSort(partitions)
+    val rightRdd = if (genomicRdd.sorted) {
+      if (partitions != rdd.partitions.length) genomicRdd.evenlyRepartition(partitions) else genomicRdd
+    } else genomicRdd.repartitionAndSort(partitions)
 
-    val preparedRdds = prepareForShuffleRegionJoin(leftRdd, genomicRdd)
-    val leftRddReadyToJoin = preparedRdds._1
-    val rightRddReadyToJoin = preparedRdds._2
+    val preparedRdds = rightRdd.prepareForShuffleRegionJoin(rightRdd, this)
+    val leftRddReadyToJoin = preparedRdds._2
+    val rightRddReadyToJoin = preparedRdds._1
     assert(leftRddReadyToJoin.partitions.length == rightRddReadyToJoin.partitions.length)
 
     // what sequences do we wind up with at the end?
     val endSequences = sequences ++ genomicRdd.sequences
 
-    GenericGenomicRDD[(Option[T], X)](RightOuterShuffleRegionJoin[T, X](endSequences,
-      endSequences.records.map(_.length).sum / partitions,
-      rdd.context).joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadyToJoin),
+    GenericGenomicRDD[(Option[T], X)](
+      RightOuterShuffleRegionJoin[T, X](endSequences,
+        endSequences.records.map(_.length).sum / partitions, rdd.context)
+      .joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadyToJoin),
       endSequences,
       kv => {
         Seq(kv._1.map(v => getReferenceRegions(v))).flatten.flatten ++
           genomicRdd.getReferenceRegions(kv._2)
-      }, leftRdd.partitionMap).asInstanceOf[GenomicRDD[(Option[T], X), Z]]
+      }, rightRdd.partitionMap).asInstanceOf[GenomicRDD[(Option[T], X), Z]]
   }
 
   /**
@@ -871,9 +872,10 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
     // what sequences do we wind up with at the end?
     val endSequences = sequences ++ genomicRdd.sequences
 
-    GenericGenomicRDD[(T, Option[X])](LeftOuterShuffleRegionJoin[T, X](endSequences,
-      endSequences.records.map(_.length).sum / partitions,
-      rdd.context).joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadyToJoin),
+    GenericGenomicRDD[(T, Option[X])](
+      LeftOuterShuffleRegionJoin[T, X](endSequences,
+        endSequences.records.map(_.length).sum / partitions, rdd.context)
+      .joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadyToJoin),
       endSequences,
       kv => {
         Seq(kv._2.map(v => genomicRdd.getReferenceRegions(v))).flatten.flatten ++
@@ -905,23 +907,30 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
     // if no, take the max partition count from our rdds
     val partitions = optPartitions.getOrElse(rdd.partitions.length)
 
-    val leftRdd: GenomicRDD[T, U] = if (sorted) {
+    val leftRdd = if (sorted) {
       if (partitions != rdd.partitions.length) evenlyRepartition(partitions) else this
     } else {
       repartitionAndSort(partitions)
     }
 
+    val rightRdd = if (genomicRdd.sorted) {
+      if (partitions != rdd.partitions.length) genomicRdd.evenlyRepartition(partitions) else genomicRdd
+    } else {
+      genomicRdd.repartitionAndSort(partitions)
+    }
+
     val preparedRdds = prepareForShuffleRegionJoin(leftRdd, genomicRdd)
-    val leftRddReadyToJoin = preparedRdds._1
+    val leftRddReadyToJoin = prepareForShuffleRegionJoin(leftRdd, leftRdd)._2
     val rightRddReadyToJoin = preparedRdds._2
     assert(leftRddReadyToJoin.partitions.length == rightRddReadyToJoin.partitions.length)
 
     // what sequences do we wind up with at the end?
     val endSequences = sequences ++ genomicRdd.sequences
 
-    GenericGenomicRDD[(Option[T], Option[X])](FullOuterShuffleRegionJoin[T, X](endSequences,
-      endSequences.records.map(_.length).sum / partitions,
-      rdd.context).joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadyToJoin),
+    GenericGenomicRDD[(Option[T], Option[X])](
+      FullOuterShuffleRegionJoin[T, X](endSequences,
+        endSequences.records.map(_.length).sum / partitions, rdd.context)
+      .joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadyToJoin),
       endSequences,
       kv => {
         Seq(kv._2.map(v => genomicRdd.getReferenceRegions(v)),
@@ -973,8 +982,8 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
 
     GenericGenomicRDD[(T, Iterable[X])](
       InnerShuffleRegionJoinAndGroupByLeft[T, X](endSequences,
-        endSequences.records.map(_.length).sum / partitions,
-        rdd.context).joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadyToJoin),
+        endSequences.records.map(_.length).sum / partitions, rdd.context)
+      .joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadyToJoin),
       endSequences,
       kv => {
         (kv._2.flatMap(v => genomicRdd.getReferenceRegions(v)) ++
@@ -1017,22 +1026,29 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
       repartitionAndSort(partitions)
     }
 
+    val rightRdd = if (genomicRdd.sorted) {
+      if (partitions != rdd.partitions.length) genomicRdd.evenlyRepartition(partitions) else genomicRdd
+    } else {
+      genomicRdd.repartitionAndSort(partitions)
+    }
+
     val preparedRdds = prepareForShuffleRegionJoin(leftRdd, genomicRdd)
     val leftRddReadyToJoin = preparedRdds._1
-    val rightRddReadyToJoin = preparedRdds._2
+    val rightRddReadyToJoin = preparedRdds._2//prepareForShuffleRegionJoin(leftRdd, rightRdd)._2
     assert(leftRddReadyToJoin.partitions.length == rightRddReadyToJoin.partitions.length)
 
     // what sequences do we wind up with at the end?
     val endSequences = sequences ++ genomicRdd.sequences
 
-    GenericGenomicRDD[(Option[T], Iterable[X])](RightOuterShuffleRegionJoinAndGroupByLeft[T, X](endSequences,
-      endSequences.records.map(_.length).sum / partitions,
-      rdd.context).joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadyToJoin),
+    GenericGenomicRDD[(Option[T], Iterable[X])](
+      RightOuterShuffleRegionJoinAndGroupByLeft[T, X](endSequences,
+        endSequences.records.map(_.length).sum / partitions, rdd.context)
+      .joinCoPartitionedRdds(leftRddReadyToJoin, rightRddReadyToJoin),
       endSequences,
       kv => {
         (kv._2.flatMap(v => genomicRdd.getReferenceRegions(v)) ++
           kv._1.toSeq.flatMap(v => getReferenceRegions(v))).toSeq
-      }, leftRdd.partitionMap).asInstanceOf[GenomicRDD[(Option[T], Iterable[X]), Z]]
+      }, rightRdd.partitionMap).asInstanceOf[GenomicRDD[(Option[T], Iterable[X]), Z]]
   }
 
   /**
