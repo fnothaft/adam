@@ -19,6 +19,7 @@ package org.bdgenomics.adam.rdd
 
 import htsjdk.variant.vcf.{ VCFHeader, VCFHeaderLine }
 import java.util.concurrent.Executors
+import org.apache.avro.Schema
 import org.apache.avro.generic.IndexedRecord
 import org.apache.hadoop.fs.Path
 import org.apache.parquet.hadoop.metadata.CompressionCodecName
@@ -29,6 +30,8 @@ import org.bdgenomics.adam.models.{ RecordGroupDictionary, ReferenceRegion, Sequ
 import org.bdgenomics.formats.avro.{ Contig, RecordGroupMetadata, Sample }
 import org.bdgenomics.utils.cli.SaveArgs
 import org.bdgenomics.utils.interval.array.IntervalArray
+import org.json4s.JsonDSL._
+import org.json4s.jackson.JsonMethods._
 import scala.annotation.tailrec
 import scala.collection.JavaConversions._
 import scala.collection.mutable.ListBuffer
@@ -1287,10 +1290,7 @@ abstract class AvroReadGroupGenomicRDD[T <% IndexedRecord: Manifest, U <: AvroRe
     // convert sequence dictionary to avro form and save
     val contigs = sequences.toAvro
     val contigSchema = Contig.SCHEMA$
-    if (sorted) {
-      contigSchema.addProp("sorted", "true".asInstanceOf[Any])
-      contigSchema.addProp("partitionMap", partitionMap.get.mkString(",").asInstanceOf[Any])
-    }
+    savePartitionMap(contigSchema)
 
     saveAvro("%s/_seqdict.avro".format(filePath),
       rdd.context,
@@ -1302,10 +1302,6 @@ abstract class AvroReadGroupGenomicRDD[T <% IndexedRecord: Manifest, U <: AvroRe
       .map(_.toMetadata)
 
     val recordGroupMetaData = RecordGroupMetadata.SCHEMA$
-    if (sorted) {
-      recordGroupMetaData.addProp("sorted", "true".asInstanceOf[Any])
-      recordGroupMetaData.addProp("partitionMap", partitionMap.get.mkString(",").asInstanceOf[Any])
-    }
 
     saveAvro("%s/_rgdict.avro".format(filePath),
       rdd.context,
@@ -1329,10 +1325,6 @@ abstract class MultisampleAvroGenomicRDD[T <% IndexedRecord: Manifest, U <: Mult
   override protected def saveMetadata(filePath: String) {
 
     val sampleSchema = Sample.SCHEMA$
-    if (sorted) {
-      sampleSchema.addProp("sorted", "true".asInstanceOf[Any])
-      sampleSchema.addProp("partitionMap", partitionMap.get.mkString(",").asInstanceOf[Any])
-    }
 
     // write vcf headers to file
     VCFHeaderUtils.write(new VCFHeader(headerLines.toSet),
@@ -1345,10 +1337,7 @@ abstract class MultisampleAvroGenomicRDD[T <% IndexedRecord: Manifest, U <: Mult
       samples)
 
     val contigSchema = Contig.SCHEMA$
-    if (sorted) {
-      contigSchema.addProp("sorted", "true".asInstanceOf[Any])
-      contigSchema.addProp("partitionMap", partitionMap.get.mkString(",").asInstanceOf[Any])
-    }
+    savePartitionMap(contigSchema)
 
     // convert sequence dictionary to avro form and save
     val contigs = sequences.toAvro
@@ -1368,6 +1357,24 @@ abstract class AvroGenomicRDD[T <% IndexedRecord: Manifest, U <: AvroGenomicRDD[
     with GenomicRDD[T, U] {
 
   /**
+   * This method is where we save the partition map to the disk. This is done
+   * by simply adding the partition map to the schema.
+   *
+   * @param schema The schema that will be written to disk. Usually the
+   *               Sequence Dictionary schema (Contig.SCHEMA$)
+   */
+  protected def savePartitionMap(schema: Schema): Unit = {
+    if (sorted) {
+      // converting using json4s
+      val jsonString = "partitionMap" -> partitionMap.get.map(f =>
+        // we have to save the pair as ReferenceRegion1 and ReferenceRegion2 so we don't
+        // lose either of them when they get converted to Maps
+        ("ReferenceRegion1" -> (("referenceName" -> f._1.referenceName) ~ ("start" -> f._1.start) ~ ("end" -> f._1.end))) ~
+          ("ReferenceRegion2" -> (("referenceName" -> f._2.referenceName) ~ ("start" -> f._2.start) ~ ("end" -> f._2.end))))
+      schema.addProp("partitionMap", compact(render(jsonString)).asInstanceOf[Any])
+    }
+  }
+  /**
    * Called in saveAsParquet after saving RDD to Parquet to save metadata.
    *
    * Writes any necessary metadata to disk. If not overridden, writes the
@@ -1380,10 +1387,7 @@ abstract class AvroGenomicRDD[T <% IndexedRecord: Manifest, U <: AvroGenomicRDD[
     // convert sequence dictionary to avro form and save
     val contigs = sequences.toAvro
     val contigSchema = Contig.SCHEMA$
-    if (sorted) {
-      contigSchema.addProp("sorted", "true".asInstanceOf[Any])
-      contigSchema.addProp("partitionMap", partitionMap.get.mkString(",").asInstanceOf[Any])
-    }
+    savePartitionMap(contigSchema)
 
     saveAvro("%s/_seqdict.avro".format(filePath),
       rdd.context,

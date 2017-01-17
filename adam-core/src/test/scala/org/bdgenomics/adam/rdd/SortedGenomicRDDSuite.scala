@@ -116,19 +116,17 @@ class SortedGenomicRDDSuite extends SparkFunSuite {
 
     assert(h.count == i.count)
   }
-  //  sparkTest("testing that we can persist the sorted knowledge") {
-  //    val x = sc.loadBam(getClass.getResource("/bqsr1.sam").getFile)
-  //    val z = x.repartitionAndSort(16)
-  //    try {
-  //      z.save(testFile("/sortedAlignments.parquet.txt"), true)
-  //    } catch {
-  //      case exists: org.apache.hadoop.mapred.FileAlreadyExistsException =>
-  //    }
-  //    val t = sc.loadParquetAlignments(testFile("/sortedAlignments.parquet.txt"))
-  //    assert(t.sorted)
-  //
-  //    val j = t.shuffleRegionJoin(x, Some(1))
-  //    val k = x.shuffleRegionJoin(t, Some(1))
-  //    assert(j.rdd.collect.length == k.rdd.collect.length)
-  //  }
+  sparkTest("testing that we can persist the sorted knowledge") {
+    val x = sc.loadBam(getClass.getResource("/bqsr1.sam").getFile)
+    val z = x.repartitionAndSort(16)
+    val fileLocation = tmpLocation()
+    z.save(fileLocation, true)
+
+    val t = sc.loadParquetAlignments(fileLocation)
+    assert(t.sorted)
+
+    val j = t.shuffleRegionJoin(x, Some(1))
+    val k = x.shuffleRegionJoin(t, Some(1))
+    assert(j.rdd.collect.length == k.rdd.collect.length)
+  }
 }
