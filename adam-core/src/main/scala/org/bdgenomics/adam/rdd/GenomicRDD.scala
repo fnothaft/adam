@@ -149,13 +149,16 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
     // we already have a sorted rdd, so let's just move the data
     // but we want to move it in blocks to maintain order
     // zipWithIndex seems to be the cheapest way to guarantee this
-    val finalPartitionedRDD = rdd.zipWithIndex
+    val finalPartitionedRDD = rdd
       .mapPartitionsWithIndex((idx, iter) => {
         // here we get the destination partition number
         // this will calculate so that each partition has a nearly
         // equal amount of data on it
-        getBalancedPartitionNumber(iter.map(_.swap), partitionMap.get(idx), average)
-      }, preservesPartitioning = true)
+        inferCorrectReferenceRegionsForPartition(iter, partitionMap.get(idx))
+      }, preservesPartitioning = true).zipWithIndex
+      .mapPartitionsWithIndex((idx, iter) => {
+        getBalancedPartitionNumber(iter, partitionMap.get(idx), average)
+      })
       .partitionBy(new GenomicPositionRangePartitioner(partitions))
       .mapPartitions(iter => {
         // sorting an Iterator doesn't seem straight forward, so we cast to a list
@@ -226,60 +229,10 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
    * @return grouped lists keyed with the destination partition number. These lists maintain
    *         their original order
    */
-  private def getBalancedPartitionNumber(iter: Iterator[(Long, T)], partitionMap: (ReferenceRegion, ReferenceRegion),
+  private def getBalancedPartitionNumber(iter: Iterator[((ReferenceRegion, T), Long)], partitionMap: (ReferenceRegion, ReferenceRegion),
                                          average: Double): Iterator[(Int, ((ReferenceRegion, ReferenceRegion), List[(Long, T)]))] = {
 
-    /**
-     * Infers the correct reference region for each T given a the bounds of the partition (partitionMap)
-     * and returns the iterator with each T paired with the ReferenceRegion that it represents in that
-     * sorted location. This is important because a T can map to multiple ReferenceRegions.
-     *
-     * This version of the method works with getBalancedPartitionNumber.
-     *
-     * @param iter The iterator (that partition's data) with each T zipped
-     * @param partitionMap the bounds of the partition where _._1 is the lower bound and _._2 is the
-     *                     upper bound
-     * @return An iterator of all T's keyed with the specific ReferenceRegion that the T represents in
-     *         the global sort, then keyed with the globally zipped position
-     */
-    def inferCorrectReferenceRegionsForPartitionWithZip(
-      iter: Iterator[(Long, T)],
-      partitionMap: (ReferenceRegion, ReferenceRegion)): Iterator[(Long, (ReferenceRegion, T))] = {
-
-      // converting to a list and making sure that we only look at values that are in our range
-      val listRepresentation = iter.map(f => (f._1, (getReferenceRegions(f._2).filter(g => g == partitionMap._1 ||
-        (g.start >= partitionMap._1.start && g.start <= partitionMap._2.end) ||
-        (g.end >= partitionMap._1.start && g.end <= partitionMap._2.end)
-      ).sorted, f._2))).toList
-      // for now we are using Listbuffers, in the future something else may be better
-      val listOfInferredData = new ListBuffer[(Long, (ReferenceRegion, T))]
-
-      for (i <- listRepresentation.indices) {
-        // the first record on the partition is always the first to be added,
-        // and contains the lower bound (or next value after lower bound)
-        if (i == 0) {
-          listOfInferredData +=
-            ((listRepresentation(i)._1, (listRepresentation(i)._2._1.head, listRepresentation(i)._2._2)))
-        } else {
-          val previousReferenceRegion = listOfInferredData.last._2._1
-          var j = 0
-          // we should never run off the end of the list because there will
-          // always be at least the same number of regions as there are T's
-          // in this partition. we are finding the next lowest ReferenceRegion
-          // after the previous ReferenceRegion.
-          while (listRepresentation(i)._2._1(j).compareTo(previousReferenceRegion) < 0) {
-            j += 1
-          }
-          listOfInferredData +=
-            ((listRepresentation(i)._1, (listRepresentation(i)._2._1(j), listRepresentation(i)._2._2)))
-        }
-      }
-      listOfInferredData.toIterator
-    }
-
-    // converting to list so we can package data that is going to the same node with a groupBy
-    val correctPartition = inferCorrectReferenceRegionsForPartitionWithZip(iter, partitionMap)
-    correctPartition.map(f => ((f._1 / average).toInt, f)).toList.groupBy(_._1).mapValues(f => f.map(_._2))
+    iter.map(_.swap).map(f => ((f._1 / average).toInt, f)).toList.groupBy(_._1).mapValues(f => f.map(_._2))
       .map(f => (f._1, ((f._2.head._2._1, f._2.last._2._1), f._2.map(g => (g._1, g._2._2))))).toIterator
   }
 
