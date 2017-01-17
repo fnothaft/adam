@@ -53,6 +53,7 @@ private[rdd] object GenomicRDD {
    * Replaces file references in a command.
    *
    * @see pipe
+   *
    * @param cmd Command to split and replace references in.
    * @param files List of paths to files.
    * @return Returns a split up command string, with file paths subbed in.
@@ -287,6 +288,7 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
    * by index.
    *
    * @return Returns a new RDD containing sorted data.
+   *
    * @note Does not support data that is unaligned or where objects align to
    *   multiple positions.
    * @see sortLexicographically
@@ -317,6 +319,7 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
    * lexicographically.
    *
    * @return Returns a new RDD containing sorted data.
+   *
    * @note Does not support data that is unaligned or where objects align to
    *   multiple positions.
    * @see sort
@@ -355,6 +358,7 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
    *   in the environment for the newly created process. Default is empty.
    * @param flankSize Number of bases to flank each command invocation by.
    * @return Returns a new GenomicRDD of type Y.
+   *
    * @tparam X The type of the record created by the piped command.
    * @tparam Y A GenomicRDD containing X's.
    * @tparam V The InFormatter to use for formatting the data being piped to the

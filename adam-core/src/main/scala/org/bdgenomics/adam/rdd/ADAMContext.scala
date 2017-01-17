@@ -191,6 +191,7 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
    * @param filePath The (possibly globbed) filepath to load a VCF from.
    * @return Returns a tuple of metadata from the VCF header, including the
    *   sequence dictionary and a list of the samples contained in the VCF.
+   *
    * @see loadVcfMetadata
    */
   private def loadSingleVcfMetadata(filePath: String): (SequenceDictionary, Seq[Sample], Seq[VCFHeaderLine]) = {
@@ -302,6 +303,7 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
    * @param filePath The filepath to load a single Avro file of sequence
    *   dictionary info from.
    * @return Returns the SequenceDictionary representing said reference build.
+   *
    * @see loadAvroSequences
    */
   private def loadAvroSequencesFile(filePath: String): SequenceDictionary = {
@@ -335,6 +337,7 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
    * @param filePath The filepath to load a single Avro file containing read
    *   group metadata.
    * @return Returns a RecordGroupDictionary.
+   *
    * @see loadAvroReadGroupMetadata
    */
   private def loadAvroReadGroupMetadataFile(filePath: String): RecordGroupDictionary = {
@@ -403,7 +406,9 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
    * @param path Path to elaborate.
    * @param fs The underlying file system that this path is on.
    * @return Returns an array of Paths to load.
+   *
    * @see getFsAndFiles
+   *
    * @throws FileNotFoundException if the path does not match any files.
    */
   private def getFiles(path: Path, fs: FileSystem): Array[Path] = {
@@ -430,7 +435,9 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
    *
    * @param path Path to elaborate.
    * @return Returns an array of Paths to load.
+   *
    * @see getFiles
+   *
    * @throws FileNotFoundException if the path does not match any files.
    */
   private[rdd] def getFsAndFiles(path: Path): Array[Path] = {
@@ -450,7 +457,9 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
    * @param filename Path to elaborate.
    * @param filter Filter to discard paths.
    * @return Returns an array of Paths to load.
+   *
    * @see getFiles
+   *
    * @throws FileNotFoundException if the path does not match any files.
    */
   private def getFsAndFilesWithFilter(filename: String, filter: PathFilter): Array[Path] = {
@@ -845,6 +854,7 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
    *
    * @see loadPairedFastq
    * @see loadUnpairedFastq
+   *
    * @param filePath1 The path where the first set of reads are.
    * @param filePath2Opt The path where the second set of reads are, if provided.
    * @param recordGroupOpt The optional record group name to associate to the
@@ -873,6 +883,7 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
    * Loads paired FASTQ data from two files.
    *
    * @see loadFastq
+   *
    * @param filePath1 The path where the first set of reads are.
    * @param filePath2 The path where the second set of reads are.
    * @param recordGroupOpt The optional record group name to associate to the
@@ -918,6 +929,7 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
    * Loads unpaired FASTQ data from two files.
    *
    * @see loadFastq
+   *
    * @param filePath The path where the first set of reads are.
    * @param recordGroupOpt The optional record group name to associate to the
    *   reads.
@@ -992,6 +1004,7 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
    * @param filePath The file to load.
    * @param stringency The validation stringency to use when validating the VCF.
    * @return Returns a VariantContextRDD.
+   *
    * @see loadVcfAnnotations
    */
   def loadVcf(
@@ -1407,6 +1420,7 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
    *   textual formats, if this is None, we fall back to the Spark default
    *   parallelism.
    * @return Returns a FeatureRDD.
+   *
    * @see loadBed
    * @see loadGtf
    * @see loadGff3
@@ -1450,6 +1464,7 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
    * @param filePath The path to load.
    * @param fragmentLength The length of fragment to use for splitting.
    * @return Returns a broadcastable ReferenceFile.
+   *
    * @see loadSequences
    */
   def loadReferenceFile(filePath: String, fragmentLength: Long): ReferenceFile = {
@@ -1471,6 +1486,7 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
    * @param projection An optional subset of fields to load.
    * @param fragmentLength The length of fragment to use for splitting.
    * @return Returns a NucleotideContigFragmentRDD.
+   *
    * @see loadFasta
    * @see loadParquetContigFragments
    * @see loadReferenceFile
@@ -1511,6 +1527,7 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
    * @param projection An optional subset of fields to load.
    * @param stringency The validation stringency to use when validating the VCF.
    * @return Returns a GenotypeRDD.
+   *
    * @see loadVcf
    * @see loadParquetGenotypes
    */
@@ -1537,6 +1554,7 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
    * @param projection An optional subset of fields to load.
    * @param stringency The validation stringency to use when validating the VCF.
    * @return Returns a VariantRDD.
+   *
    * @see loadVcf
    * @see loadParquetVariants
    */
