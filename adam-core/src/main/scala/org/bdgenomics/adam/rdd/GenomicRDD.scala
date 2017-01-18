@@ -194,10 +194,10 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
     // filter out ReferenceRegions that are not on this partition
     iter.map(f => (getReferenceRegions(f).filter(g =>
       g.compareTo(partitionMap._1) >= 0 && g.compareTo(partitionMap._2) <= 0).sorted, f))
-      .map(f => {
+      .flatMap(f => {
         // the usual case: only one ReferenceRegion for the record
         if (f._1.length == 1) {
-          (f._1.head, f._2)
+          Some((f._1.head, f._2))
           // if there are multiple, we have to do a little extra work to make
           // sure that we have the correct ReferenceRegion
         } else {
@@ -208,12 +208,14 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
             val inferredValue = (duplicates(index)._1.head, duplicates(index)._2)
             // if there are more after this
             if (duplicates(index)._1.length != 1) duplicates(index) = (duplicates(index)._1.drop(1), duplicates(index)._2)
-            inferredValue
-          } else {
+            Some(inferredValue)
+          } else if (f._1.nonEmpty) {
             val inferredValue = (f._1.head, f._2)
             // add to the list of duplicates
             duplicates += ((f._1.drop(1), f._2))
-            inferredValue
+            Some(inferredValue)
+          } else {
+            None
           }
         }
       })
