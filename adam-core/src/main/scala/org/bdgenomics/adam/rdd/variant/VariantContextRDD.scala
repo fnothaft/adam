@@ -120,7 +120,7 @@ case class VariantContextRDD(rdd: RDD[VariantContext],
    * Converts an RDD of ADAM VariantContexts to HTSJDK VariantContexts
    * and saves to disk as VCF.
    *
-   * @param args The arguments for saving the data
+   * @param args The arguments for saving the data.
    * @param sortOnSave Whether to sort before saving.
    */
   def saveAsVcf(args: SaveArgs,
