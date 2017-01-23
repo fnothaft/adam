@@ -120,10 +120,12 @@ class SortedGenomicRDDSuite extends SparkFunSuite {
     val x = sc.loadBam(getClass.getResource("/bqsr1.sam").getFile)
     val z = x.repartitionAndSort(16)
     val fileLocation = tmpLocation()
-    z.save(fileLocation, true)
+    val saveArgs = new JavaSaveArgs(fileLocation, asSingleFile = true)
+    z.save(saveArgs, true)
 
     val t = sc.loadParquetAlignments(fileLocation)
     assert(t.sorted)
+    assert(t.rdd.partitions.length == z.rdd.partitions.length)
 
     val j = t.shuffleRegionJoin(x, Some(1))
     val k = x.shuffleRegionJoin(t, Some(1))
