@@ -65,7 +65,6 @@ import org.json4s.jackson.JsonMethods._
 import org.seqdoop.hadoop_bam._
 import org.seqdoop.hadoop_bam.util._
 import scala.collection.JavaConversions._
-import scala.collection.Map
 import scala.collection.mutable.ListBuffer
 import scala.reflect.ClassTag
 import scala.util.parsing.json.JSON
@@ -704,19 +703,19 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
 
   /**
    * This method gets the sort and partition map metadata from the header of the file
-   * give as input.
+   * given as input.
    *
    * @param filename the filename for the metadata
    * @return a partition map if the data was written sorted, or an empty Seq if unsorted
    */
-  private[rdd] def extractPartitionMap(filename: String): Seq[(ReferenceRegion, ReferenceRegion)] = {
+  private[rdd] def extractPartitionMap(filename: String): Option[Seq[(ReferenceRegion, ReferenceRegion)]] = {
     // the sorted metadata is always stored with the sequence dictionary metadata
     val path = new Path(filename + "/_seqdict.avro")
     val fs = path.getFileSystem(sc.hadoopConfiguration)
 
     try {
       // get an input stream
-      val is = fs.open(path).asInstanceOf[InputStream]
+      val is = fs.open(path)
 
       // set up avro for reading
       val dr = new GenericDatumReader[GenericRecord]
@@ -727,13 +726,16 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
       // avro does not seem to support getting metadata fields out once
       // you have the input from the string
       val metaDataMap = JSON.parseFull(fr.getMetaString("avro.schema"))
+        // the cast here is required because parsefull does not case for 
+        // us. parsefull returns an object of type Any and leaves it to 
+        // the user to cast.
         .get.asInstanceOf[Map[String, String]]
 
       val partitionMap = metaDataMap.get("partitionMap")
       // we didn't write a partition map, which means this was not sorted at write
       // or at least we didn't have information that it was sorted
       if (partitionMap.isEmpty) {
-        Seq.empty[(ReferenceRegion, ReferenceRegion)]
+        None
       } else {
         // this is used to parse out the json. we use default because we don't need
         // anything special
@@ -741,9 +743,11 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
         val partitionMapBuilder = new ListBuffer[(ReferenceRegion, ReferenceRegion)]
         // using json4s to parse the json values
         val parsedJson = (parse(partitionMap.get) \ "partitionMap").values
-          // we have to cast it because scala's type inference cannot see the future
-          // we also have to use Any because there are both Strings and BigInts
-          // stored there (by json4s), so we cast them later
+          // we have to cast it because the JSON parser does not actually give
+          // us the raw types. instead, it uses a wrapper which requires that we
+          // cast to the correct types. we also have to use Any because there 
+          // are both Strings and BigInts stored there (by json4s), so we cast
+          // them later
           .asInstanceOf[List[Map[String, Map[String, Any]]]]
         for (f <- parsedJson) {
           // we had to write this as ReferenceRegion1 and ReferenceRegion2 because
@@ -766,14 +770,14 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
           partitionMapBuilder += ((lowerBound, upperBound))
         }
 
-        partitionMapBuilder
+        Some(partitionMapBuilder)
       }
     } catch {
       // if no sequence dictionary was saved, we do not have sorted knowledge of the data
-      case e: FileNotFoundException => Seq.empty[(ReferenceRegion, ReferenceRegion)]
+      case e: FileNotFoundException => None
       // there are a number of places where things can go wrong, so we just say that things
       // are not sorted if it went wrong anywhere
-      case e: Exception             => Seq.empty[(ReferenceRegion, ReferenceRegion)]
+      case e: Exception             => None
     }
   }
 
@@ -807,18 +811,7 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
     // convert avro to sequence dictionary
     val rgd = loadAvroReadGroupMetadata(filePath)
 
-    val pMap = extractPartitionMap(filePath)
-
-    // if we have a partition map in the metadata, we know it's sorted
-    if (pMap.nonEmpty) {
-      // this will trigger the isSorted of the object to become true
-      AlignedReadRDD(rdd, sd, rgd, Some(pMap))
-      // we don't have data on whether or not it is sorted, so we must assume
-      // that it isn't
-    } else {
-      // None will trigger isSorted to become false
-      AlignedReadRDD(rdd, sd, rgd, None)
-    }
+    AlignedReadRDD(rdd, sd, rgd, partitionMap = extractPartitionMap(filePath))
   }
 
   /**
@@ -1091,17 +1084,7 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
     // load avro record group dictionary and convert to samples
     val samples = loadAvroSampleMetadata(filePath)
 
-    // We get the partition map back from in Seq form
-    val pMap = extractPartitionMap(filePath)
-    // if we have record of the partition map
-    if (pMap.nonEmpty) {
-      // this will trigger the isSorted to be true
-      GenotypeRDD(rdd, sd, samples, optPartitionMap = Some(pMap))
-      // if we don't have information about the partition map we assume unsorted
-    } else {
-      // this will trigger the isSorted to false
-      GenotypeRDD(rdd, sd, samples)
-    }
+    GenotypeRDD(rdd, sd, samples, partitionMap = extractPartitionMap(filePath))
   }
 
   /**
@@ -1122,17 +1105,7 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
     // load header lines
     val headers = loadHeaderLines(filePath)
 
-    // extract partition map from disk if there is one
-    val pMap = extractPartitionMap(filePath)
-    // if we have a partition map in the metadata
-    if (pMap.nonEmpty) {
-      // this will trigger isSorted to become true in the object
-      VariantRDD(rdd, sd, headers, optPartitionMap = Some(pMap))
-      // if we have no information about partition map we assume unsorted
-    } else {
-      // default to isSorted = false
-      VariantRDD(rdd, sd, headers)
-    }
+    VariantRDD(rdd, sd, headers, partitionMap = extractPartitionMap(filePath))
   }
 
   /**
@@ -1333,17 +1306,7 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
     projection: Option[Schema] = None): FeatureRDD = {
     val sd = loadAvroSequences(filePath)
     val rdd = loadParquet[Feature](filePath, predicate, projection)
-    // extract the partition map from disk, if exists
-    val pMap = extractPartitionMap(filePath)
-    // if we have a partition map in the metadata
-    if (pMap.nonEmpty) {
-      // this will trigger isSorted to become true
-      FeatureRDD(rdd, sd, optPartitionMap = Some(pMap))
-      // if we have no metadata about partition map we assume unsorted
-    } else {
-      // default to isSorted = false
-      FeatureRDD(rdd, sd)
-    }
+    FeatureRDD(rdd, sd, partitionMap = extractPartitionMap(filePath))
   }
 
   /**
@@ -1360,17 +1323,7 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
     projection: Option[Schema] = None): NucleotideContigFragmentRDD = {
     val sd = loadAvroSequences(filePath)
     val rdd = loadParquet[NucleotideContigFragment](filePath, predicate, projection)
-    // extract partition map from metadata on disk if we have it
-    val pMap = extractPartitionMap(filePath)
-    // if we do have a partition map
-    if (pMap.nonEmpty) {
-      // create a new object with isSorted set to true
-      NucleotideContigFragmentRDD(rdd, sd, optPartitionMap = Some(pMap))
-      // if we have no partition map we assume unsorted
-    } else {
-      // defaults to isSorted = false
-      NucleotideContigFragmentRDD(rdd, sd)
-    }
+    NucleotideContigFragmentRDD(rdd, sd, partitionMap = extractPartitionMap(filePath))
   }
 
   /**
@@ -1394,17 +1347,7 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
 
     // load fragment data from parquet
     val rdd = loadParquet[Fragment](filePath, predicate, projection)
-    // extract partition map from metadata on disk if we have it
-    val pMap = extractPartitionMap(filePath)
-    // if we have a partition map
-    if (pMap.nonEmpty) {
-      // create a new object and set isSorted to true
-      FragmentRDD(rdd, sd, rgd, optPartitionMap = Some(pMap))
-      // if we have no partition map we assume unsorted
-    } else {
-      // defaults to isSorted = false
-      FragmentRDD(rdd, sd, rgd)
-    }
+    FragmentRDD(rdd, sd, rgd, partitionMap = extractPartitionMap(filePath))
   }
 
   /**

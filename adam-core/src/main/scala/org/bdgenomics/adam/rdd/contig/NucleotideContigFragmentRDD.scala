@@ -99,9 +99,9 @@ private[rdd] object NucleotideContigFragmentRDD extends Serializable {
 case class NucleotideContigFragmentRDD(
     rdd: RDD[NucleotideContigFragment],
     sequences: SequenceDictionary,
-    optPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None) extends AvroGenomicRDD[NucleotideContigFragment, NucleotideContigFragmentRDD] with ReferenceFile {
+    partitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None) extends AvroGenomicRDD[NucleotideContigFragment, NucleotideContigFragmentRDD] with ReferenceFile {
 
-  val sortedTrait: SortedTrait = new SortedTrait(sorted = optPartitionMap.isDefined, optPartitionMap)
+  override val sorted = partitionMap.isDefined
 
   protected def buildTree(rdd: RDD[(ReferenceRegion, NucleotideContigFragment)])(
     implicit tTag: ClassTag[NucleotideContigFragment]): IntervalArray[ReferenceRegion, NucleotideContigFragment] = {
@@ -127,7 +127,7 @@ case class NucleotideContigFragmentRDD(
    */
   protected def replaceRdd(newRdd: RDD[NucleotideContigFragment],
                            newPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None): NucleotideContigFragmentRDD = {
-    copy(rdd = newRdd, optPartitionMap = newPartitionMap)
+    copy(rdd = newRdd, partitionMap = newPartitionMap)
   }
 
   /**

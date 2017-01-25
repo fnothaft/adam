@@ -911,11 +911,9 @@ sealed trait AlignmentRecordRDD extends AvroReadGroupGenomicRDD[AlignmentRecord,
 case class AlignedReadRDD(rdd: RDD[AlignmentRecord],
                           sequences: SequenceDictionary,
                           recordGroups: RecordGroupDictionary,
-                          optPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None) extends AlignmentRecordRDD {
+                          partitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None) extends AlignmentRecordRDD {
 
-  val sortedTrait: SortedTrait = {
-    new SortedTrait(sorted = optPartitionMap.isDefined, optPartitionMap)
-  }
+  override val sorted = partitionMap.isDefined
 
   protected def replaceRddAndSequences(newRdd: RDD[AlignmentRecord],
                                        newSequences: SequenceDictionary): AlignmentRecordRDD = {
@@ -926,7 +924,7 @@ case class AlignedReadRDD(rdd: RDD[AlignmentRecord],
 
   protected def replaceRdd(newRdd: RDD[AlignmentRecord],
                            newPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None): AlignedReadRDD = {
-    copy(rdd = newRdd, optPartitionMap = newPartitionMap)
+    copy(rdd = newRdd, partitionMap = newPartitionMap)
   }
 }
 
@@ -945,15 +943,13 @@ object UnalignedReadRDD {
 
 case class UnalignedReadRDD(rdd: RDD[AlignmentRecord],
                             recordGroups: RecordGroupDictionary,
-                            optPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None) extends AlignmentRecordRDD
+                            partitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None) extends AlignmentRecordRDD
     with Unaligned {
 
-  val sortedTrait: SortedTrait = {
-    new SortedTrait(sorted = optPartitionMap.isDefined, optPartitionMap)
-  }
+  override val sorted = partitionMap.isDefined
 
   protected def replaceRdd(newRdd: RDD[AlignmentRecord], newPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None): UnalignedReadRDD = {
-    copy(rdd = newRdd, optPartitionMap = newPartitionMap)
+    copy(rdd = newRdd, partitionMap = newPartitionMap)
   }
 
   protected def replaceRddAndSequences(newRdd: RDD[AlignmentRecord],

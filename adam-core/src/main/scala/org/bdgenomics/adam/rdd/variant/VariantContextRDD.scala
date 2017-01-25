@@ -87,10 +87,10 @@ case class VariantContextRDD(rdd: RDD[VariantContext],
                              sequences: SequenceDictionary,
                              @transient samples: Seq[Sample],
                              @transient headerLines: Seq[VCFHeaderLine] = SupportedHeaderLines.allHeaderLines,
-                             optPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None) extends MultisampleGenomicRDD[VariantContext, VariantContextRDD]
+                             partitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None) extends MultisampleGenomicRDD[VariantContext, VariantContextRDD]
     with Logging {
 
-  val sortedTrait: SortedTrait = new SortedTrait(sorted = optPartitionMap.isDefined, optPartitionMap)
+  override val sorted = partitionMap.isDefined
 
   protected def buildTree(rdd: RDD[(ReferenceRegion, VariantContext)])(
     implicit tTag: ClassTag[VariantContext]): IntervalArray[ReferenceRegion, VariantContext] = {
@@ -224,7 +224,7 @@ case class VariantContextRDD(rdd: RDD[VariantContext],
    */
   protected def replaceRdd(newRdd: RDD[VariantContext],
                            newPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None): VariantContextRDD = {
-    copy(rdd = newRdd, optPartitionMap = newPartitionMap)
+    copy(rdd = newRdd, partitionMap = newPartitionMap)
   }
 
   /**

@@ -88,9 +88,9 @@ private[rdd] object FragmentRDD {
 case class FragmentRDD(rdd: RDD[Fragment],
                        sequences: SequenceDictionary,
                        recordGroups: RecordGroupDictionary,
-                       optPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None) extends AvroReadGroupGenomicRDD[Fragment, FragmentRDD] {
+                       partitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None) extends AvroReadGroupGenomicRDD[Fragment, FragmentRDD] {
 
-  val sortedTrait: SortedTrait = new SortedTrait(sorted = optPartitionMap.isDefined, optPartitionMap)
+  override val sorted = partitionMap.isDefined
 
   protected def buildTree(rdd: RDD[(ReferenceRegion, Fragment)])(
     implicit tTag: ClassTag[Fragment]): IntervalArray[ReferenceRegion, Fragment] = {
@@ -106,7 +106,7 @@ case class FragmentRDD(rdd: RDD[Fragment],
    */
   protected def replaceRdd(newRdd: RDD[Fragment],
                            newPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None): FragmentRDD = {
-    copy(rdd = newRdd, optPartitionMap = newPartitionMap)
+    copy(rdd = newRdd, partitionMap = newPartitionMap)
   }
 
   /**

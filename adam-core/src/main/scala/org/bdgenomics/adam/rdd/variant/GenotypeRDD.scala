@@ -74,9 +74,9 @@ case class GenotypeRDD(rdd: RDD[Genotype],
                        sequences: SequenceDictionary,
                        @transient samples: Seq[Sample],
                        @transient headerLines: Seq[VCFHeaderLine] = SupportedHeaderLines.allHeaderLines,
-                       optPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None) extends MultisampleAvroGenomicRDD[Genotype, GenotypeRDD] {
+                       partitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None) extends MultisampleAvroGenomicRDD[Genotype, GenotypeRDD] {
 
-  val sortedTrait: SortedTrait = new SortedTrait(sorted = optPartitionMap.isDefined, optPartitionMap)
+  override val sorted = partitionMap.isDefined
 
   protected def buildTree(rdd: RDD[(ReferenceRegion, Genotype)])(
     implicit tTag: ClassTag[Genotype]): IntervalArray[ReferenceRegion, Genotype] = {
@@ -169,7 +169,7 @@ case class GenotypeRDD(rdd: RDD[Genotype],
    */
   protected def replaceRdd(newRdd: RDD[Genotype],
                            newPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None): GenotypeRDD = {
-    copy(rdd = newRdd, optPartitionMap = newPartitionMap)
+    copy(rdd = newRdd, partitionMap = newPartitionMap)
   }
 
   /**

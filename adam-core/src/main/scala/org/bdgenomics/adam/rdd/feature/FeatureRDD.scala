@@ -239,9 +239,9 @@ object FeatureRDD {
  */
 case class FeatureRDD(rdd: RDD[Feature],
                       sequences: SequenceDictionary,
-                      optPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None) extends AvroGenomicRDD[Feature, FeatureRDD] with Logging {
+                      partitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None) extends AvroGenomicRDD[Feature, FeatureRDD] with Logging {
 
-  val sortedTrait: SortedTrait = new SortedTrait(sorted = optPartitionMap.isDefined, optPartitionMap)
+  override val sorted = partitionMap.isDefined
 
   protected def buildTree(rdd: RDD[(ReferenceRegion, Feature)])(
     implicit tTag: ClassTag[Feature]): IntervalArray[ReferenceRegion, Feature] = {
@@ -298,7 +298,7 @@ case class FeatureRDD(rdd: RDD[Feature],
    */
   protected def replaceRdd(newRdd: RDD[Feature],
                            newPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None): FeatureRDD = {
-    copy(rdd = newRdd, optPartitionMap = newPartitionMap)
+    copy(rdd = newRdd, partitionMap = newPartitionMap)
   }
 
   /**

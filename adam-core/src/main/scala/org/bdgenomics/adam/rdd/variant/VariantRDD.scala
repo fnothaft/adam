@@ -79,9 +79,9 @@ private[adam] class VariantArraySerializer extends IntervalArraySerializer[Refer
 case class VariantRDD(rdd: RDD[Variant],
                       sequences: SequenceDictionary,
                       @transient headerLines: Seq[VCFHeaderLine] = SupportedHeaderLines.allHeaderLines,
-                      optPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None) extends AvroGenomicRDD[Variant, VariantRDD] {
+                      partitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None) extends AvroGenomicRDD[Variant, VariantRDD] {
 
-  val sortedTrait: SortedTrait = new SortedTrait(sorted = optPartitionMap.isDefined, optPartitionMap)
+  override val sorted = partitionMap.isDefined
 
   protected def buildTree(rdd: RDD[(ReferenceRegion, Variant)])(
     implicit tTag: ClassTag[Variant]): IntervalArray[ReferenceRegion, Variant] = {
@@ -141,7 +141,7 @@ case class VariantRDD(rdd: RDD[Variant],
    */
   protected def replaceRdd(newRdd: RDD[Variant],
                            newPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None): VariantRDD = {
-    copy(rdd = newRdd, optPartitionMap = newPartitionMap)
+    copy(rdd = newRdd, partitionMap = newPartitionMap)
   }
 
   /**
