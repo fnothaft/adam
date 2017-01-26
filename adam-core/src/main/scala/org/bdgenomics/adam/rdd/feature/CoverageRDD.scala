@@ -64,7 +64,7 @@ private[adam] class CoverageArraySerializer(kryo: Kryo) extends IntervalArraySer
  */
 case class CoverageRDD(rdd: RDD[Coverage],
                        sequences: SequenceDictionary,
-                       partitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None) extends GenomicRDD[Coverage, CoverageRDD] {
+                       partitionMap: Option[Seq[Option[(ReferenceRegion, ReferenceRegion)]]] = None) extends GenomicRDD[Coverage, CoverageRDD] {
 
   override val sorted = partitionMap.isDefined
 
@@ -229,7 +229,7 @@ case class CoverageRDD(rdd: RDD[Coverage],
    * @return Returns a new CoverageRDD with the underlying RDD replaced.
    */
   protected def replaceRdd(newRdd: RDD[Coverage],
-                           newPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None): CoverageRDD = {
+                           newPartitionMap: Option[Seq[Option[(ReferenceRegion, ReferenceRegion)]]] = None): CoverageRDD = {
     copy(rdd = newRdd, partitionMap = newPartitionMap)
   }
 

@@ -239,7 +239,7 @@ object FeatureRDD {
  */
 case class FeatureRDD(rdd: RDD[Feature],
                       sequences: SequenceDictionary,
-                      partitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None) extends AvroGenomicRDD[Feature, FeatureRDD] with Logging {
+                      partitionMap: Option[Seq[Option[(ReferenceRegion, ReferenceRegion)]]] = None) extends AvroGenomicRDD[Feature, FeatureRDD] with Logging {
 
   override val sorted = partitionMap.isDefined
 
@@ -297,7 +297,7 @@ case class FeatureRDD(rdd: RDD[Feature],
    * @return Returns a new FeatureRDD with the underlying RDD replaced.
    */
   protected def replaceRdd(newRdd: RDD[Feature],
-                           newPartitionMap: Option[Seq[(ReferenceRegion, ReferenceRegion)]] = None): FeatureRDD = {
+                           newPartitionMap: Option[Seq[Option[(ReferenceRegion, ReferenceRegion)]]] = None): FeatureRDD = {
     copy(rdd = newRdd, partitionMap = newPartitionMap)
   }
 

@@ -29,9 +29,9 @@ class SortedGenomicRDDSuite extends SparkFunSuite {
    * @param list The partition map
    * @return a boolean where true is sorted and false is unsorted
    */
-  def isSorted(list: Seq[(ReferenceRegion, ReferenceRegion)]): Boolean = {
-    val test = list.drop(1).map(_._1)
-    val test2 = list.dropRight(1).map(_._2)
+  def isSorted(list: Seq[Option[(ReferenceRegion, ReferenceRegion)]]): Boolean = {
+    val test = list.drop(1).map(_.get._1)
+    val test2 = list.dropRight(1).map(_.get._2)
     !test2.zip(test).exists(f => f._1.start > f._2.start && f._1.end > f._2.end && f._1.referenceName > f._2.referenceName)
   }
 
@@ -58,6 +58,7 @@ class SortedGenomicRDDSuite extends SparkFunSuite {
     // make sure that we didn't lose any data
     assert(partitionTupleCounts.sum == partitionTupleCounts2.sum)
   }
+
   sparkTest("testing copartition maintains or adds sort") {
     val x = sc.loadBam(getClass.getResource("/bqsr1.sam").getFile)
     val z = x.repartitionAndSort(16)
@@ -69,6 +70,7 @@ class SortedGenomicRDDSuite extends SparkFunSuite {
 
     val starts = z.rdd.map(f => f.getStart)
   }
+
   sparkTest("testing that sorted shuffleRegionJoin matches unsorted") {
     val x = sc.loadBam(getClass.getResource("/bqsr1.sam").getFile)
     // sort and make into 16 partitions
@@ -83,6 +85,7 @@ class SortedGenomicRDDSuite extends SparkFunSuite {
     assert(setDiff.isEmpty)
     assert(b.rdd.count == c.rdd.count)
   }
+
   sparkTest("testing that sorted fullOuterShuffleRegionJoin matches unsorted") {
     val x = sc.loadBam(getClass.getResource("/bqsr1.sam").getFile)
     val z = x.repartitionAndSort(16)
@@ -94,6 +97,7 @@ class SortedGenomicRDDSuite extends SparkFunSuite {
 
     assert(d.rdd.count == e.rdd.count)
   }
+
   sparkTest("testing that sorted rightOuterShuffleRegionJoin matches unsorted") {
     val x = sc.loadBam(getClass.getResource("/bqsr1.sam").getFile)
     val z = x.repartitionAndSort(1)
@@ -105,6 +109,7 @@ class SortedGenomicRDDSuite extends SparkFunSuite {
 
     assert(f.length == g.length)
   }
+
   sparkTest("testing that sorted leftOuterShuffleRegionJoin matches unsorted") {
     val x = sc.loadBam(getClass.getResource("/bqsr1.sam").getFile)
     val z = x.repartitionAndSort(1)
@@ -116,6 +121,7 @@ class SortedGenomicRDDSuite extends SparkFunSuite {
 
     assert(h.count == i.count)
   }
+
   sparkTest("testing that we can persist the sorted knowledge") {
     val x = sc.loadBam(getClass.getResource("/bqsr1.sam").getFile)
     val z = x.repartitionAndSort(16)
@@ -127,8 +133,8 @@ class SortedGenomicRDDSuite extends SparkFunSuite {
     assert(t.sorted)
     assert(t.rdd.partitions.length == z.rdd.partitions.length)
 
-    //    val j = t.shuffleRegionJoin(x, Some(1))
-    //    val k = x.shuffleRegionJoin(t, Some(1))
-    //    assert(j.rdd.collect.length == k.rdd.collect.length)
+    val j = t.shuffleRegionJoin(x, Some(1))
+    val k = x.shuffleRegionJoin(t, Some(1))
+    assert(j.rdd.collect.length == k.rdd.collect.length)
   }
 }

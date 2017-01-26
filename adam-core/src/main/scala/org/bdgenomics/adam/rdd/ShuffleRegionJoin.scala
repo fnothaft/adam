@@ -117,6 +117,7 @@ sealed abstract class ShuffleRegionJoin[T: ClassTag, U: ClassTag, RT, RU]
       emptyFn(leftIter, rightIter)
     } else {
       val bufferedLeft = leftIter.buffered
+      // the join API only ever needs the start of the leftIter
       val region = bufferedLeft.head._1._1
       // return an Iterator[(T, U)]
       makeIterator(region, bufferedLeft, rightIter.buffered)

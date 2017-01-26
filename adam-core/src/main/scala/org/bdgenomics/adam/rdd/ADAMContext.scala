@@ -708,7 +708,7 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
    * @param filename the filename for the metadata
    * @return a partition map if the data was written sorted, or an empty Seq if unsorted
    */
-  private[rdd] def extractPartitionMap(filename: String): Option[Seq[(ReferenceRegion, ReferenceRegion)]] = {
+  private[rdd] def extractPartitionMap(filename: String): Option[Seq[Option[(ReferenceRegion, ReferenceRegion)]]] = {
     // the sorted metadata is always stored with the sequence dictionary metadata
     val path = new Path(filename + "/_seqdict.avro")
     val fs = path.getFileSystem(sc.hadoopConfiguration)
@@ -740,7 +740,7 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
         // this is used to parse out the json. we use default because we don't need
         // anything special
         implicit val formats = DefaultFormats
-        val partitionMapBuilder = new ListBuffer[(ReferenceRegion, ReferenceRegion)]
+        val partitionMapBuilder = new ListBuffer[Option[(ReferenceRegion, ReferenceRegion)]]
         // using json4s to parse the json values
         val parsedJson = (parse(partitionMap.get) \ "partitionMap").values
           // we have to cast it because the JSON parser does not actually give
@@ -748,26 +748,30 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
           // cast to the correct types. we also have to use Any because there 
           // are both Strings and BigInts stored there (by json4s), so we cast
           // them later
-          .asInstanceOf[List[Map[String, Map[String, Any]]]]
+          .asInstanceOf[List[Map[String, Any]]]
         for (f <- parsedJson) {
-          // we had to write this as ReferenceRegion1 and ReferenceRegion2 because
-          // the map would lose one of them when we deserialized the object
-          val lowerBoundJson = f.get("ReferenceRegion1").get
-          val lowerBound = ReferenceRegion(
-            lowerBoundJson.get("referenceName").get.toString,
-            // json4s uses BigInts as the underlying store for natural numbers
-            // so we have to cast it twice here
-            lowerBoundJson.get("start").get.asInstanceOf[BigInt].toLong,
-            lowerBoundJson.get("end").get.asInstanceOf[BigInt].toLong)
+          if (f.get("ReferenceRegion1").get.toString == "None") {
+            partitionMapBuilder += None
+          } else {
+            // we had to write this as ReferenceRegion1 and ReferenceRegion2 because
+            // the map would lose one of them when we deserialized the object
+            val lowerBoundJson = f.get("ReferenceRegion1").get.asInstanceOf[Map[String, Any]]
+            val lowerBound = ReferenceRegion(
+              lowerBoundJson.get("referenceName").get.toString,
+              // json4s uses BigInts as the underlying store for natural numbers
+              // so we have to cast it twice here
+              lowerBoundJson.get("start").get.asInstanceOf[BigInt].toLong,
+              lowerBoundJson.get("end").get.asInstanceOf[BigInt].toLong)
 
-          val upperBoundJson = f.get("ReferenceRegion2").get
-          val upperBound = ReferenceRegion(
-            upperBoundJson.get("referenceName").get.toString,
-            // json4s uses BigInts as the underlying store for natural numbers
-            // so we have to cast it twice here
-            upperBoundJson.get("start").get.asInstanceOf[BigInt].toLong,
-            upperBoundJson.get("end").get.asInstanceOf[BigInt].toLong)
-          partitionMapBuilder += ((lowerBound, upperBound))
+            val upperBoundJson = f.get("ReferenceRegion2").get.asInstanceOf[Map[String, Any]]
+            val upperBound = ReferenceRegion(
+              upperBoundJson.get("referenceName").get.toString,
+              // json4s uses BigInts as the underlying store for natural numbers
+              // so we have to cast it twice here
+              upperBoundJson.get("start").get.asInstanceOf[BigInt].toLong,
+              upperBoundJson.get("end").get.asInstanceOf[BigInt].toLong)
+            partitionMapBuilder += Some(((lowerBound, upperBound)))
+          }
         }
 
         Some(partitionMapBuilder)
