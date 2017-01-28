@@ -21,7 +21,7 @@ import htsjdk.samtools.{ Cigar, CigarElement, CigarOperator }
 import org.bdgenomics.utils.misc.Logging
 import org.apache.spark.rdd.MetricsContext._
 import org.apache.spark.rdd.RDD
-import org.bdgenomics.adam.algorithms.consensus.{ Consensus, ConsensusGenerator, ConsensusGeneratorFromReads }
+import org.bdgenomics.adam.algorithms.consensus.{ Consensus, ConsensusGenerator }
 import org.bdgenomics.adam.models.{ MdTag, ReferencePosition, ReferenceRegion }
 import org.bdgenomics.adam.rich.RichAlignmentRecord
 import org.bdgenomics.adam.rich.RichAlignmentRecord._
@@ -43,7 +43,7 @@ private[read] object RealignIndels extends Serializable with Logging {
    */
   def apply(
     rdd: RDD[AlignmentRecord],
-    consensusModel: ConsensusGenerator = new ConsensusGeneratorFromReads,
+    consensusModel: ConsensusGenerator = ConsensusGenerator.fromReads,
     dataIsSorted: Boolean = false,
     maxIndelSize: Int = 500,
     maxConsensusNumber: Int = 30,
@@ -203,17 +203,20 @@ private[read] object RealignIndels extends Serializable with Logging {
       .sortBy(_._2.head)
 
     // fold over sequences and append - sequence is sorted at start
-    val ref = readRefs.reverse.foldRight[(String, Long)](("", readRefs.head._2.head))((refReads: (String, NumericRange[Long]), reference: (String, Long)) => {
-      if (refReads._2.end < reference._2) {
-        reference
-      } else if (reference._2 >= refReads._2.head) {
-        (reference._1 + refReads._1.substring((reference._2 - refReads._2.head).toInt), refReads._2.end)
-      } else {
-        // there is a gap in the sequence
-        throw new IllegalArgumentException("Current sequence has a gap at " + reference._2 + "with " + refReads._2.head + "," + refReads._2.end +
-          ". Discarded " + tossedReads + " in region when reconstructing region; reads may not have MD tag attached.")
-      }
-    })
+    val ref = readRefs.reverse.foldRight[(String, Long)](
+      ("", readRefs.head._2.head))(
+        (refReads: (String, NumericRange[Long]), reference: (String, Long)) => {
+          if (refReads._2.end < reference._2) {
+            reference
+          } else if (reference._2 >= refReads._2.head) {
+            (reference._1 + refReads._1.substring((reference._2 - refReads._2.head).toInt),
+              refReads._2.end)
+          } else {
+            // there is a gap in the sequence
+            throw new IllegalArgumentException("Current sequence has a gap at " + reference._2 + "with " + refReads._2.head + "," + refReads._2.end +
+              ". Discarded " + tossedReads + " in region when reconstructing region; reads may not have MD tag attached.")
+          }
+        })
 
     (ref._1, readRefs.head._2.head, ref._2)
   }
@@ -222,7 +225,7 @@ private[read] object RealignIndels extends Serializable with Logging {
 import org.bdgenomics.adam.rdd.read.realignment.RealignIndels._
 
 private[read] class RealignIndels(
-    val consensusModel: ConsensusGenerator = new ConsensusGeneratorFromReads,
+    val consensusModel: ConsensusGenerator = ConsensusGenerator.fromReads,
     val dataIsSorted: Boolean = false,
     val maxIndelSize: Int = 500,
     val maxConsensusNumber: Int = 30,
@@ -258,6 +261,8 @@ private[read] class RealignIndels(
         refRegion
       )
       var consensus = consensusModel.findConsensus(readsToClean)
+        .toSeq
+        .distinct
 
       // reduce count of consensus sequences
       if (consensus.size > maxConsensusNumber) {
@@ -404,7 +409,7 @@ private[read] class RealignIndels(
     var qualityScores = List[(Int, Int)]()
 
     // calculate mismatch quality score for all admissable alignment offsets
-    for (i <- 0 until (reference.length - read.length)) {
+    for (i <- 0 to (reference.length - read.length)) {
       val qualityScore = sumMismatchQualityIgnoreCigar(read, reference.substring(i, i + read.length), qualities)
       qualityScores = (qualityScore, i) :: qualityScores
     }

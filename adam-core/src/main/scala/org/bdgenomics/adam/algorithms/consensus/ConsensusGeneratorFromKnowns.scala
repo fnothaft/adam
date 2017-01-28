@@ -36,10 +36,9 @@ import scala.transient
  * @param file Path to file containing variants.
  * @param sc Spark context to use.
  */
-private[adam] class ConsensusGeneratorFromKnowns(file: String,
-                                                 sc: SparkContext) extends ConsensusGenerator {
+private[adam] class ConsensusGeneratorFromKnowns(rdd: RDD[Variant]) extends ConsensusGenerator {
 
-  private val indelTable = sc.broadcast(IndelTable(file, sc))
+  private val indelTable = rdd.context.broadcast(IndelTable(rdd))
 
   /**
    * Generates targets to add to initial set of indel realignment targets, if additional
@@ -48,10 +47,9 @@ private[adam] class ConsensusGeneratorFromKnowns(file: String,
    * @return Returns an option which wraps an RDD of indel realignment targets.
    */
   def targetsToAdd(): Option[RDD[IndelRealignmentTarget]] = {
-    val rdd: RDD[Variant] = sc.loadVariants(file).rdd
 
     Some(rdd.filter(v => v.getReferenceAllele.length != v.getAlternateAllele.length)
-      .map(v => ReferenceRegion(v.getContigName, v.getStart, v.getStart + v.getReferenceAllele.length))
+      .map(v => ReferenceRegion(v))
       .map(r => new IndelRealignmentTarget(Some(r), r)))
   }
 
@@ -76,16 +74,20 @@ private[adam] class ConsensusGeneratorFromKnowns(file: String,
    * @return Consensus sequences to use for realignment.
    */
   def findConsensus(reads: Iterable[RichAlignmentRecord]): Iterable[Consensus] = {
-    val table = indelTable.value
+    if (reads.isEmpty) {
+      Iterable.empty
+    } else {
+      val table = indelTable.value
 
-    // get region
-    val start = reads.map(_.record.getStart).min
-    val end = reads.map(_.getEnd).max
-    val refId = reads.head.record.getContigName
+      // get region
+      val start = reads.map(_.record.getStart).min
+      val end = reads.map(_.getEnd).max
+      val refId = reads.head.record.getContigName
 
-    val region = ReferenceRegion(refId, start, end + 1)
+      val region = ReferenceRegion(refId, start, end + 1)
 
-    // get reads
-    table.getIndelsInRegion(region)
+      // get reads
+      table.getIndelsInRegion(region)
+    }
   }
 }

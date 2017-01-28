@@ -21,7 +21,7 @@ import htsjdk.samtools.ValidationStringency
 import htsjdk.variant.vcf.{ VCFHeader, VCFHeaderLine }
 import org.apache.hadoop.fs.Path
 import org.apache.spark.rdd.RDD
-import org.bdgenomics.adam.converters.SupportedHeaderLines
+import org.bdgenomics.adam.converters.DefaultHeaderLines
 import org.bdgenomics.adam.models.{
   ReferenceRegion,
   ReferenceRegionSerializer,
@@ -78,7 +78,7 @@ private[adam] class VariantArraySerializer extends IntervalArraySerializer[Refer
  */
 case class VariantRDD(rdd: RDD[Variant],
                       sequences: SequenceDictionary,
-                      @transient headerLines: Seq[VCFHeaderLine] = SupportedHeaderLines.allHeaderLines,
+                      @transient headerLines: Seq[VCFHeaderLine] = DefaultHeaderLines.allHeaderLines,
                       partitionMap: Option[Seq[Option[(ReferenceRegion, ReferenceRegion)]]] = None) extends AvroGenomicRDD[Variant, VariantRDD] {
 
   override val sorted = partitionMap.isDefined

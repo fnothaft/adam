@@ -230,7 +230,12 @@ private[adam] class VariantContextConverter(
             val idx = vc.getAlleleIndex(allele)
             require(idx >= 1, "Unexpected index for alternate allele: " + vc.toString)
 
-            val variant = variantFormatFn(vc, Some(allele.getDisplayString), idx)
+            // variant annotations only contain values for alternate alleles so
+            // we need to subtract one from real index
+            val variantIdx = idx - 1
+            val variant = variantFormatFn(vc,
+              Some(allele.getDisplayString),
+              variantIdx)
             val genotypes = vc.getGenotypes.map(g => {
               genotypeFormatFn(g, variant, allele, idx, referenceModelIndex, true)
             })
@@ -1389,7 +1394,7 @@ private[adam] class VariantContextConverter(
           val key = il.getID
 
           // filter out the lines that we already support
-          if (SupportedHeaderLines.infoHeaderLines
+          if (DefaultHeaderLines.infoHeaderLines
             .find(_.getID == key)
             .isEmpty) {
 
@@ -1462,7 +1467,7 @@ private[adam] class VariantContextConverter(
           val key = fl.getID
 
           // filter out the lines that we already support
-          if (SupportedHeaderLines.formatHeaderLines
+          if (DefaultHeaderLines.formatHeaderLines
             .find(_.getID == key)
             .isEmpty) {
 
@@ -1813,7 +1818,7 @@ private[adam] class VariantContextConverter(
           val key = il.getID
 
           // filter out the lines that we already support
-          if (SupportedHeaderLines.infoHeaderLines
+          if (DefaultHeaderLines.infoHeaderLines
             .find(_.getID == key)
             .isDefined) {
 
@@ -1886,7 +1891,7 @@ private[adam] class VariantContextConverter(
           val key = fl.getID
 
           // filter out the lines that we already support
-          if (SupportedHeaderLines.formatHeaderLines
+          if (DefaultHeaderLines.formatHeaderLines
             .find(_.getID == key)
             .isDefined) {
 

@@ -126,6 +126,7 @@ class ADAMKryoRegistrator extends KryoRegistrator {
 
     // org.bdgenomics.adam.models
     kryo.register(classOf[org.bdgenomics.adam.models.Coverage])
+    kryo.register(classOf[org.bdgenomics.adam.models.IndelTable])
     kryo.register(classOf[org.bdgenomics.adam.models.MdTag])
     kryo.register(classOf[org.bdgenomics.adam.models.MultiContigNonoverlappingRegions])
     kryo.register(classOf[org.bdgenomics.adam.models.NonoverlappingRegions])
@@ -246,6 +247,7 @@ class ADAMKryoRegistrator extends KryoRegistrator {
 
     // scala
     kryo.register(classOf[scala.Array[htsjdk.variant.vcf.VCFHeader]])
+    kryo.register(classOf[scala.Array[java.lang.Long]])
     kryo.register(classOf[scala.Array[java.lang.Object]])
     kryo.register(classOf[scala.Array[org.bdgenomics.formats.avro.AlignmentRecord]])
     kryo.register(classOf[scala.Array[org.bdgenomics.formats.avro.Contig]])
@@ -266,6 +268,7 @@ class ADAMKryoRegistrator extends KryoRegistrator {
     kryo.register(classOf[scala.Array[org.bdgenomics.formats.avro.VariantAnnotation]])
     kryo.register(classOf[scala.Array[org.bdgenomics.formats.avro.VariantAnnotationMessage]])
     kryo.register(classOf[scala.Array[org.bdgenomics.formats.avro.VariantCallingAnnotations]])
+    kryo.register(classOf[scala.Array[org.bdgenomics.adam.algorithms.consensus.Consensus]])
     kryo.register(classOf[scala.Array[org.bdgenomics.adam.models.Coverage]])
     kryo.register(classOf[scala.Array[org.bdgenomics.adam.models.ReferencePosition]])
     kryo.register(classOf[scala.Array[org.bdgenomics.adam.models.ReferenceRegion]])
@@ -274,6 +277,7 @@ class ADAMKryoRegistrator extends KryoRegistrator {
     kryo.register(classOf[scala.Array[org.bdgenomics.adam.rich.RichAlignmentRecord]])
     kryo.register(classOf[scala.Array[scala.collection.Seq[_]]])
     kryo.register(classOf[scala.Array[Int]])
+    kryo.register(classOf[scala.Array[Long]])
     kryo.register(classOf[scala.Array[String]])
     kryo.register(classOf[scala.Array[Option[_]]])
     kryo.register(Class.forName("scala.Tuple2$mcCC$sp"))
