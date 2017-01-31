@@ -199,8 +199,8 @@ class GenotypeRDDSuite extends ADAMFunSuite {
     assert(c0.filter(_._1.isDefined).count(_._2.size == 1) === 9)
     assert(c.filter(_._1.isDefined).count(_._2.isEmpty) === 9)
     assert(c0.filter(_._1.isDefined).count(_._2.isEmpty) === 9)
-    //    assert(c.count(_._1.isEmpty) === 3)
-    //    assert(c0.count(_._1.isEmpty) === 3)
+    assert(c.count(_._1.isEmpty) === 3)
+    assert(c0.count(_._1.isEmpty) === 3)
     assert(c.filter(_._1.isEmpty).forall(_._2.size == 1))
     assert(c0.filter(_._1.isEmpty).forall(_._2.size == 1))
   }

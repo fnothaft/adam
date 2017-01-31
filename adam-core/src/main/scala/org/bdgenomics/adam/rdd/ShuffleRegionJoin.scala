@@ -18,9 +18,7 @@
 package org.bdgenomics.adam.rdd
 
 import org.apache.spark.{ Partitioner, SparkContext }
-import org.apache.spark.rdd.MetricsContext._
 import org.apache.spark.rdd.RDD
-import org.bdgenomics.adam.models.ReferenceRegion._
 import org.bdgenomics.adam.models.{ SequenceDictionary, ReferenceRegion }
 import scala.collection.mutable.ListBuffer
 import scala.reflect.ClassTag
@@ -41,91 +39,55 @@ sealed abstract class ShuffleRegionJoin[T: ClassTag, U: ClassTag, RT, RU]
   protected val sd: SequenceDictionary
   protected val partitionSize: Long
   protected val sc: SparkContext
+  protected val partitionMap: Seq[Option[(ReferenceRegion, ReferenceRegion)]]
 
   // Create the set of bins across the genome for parallel processing
-  //   partitionSize (in nucleotides) may range from 10000 to 10000000+ 
+  //   partitionSize (in nucleotides) may range from 10000 to 10000000+
   //   depending on cluster and dataset size
   protected val seqLengths = Map(sd.records.map(rec => (rec.name, rec.length)): _*)
   protected val bins = sc.broadcast(GenomeBins(partitionSize, seqLengths))
 
   /**
-   * Performs a region join between two RDDs (shuffle join).
+   * Performs a region join between two RDDs (shuffle join). All data should be pre-shuffled and
+   * copartitioned.
    *
-   * This implementation is shuffle-based, so does not require collecting one side into memory
-   * like BroadcastRegionJoin.  It basically performs a global sort of each RDD by genome position
-   * and then does a sort-merge join, similar to the chromsweep implementation in bedtools.  More
-   * specifically, it first defines a set of bins across the genome, then assigns each object in the
-   * RDDs to each bin that they overlap (replicating if necessary), performs the shuffle, and sorts
-   * the object in each bin.  Finally, each bin independently performs a chromsweep sort-merge join.
-   *
-   * @param leftRDD The 'left' side of the join
+   * @param leftRDD The 'left' side of the join, also contains the partition bounds of each partition
    * @param rightRDD The 'right' side of the join
    * @return An RDD of pairs (x, y), where x is from leftRDD, y is from rightRDD, and the region
    *         corresponding to x overlaps the region corresponding to y.
    */
-  def partitionAndJoin(
-    leftRDD: RDD[(ReferenceRegion, T)],
-    rightRDD: RDD[(ReferenceRegion, U)]): RDD[(RT, RU)] = {
-
-    // Key each RDD element to its corresponding bin
-    // Elements may be replicated if they overlap multiple bins
-    val keyedLeft: RDD[((ReferenceRegion, Int), T)] =
-      leftRDD.flatMap(kv => {
-        val (region, x) = kv
-        val lo = bins.value.getStartBin(region)
-        val hi = bins.value.getEndBin(region)
-        (lo to hi).map(i => ((region, i), x))
-      })
-    val keyedRight: RDD[((ReferenceRegion, Int), U)] =
-      rightRDD.flatMap(kv => {
-        val (region, y) = kv
-        val lo = bins.value.getStartBin(region)
-        val hi = bins.value.getEndBin(region)
-        (lo to hi).map(i => ((region, i), y))
-      })
-
-    // Sort each RDD by shuffling the data into the corresponding genome bin
-    // and then sorting within each bin by the key, which sorts by ReferenceRegion.
-    // This should be the most expensive operation. At the end, each genome bin
-    // corresponds to a Spark partition.  The ManualRegionPartitioner pulls out the
-    // bin number for each elt.
-    val sortedLeft: RDD[((ReferenceRegion, Int), T)] =
-      keyedLeft.repartitionAndSortWithinPartitions(ManualRegionPartitioner(bins.value.numBins))
-    val sortedRight: RDD[((ReferenceRegion, Int), U)] =
-      keyedRight.repartitionAndSortWithinPartitions(ManualRegionPartitioner(bins.value.numBins))
-
-    // Execute the sort-merge join on each partition
-    // Note that we do NOT preserve the partitioning, as the ManualRegionPartitioner
-    // has no meaning for the return type of RDD[(T, U)].  In fact, how
-    // do you order a pair of ReferenceRegions?
-    sortedLeft.zipPartitions(sortedRight, preservesPartitioning = false)(sweep)
+  def partitionAndJoin(leftRDD: RDD[(ReferenceRegion, T)],
+                       rightRDD: RDD[(ReferenceRegion, U)]): RDD[(RT, RU)] = {
+    leftRDD.mapPartitionsWithIndex((idx, iter) => {
+      if (iter.isEmpty) {
+        Iterator((None, iter))
+      } else {
+        Iterator((partitionMap(idx), iter))
+      }
+    }).zipPartitions(rightRDD, preservesPartitioning = true)(sweep)
   }
 
-  def joinCoPartitionedRdds(leftRDD: RDD[((ReferenceRegion, Int), T)], rightRDD: RDD[((ReferenceRegion, Int), U)])(implicit tManifest: ClassTag[T], uManifest: ClassTag[U]): RDD[(RT, RU)] = {
-    leftRDD.zipPartitions(rightRDD, preservesPartitioning = true)(sweep)
-  }
-
-  protected def makeIterator(region: ReferenceRegion,
-                             left: BufferedIterator[((ReferenceRegion, Int), T)],
-                             right: BufferedIterator[((ReferenceRegion, Int), U)]): Iterator[(RT, RU)]
+  protected def makeIterator(regionLowerBound: ReferenceRegion,
+                             regionUpperBound: ReferenceRegion,
+                             left: BufferedIterator[(ReferenceRegion, T)],
+                             right: BufferedIterator[(ReferenceRegion, U)]): Iterator[(RT, RU)]
 
   // this function carries out the sort-merge join inside each Spark partition.
   // It assumes the iterators are sorted.
-  def sweep(leftIter: Iterator[((ReferenceRegion, Int), T)],
-            rightIter: Iterator[((ReferenceRegion, Int), U)]): Iterator[(RT, RU)] = {
-    if (leftIter.isEmpty || rightIter.isEmpty) {
+  def sweep(leftIterWithPartitionBounds: Iterator[(Option[(ReferenceRegion, ReferenceRegion)], Iterator[(ReferenceRegion, T)])],
+            rightIter: Iterator[(ReferenceRegion, U)]): Iterator[(RT, RU)] = {
+    val (partitionBounds, leftIter) = leftIterWithPartitionBounds.next
+    if (leftIter.isEmpty || rightIter.isEmpty || partitionBounds.isEmpty) {
       emptyFn(leftIter, rightIter)
     } else {
       val bufferedLeft = leftIter.buffered
-      // the join API only ever needs the start of the leftIter
-      val region = bufferedLeft.head._1._1
       // return an Iterator[(T, U)]
-      makeIterator(region, bufferedLeft, rightIter.buffered)
+      makeIterator(partitionBounds.get._1, partitionBounds.get._2, bufferedLeft, rightIter.buffered)
     }
   }
 
-  protected def emptyFn(left: Iterator[((ReferenceRegion, Int), T)],
-                        right: Iterator[((ReferenceRegion, Int), U)]): Iterator[(RT, RU)]
+  protected def emptyFn(left: Iterator[(ReferenceRegion, T)],
+                        right: Iterator[(ReferenceRegion, U)]): Iterator[(RT, RU)]
 }
 
 /**
@@ -133,17 +95,19 @@ sealed abstract class ShuffleRegionJoin[T: ClassTag, U: ClassTag, RT, RU]
  */
 case class InnerShuffleRegionJoin[T: ClassTag, U: ClassTag](sd: SequenceDictionary,
                                                             partitionSize: Long,
-                                                            @transient sc: SparkContext)
+                                                            @transient sc: SparkContext,
+                                                            partitionMap: Seq[Option[(ReferenceRegion, ReferenceRegion)]])
     extends ShuffleRegionJoin[T, U, T, U] {
 
-  protected def makeIterator(region: ReferenceRegion,
-                             left: BufferedIterator[((ReferenceRegion, Int), T)],
-                             right: BufferedIterator[((ReferenceRegion, Int), U)]): Iterator[(T, U)] = {
-    InnerSortedIntervalPartitionJoin(region, left, right)
+  protected def makeIterator(regionLowerBound: ReferenceRegion,
+                             regionUpperBound: ReferenceRegion,
+                             left: BufferedIterator[(ReferenceRegion, T)],
+                             right: BufferedIterator[(ReferenceRegion, U)]): Iterator[(T, U)] = {
+    InnerSortedIntervalPartitionJoin(regionLowerBound, regionUpperBound, left, right)
   }
 
-  protected def emptyFn(left: Iterator[((ReferenceRegion, Int), T)],
-                        right: Iterator[((ReferenceRegion, Int), U)]): Iterator[(T, U)] = {
+  protected def emptyFn(left: Iterator[(ReferenceRegion, T)],
+                        right: Iterator[(ReferenceRegion, U)]): Iterator[(T, U)] = {
     Iterator.empty
   }
 }
@@ -153,17 +117,19 @@ case class InnerShuffleRegionJoin[T: ClassTag, U: ClassTag](sd: SequenceDictiona
  */
 case class LeftOuterShuffleRegionJoin[T: ClassTag, U: ClassTag](sd: SequenceDictionary,
                                                                 partitionSize: Long,
-                                                                @transient sc: SparkContext)
+                                                                @transient sc: SparkContext,
+                                                                partitionMap: Seq[Option[(ReferenceRegion, ReferenceRegion)]])
     extends ShuffleRegionJoin[T, U, T, Option[U]] {
 
-  protected def makeIterator(region: ReferenceRegion,
-                             left: BufferedIterator[((ReferenceRegion, Int), T)],
-                             right: BufferedIterator[((ReferenceRegion, Int), U)]): Iterator[(T, Option[U])] = {
-    LeftOuterSortedIntervalPartitionJoin(region, left, right)
+  protected def makeIterator(regionLowerBound: ReferenceRegion,
+                             regionUpperBound: ReferenceRegion,
+                             left: BufferedIterator[(ReferenceRegion, T)],
+                             right: BufferedIterator[(ReferenceRegion, U)]): Iterator[(T, Option[U])] = {
+    LeftOuterSortedIntervalPartitionJoin(regionLowerBound, regionUpperBound, left, right)
   }
 
-  protected def emptyFn(left: Iterator[((ReferenceRegion, Int), T)],
-                        right: Iterator[((ReferenceRegion, Int), U)]): Iterator[(T, Option[U])] = {
+  protected def emptyFn(left: Iterator[(ReferenceRegion, T)],
+                        right: Iterator[(ReferenceRegion, U)]): Iterator[(T, Option[U])] = {
     left.map(t => (t._2, None))
   }
 }
@@ -173,17 +139,19 @@ case class LeftOuterShuffleRegionJoin[T: ClassTag, U: ClassTag](sd: SequenceDict
  */
 case class RightOuterShuffleRegionJoin[T: ClassTag, U: ClassTag](sd: SequenceDictionary,
                                                                  partitionSize: Long,
-                                                                 @transient sc: SparkContext)
+                                                                 @transient sc: SparkContext,
+                                                                 partitionMap: Seq[Option[(ReferenceRegion, ReferenceRegion)]])
     extends ShuffleRegionJoin[T, U, Option[T], U] {
 
-  protected def makeIterator(region: ReferenceRegion,
-                             left: BufferedIterator[((ReferenceRegion, Int), T)],
-                             right: BufferedIterator[((ReferenceRegion, Int), U)]): Iterator[(Option[T], U)] = {
-    LeftOuterSortedIntervalPartitionJoin(region, right, left).map(_.swap)
+  protected def makeIterator(regionLowerBound: ReferenceRegion,
+                             regionUpperBound: ReferenceRegion,
+                             left: BufferedIterator[(ReferenceRegion, T)],
+                             right: BufferedIterator[(ReferenceRegion, U)]): Iterator[(Option[T], U)] = {
+    LeftOuterSortedIntervalPartitionJoin(regionLowerBound, regionUpperBound, right, left).map(_.swap)
   }
 
-  protected def emptyFn(left: Iterator[((ReferenceRegion, Int), T)],
-                        right: Iterator[((ReferenceRegion, Int), U)]): Iterator[(Option[T], U)] = {
+  protected def emptyFn(left: Iterator[(ReferenceRegion, T)],
+                        right: Iterator[(ReferenceRegion, U)]): Iterator[(Option[T], U)] = {
     right.map(u => (None, u._2))
   }
 }
@@ -193,17 +161,19 @@ case class RightOuterShuffleRegionJoin[T: ClassTag, U: ClassTag](sd: SequenceDic
  */
 case class FullOuterShuffleRegionJoin[T: ClassTag, U: ClassTag](sd: SequenceDictionary,
                                                                 partitionSize: Long,
-                                                                @transient sc: SparkContext)
+                                                                @transient sc: SparkContext,
+                                                                partitionMap: Seq[Option[(ReferenceRegion, ReferenceRegion)]])
     extends ShuffleRegionJoin[T, U, Option[T], Option[U]] {
 
-  protected def makeIterator(region: ReferenceRegion,
-                             left: BufferedIterator[((ReferenceRegion, Int), T)],
-                             right: BufferedIterator[((ReferenceRegion, Int), U)]): Iterator[(Option[T], Option[U])] = {
-    FullOuterSortedIntervalPartitionJoin(region, left, right)
+  protected def makeIterator(regionLowerBound: ReferenceRegion,
+                             regionUpperBound: ReferenceRegion,
+                             left: BufferedIterator[(ReferenceRegion, T)],
+                             right: BufferedIterator[(ReferenceRegion, U)]): Iterator[(Option[T], Option[U])] = {
+    FullOuterSortedIntervalPartitionJoin(regionLowerBound, regionUpperBound, left, right)
   }
 
-  protected def emptyFn(left: Iterator[((ReferenceRegion, Int), T)],
-                        right: Iterator[((ReferenceRegion, Int), U)]): Iterator[(Option[T], Option[U])] = {
+  protected def emptyFn(left: Iterator[(ReferenceRegion, T)],
+                        right: Iterator[(ReferenceRegion, U)]): Iterator[(Option[T], Option[U])] = {
     left.map(t => (Some(t._2), None)) ++ right.map(u => (None, Some(u._2)))
   }
 }
@@ -214,17 +184,19 @@ case class FullOuterShuffleRegionJoin[T: ClassTag, U: ClassTag](sd: SequenceDict
  */
 case class InnerShuffleRegionJoinAndGroupByLeft[T: ClassTag, U: ClassTag](sd: SequenceDictionary,
                                                                           partitionSize: Long,
-                                                                          @transient sc: SparkContext)
+                                                                          @transient sc: SparkContext,
+                                                                          partitionMap: Seq[Option[(ReferenceRegion, ReferenceRegion)]])
     extends ShuffleRegionJoin[T, U, T, Iterable[U]] {
 
-  protected def makeIterator(region: ReferenceRegion,
-                             left: BufferedIterator[((ReferenceRegion, Int), T)],
-                             right: BufferedIterator[((ReferenceRegion, Int), U)]): Iterator[(T, Iterable[U])] = {
-    SortedIntervalPartitionJoinAndGroupByLeft(region, left, right)
+  protected def makeIterator(regionLowerBound: ReferenceRegion,
+                             regionUpperBound: ReferenceRegion,
+                             left: BufferedIterator[(ReferenceRegion, T)],
+                             right: BufferedIterator[(ReferenceRegion, U)]): Iterator[(T, Iterable[U])] = {
+    SortedIntervalPartitionJoinAndGroupByLeft(regionLowerBound, regionUpperBound, left, right)
   }
 
-  protected def emptyFn(left: Iterator[((ReferenceRegion, Int), T)],
-                        right: Iterator[((ReferenceRegion, Int), U)]): Iterator[(T, Iterable[U])] = {
+  protected def emptyFn(left: Iterator[(ReferenceRegion, T)],
+                        right: Iterator[(ReferenceRegion, U)]): Iterator[(T, Iterable[U])] = {
     Iterator.empty
   }
 }
@@ -235,17 +207,19 @@ case class InnerShuffleRegionJoinAndGroupByLeft[T: ClassTag, U: ClassTag](sd: Se
  */
 case class RightOuterShuffleRegionJoinAndGroupByLeft[T: ClassTag, U: ClassTag](sd: SequenceDictionary,
                                                                                partitionSize: Long,
-                                                                               @transient sc: SparkContext)
+                                                                               @transient sc: SparkContext,
+                                                                               partitionMap: Seq[Option[(ReferenceRegion, ReferenceRegion)]])
     extends ShuffleRegionJoin[T, U, Option[T], Iterable[U]] {
 
-  protected def makeIterator(region: ReferenceRegion,
-                             left: BufferedIterator[((ReferenceRegion, Int), T)],
-                             right: BufferedIterator[((ReferenceRegion, Int), U)]): Iterator[(Option[T], Iterable[U])] = {
-    RightOuterSortedIntervalPartitionJoinAndGroupByLeft(region, left, right)
+  protected def makeIterator(regionLowerBound: ReferenceRegion,
+                             regionUpperBound: ReferenceRegion,
+                             left: BufferedIterator[(ReferenceRegion, T)],
+                             right: BufferedIterator[(ReferenceRegion, U)]): Iterator[(Option[T], Iterable[U])] = {
+    RightOuterSortedIntervalPartitionJoinAndGroupByLeft(regionLowerBound, regionUpperBound, left, right)
   }
 
-  protected def emptyFn(left: Iterator[((ReferenceRegion, Int), T)],
-                        right: Iterator[((ReferenceRegion, Int), U)]): Iterator[(Option[T], Iterable[U])] = {
+  protected def emptyFn(left: Iterator[(ReferenceRegion, T)],
+                        right: Iterator[(ReferenceRegion, U)]): Iterator[(Option[T], Iterable[U])] = {
     left.map(v => (Some(v._2), Iterable.empty)) ++ right.map(v => (None, Iterable(v._2)))
   }
 }
@@ -297,18 +271,37 @@ private trait SortedIntervalPartitionJoin[T, U, RT, RU]
     extends Iterator[(RT, RU)]
     with Serializable {
 
-  val binRegion: ReferenceRegion
-  val left: BufferedIterator[((ReferenceRegion, Int), T)]
-  val right: BufferedIterator[((ReferenceRegion, Int), U)]
+  val regionLowerBound: ReferenceRegion
+  val regionUpperBound: ReferenceRegion
+  val left: BufferedIterator[(ReferenceRegion, T)]
+  val right: BufferedIterator[(ReferenceRegion, U)]
 
   private var prevLeftRegion: ReferenceRegion = _
 
-  // stores the current set of joined pairs
+  //  // stores the current set of joined pairs
   protected var hits: AppendableIterator[(RT, RU)] = new AppendableIterator
 
-  protected def advanceCache(until: Long)
+  protected def advanceCache(until: ReferenceRegion)
 
-  protected def pruneCache(to: Long)
+  protected def pruneCache(to: ReferenceRegion)
+
+  protected val immutableHits: Iterator[(RT, RU)] = immutableGetHits()
+
+  private def immutableGetHits(): Iterator[(RT, RU)] = {
+    left.flatMap(f => {
+      val nextLeftRegion = f._1
+      advanceCache(nextLeftRegion)
+      // ...and whether I need to prune the cache
+      if (prevLeftRegion == null ||
+        prevLeftRegion.compareTo(nextLeftRegion) < 0) {
+        pruneCache(nextLeftRegion)
+      }
+
+      val hitsForThis = processHits(f._2, f._1)
+      prevLeftRegion = nextLeftRegion
+      hitsForThis
+    })
+  }
 
   private def getHits(): Unit = {
     assert(!hits.hasNext)
@@ -316,19 +309,9 @@ private trait SortedIntervalPartitionJoin[T, U, RT, RU]
     while (left.hasNext) {
       // there is more in left...
       val nl = left.next
-      val ((nextLeftRegion, _), nextLeft) = nl
-      // ...so check whether I need to advance the cache
-      // (where nextLeftRegion's end is further than prevLeftRegion's end)...
-      // (the null checks are for the first iteration)
-      if (prevLeftRegion == null || nextLeftRegion.end > prevLeftRegion.end) {
-        advanceCache(nextLeftRegion.end)
-      }
-      // ...and whether I need to prune the cache
-      if (prevLeftRegion == null ||
-        nextLeftRegion.start > prevLeftRegion.start) {
-        pruneCache(nextLeftRegion.start)
-      }
-
+      val (nextLeftRegion, nextLeft) = nl
+      advanceCache(nextLeftRegion)
+      pruneCache(nextLeftRegion)
       // at this point, we effectively do a cross-product and filter; this could probably
       // be improved by making cache a fancier data structure than just a list
       // we filter for things that overlap, where at least one side of the join has a start position
@@ -337,10 +320,7 @@ private trait SortedIntervalPartitionJoin[T, U, RT, RU]
       hits.append(newHits)
 
       assert(prevLeftRegion == null ||
-        (prevLeftRegion.referenceName == nextLeftRegion.referenceName &&
-          prevLeftRegion.start < nextLeftRegion.start ||
-          (prevLeftRegion.start == nextLeftRegion.start &&
-            prevLeftRegion.end <= nextLeftRegion.end)),
+        prevLeftRegion.compareTo(nextLeftRegion) <= 0,
         "Left iterator in join violates sorted order invariant.")
       prevLeftRegion = nextLeftRegion
     }
@@ -356,8 +336,8 @@ private trait SortedIntervalPartitionJoin[T, U, RT, RU]
     }
     // if that fails, try advancing and pruning the cache
     if (hits.isEmpty) {
-      advanceCache(binRegion.end)
-      pruneCache(binRegion.end)
+      advanceCache(regionUpperBound)
+      pruneCache(regionUpperBound)
     }
     // if hits is still empty, I must really be at the end
     hits.hasNext
@@ -378,15 +358,15 @@ private trait VictimlessSortedIntervalPartitionJoin[T, U, RU]
   protected def postProcessHits(iter: Iterator[(T, U)],
                                 currentLeft: T): Iterator[(T, RU)]
 
-  protected def advanceCache(until: Long): Unit = {
-    while (right.hasNext && right.head._1._1.start < until) {
+  protected def advanceCache(until: ReferenceRegion): Unit = {
+    while (right.hasNext && (right.head._1.compareTo(until) <= 0 || right.head._1.covers(until))) {
       val x = right.next()
-      cache += x._1._1 -> x._2
+      cache += x._1 -> x._2
     }
   }
 
-  protected def pruneCache(to: Long) {
-    cache = cache.dropWhile(_._1.end <= to)
+  protected def pruneCache(to: ReferenceRegion) {
+    cache = cache.dropWhile(f => f._1.compareTo(to) < 0 && !f._1.covers(to))
   }
 
   protected def processHits(currentLeft: T,
@@ -394,7 +374,7 @@ private trait VictimlessSortedIntervalPartitionJoin[T, U, RU]
     postProcessHits(cache
       .filter(y => {
         y._1.overlaps(currentLeftRegion) &&
-          (y._1.start >= binRegion.start || currentLeftRegion.start >= binRegion.start)
+          (y._1.compareTo(regionLowerBound) >= 0 || currentLeftRegion.compareTo(regionLowerBound) >= 0)
       })
       .map(y => (currentLeft, y._2))
       .toIterator, currentLeft)
@@ -402,9 +382,10 @@ private trait VictimlessSortedIntervalPartitionJoin[T, U, RU]
 }
 
 private case class InnerSortedIntervalPartitionJoin[T: ClassTag, U: ClassTag](
-  binRegion: ReferenceRegion,
-  left: BufferedIterator[((ReferenceRegion, Int), T)],
-  right: BufferedIterator[((ReferenceRegion, Int), U)])
+  regionLowerBound: ReferenceRegion,
+  regionUpperBound: ReferenceRegion,
+  left: BufferedIterator[(ReferenceRegion, T)],
+  right: BufferedIterator[(ReferenceRegion, U)])
     extends VictimlessSortedIntervalPartitionJoin[T, U, U] {
 
   // no op!
@@ -415,9 +396,10 @@ private case class InnerSortedIntervalPartitionJoin[T: ClassTag, U: ClassTag](
 }
 
 private case class SortedIntervalPartitionJoinAndGroupByLeft[T: ClassTag, U: ClassTag](
-  binRegion: ReferenceRegion,
-  left: BufferedIterator[((ReferenceRegion, Int), T)],
-  right: BufferedIterator[((ReferenceRegion, Int), U)])
+  regionLowerBound: ReferenceRegion,
+  regionUpperBound: ReferenceRegion,
+  left: BufferedIterator[(ReferenceRegion, T)],
+  right: BufferedIterator[(ReferenceRegion, U)])
     extends VictimlessSortedIntervalPartitionJoin[T, U, Iterable[U]] {
 
   protected def postProcessHits(iter: Iterator[(T, U)],
@@ -431,9 +413,10 @@ private case class SortedIntervalPartitionJoinAndGroupByLeft[T: ClassTag, U: Cla
 }
 
 private case class LeftOuterSortedIntervalPartitionJoin[T: ClassTag, U: ClassTag](
-  binRegion: ReferenceRegion,
-  left: BufferedIterator[((ReferenceRegion, Int), T)],
-  right: BufferedIterator[((ReferenceRegion, Int), U)])
+  regionLowerBound: ReferenceRegion,
+  regionUpperBound: ReferenceRegion,
+  left: BufferedIterator[(ReferenceRegion, T)],
+  right: BufferedIterator[(ReferenceRegion, U)])
     extends VictimlessSortedIntervalPartitionJoin[T, U, Option[U]] {
 
   // no op!
@@ -463,38 +446,39 @@ private trait SortedIntervalPartitionJoinWithVictims[T, U, RT, RU]
     postProcessHits(cache
       .filter(y => {
         y._1.overlaps(currentLeftRegion) &&
-          (y._1.start >= binRegion.start || currentLeftRegion.start >= binRegion.start)
+          (y._1.compareTo(regionLowerBound) >= 0 || currentLeftRegion.compareTo(regionLowerBound) >= 0)
       })
       .map(y => y._2)
       .toIterator, currentLeft)
   }
 
-  protected def advanceCache(until: Long): Unit = {
-    while (right.hasNext && right.head._1._1.start < until) {
+  protected def advanceCache(until: ReferenceRegion): Unit = {
+    while (right.hasNext && (right.head._1.compareTo(until) <= 0 || right.head._1.covers(until))) {
       val x = right.next()
-      victimCache += x._1._1 -> x._2
+      victimCache += x._1 -> x._2
     }
   }
 
-  protected def pruneCache(to: Long) {
+  protected def pruneCache(to: ReferenceRegion) {
 
-    cache = cache.dropWhile(_._1.end <= to)
-    cache = cache ++ victimCache.takeWhile(_._1.end > to)
-    victimCache = victimCache.dropWhile(_._1.end > to)
+    cache = cache.dropWhile(f => f._1.compareTo(to) < 0 && !f._1.covers(to))
+    cache = cache ++ victimCache.takeWhile(f => f._1.compareTo(to) > 0 || f._1.covers(to))
+    victimCache = victimCache.dropWhile(f => f._1.compareTo(to) > 0 || f._1.covers(to))
 
-    val pped = (victimCache.takeWhile(_._1.end <= to).map(u => postProcessPruned(u._2)))
+    val pped = victimCache.takeWhile(f => f._1.compareTo(to) <= 0).map(u => postProcessPruned(u._2))
     hits.append(pped.toIterator)
 
-    victimCache = victimCache.dropWhile(_._1.end <= to)
+    victimCache = victimCache.dropWhile(f => f._1.compareTo(to) <= 0)
   }
 
   protected def postProcessPruned(pruned: U): (RT, RU)
 }
 
 private case class FullOuterSortedIntervalPartitionJoin[T: ClassTag, U: ClassTag](
-  binRegion: ReferenceRegion,
-  left: BufferedIterator[((ReferenceRegion, Int), T)],
-  right: BufferedIterator[((ReferenceRegion, Int), U)])
+  regionLowerBound: ReferenceRegion,
+  regionUpperBound: ReferenceRegion,
+  left: BufferedIterator[(ReferenceRegion, T)],
+  right: BufferedIterator[(ReferenceRegion, U)])
     extends SortedIntervalPartitionJoinWithVictims[T, U, Option[T], Option[U]] {
 
   protected def postProcessHits(iter: Iterator[U],
@@ -512,9 +496,10 @@ private case class FullOuterSortedIntervalPartitionJoin[T: ClassTag, U: ClassTag
 }
 
 private case class RightOuterSortedIntervalPartitionJoinAndGroupByLeft[T: ClassTag, U: ClassTag](
-  binRegion: ReferenceRegion,
-  left: BufferedIterator[((ReferenceRegion, Int), T)],
-  right: BufferedIterator[((ReferenceRegion, Int), U)])
+  regionLowerBound: ReferenceRegion,
+  regionUpperBound: ReferenceRegion,
+  left: BufferedIterator[(ReferenceRegion, T)],
+  right: BufferedIterator[(ReferenceRegion, U)])
     extends SortedIntervalPartitionJoinWithVictims[T, U, Option[T], Iterable[U]] {
 
   protected def postProcessHits(iter: Iterator[U],

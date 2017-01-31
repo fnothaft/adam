@@ -653,7 +653,7 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
   private def prepareForShuffleRegionJoin[X, Y <: GenomicRDD[X, Y], Z <: GenomicRDD[(T, X), Z]](
     genomicRdd: GenomicRDD[X, Y],
     optPartitions: Option[Int] = None)(
-      implicit tTag: ClassTag[T], xTag: ClassTag[X]): (RDD[((ReferenceRegion, Int), T)], RDD[((ReferenceRegion, Int), X)], Option[Seq[Option[(ReferenceRegion, ReferenceRegion)]]], Int) = {
+      implicit tTag: ClassTag[T], xTag: ClassTag[X]): (RDD[(ReferenceRegion, T)], RDD[(ReferenceRegion, X)], Option[Seq[Option[(ReferenceRegion, ReferenceRegion)]]], Int) = {
 
     // did the user provide a set partition count?
     // if no, take the max partition count from our rdds
@@ -676,19 +676,30 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
     // Partition Map for the left side
     val leftPartitionMap = leftRdd.partitionMap.get
     val leftRddToJoin = leftRdd.rdd.mapPartitionsWithIndex((idx, iter) => {
-      leftRdd.extractReferenceRegionsForPartition(iter, leftPartitionMap(idx)).map(f => ((f._1, idx), f._2))
+      leftRdd.extractReferenceRegionsForPartition(iter, leftPartitionMap(idx)).map(f => (f._1, f._2))
     })
 
     // Partition map for the right side
     val rightPartitionMap = rightRdd.partitionMap.get
 
     val rightRddToJoin = rightRdd.rdd.mapPartitionsWithIndex((idx, iter) => {
-      rightRdd.extractReferenceRegionsForPartition(iter, rightPartitionMap(idx)).map(f => ((f._1, idx), f._2))
+      rightRdd.extractReferenceRegionsForPartition(iter, rightPartitionMap(idx)).map(f => (f._1, f._2))
     })
     assert(leftRddToJoin.partitions.length == rightRddToJoin.partitions.length,
       "Partitions are not equal size!")
+
+    val partitionBoundsForJoin = Some(
+      leftPartitionMap.map(_.get._1)
+        .zip(leftPartitionMap.zipWithIndex.map(f => {
+          if (rightPartitionMap(f._2).isEmpty ||
+            f._1.get._2.compareTo(rightPartitionMap(f._2).get._2) >= 0) {
+            f._1.get._2
+          } else {
+            rightPartitionMap(f._2).get._2
+          }
+        })).map(Some(_)))
     // Co-partitioned and properly keyed with ReferenceRegions and partition index
-    (leftRddToJoin, rightRddToJoin, leftRdd.partitionMap, partitions)
+    (leftRddToJoin, rightRddToJoin, partitionBoundsForJoin, partitions)
   }
 
   /**
@@ -717,8 +728,9 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
 
     GenericGenomicRDD[(T, X)](
       InnerShuffleRegionJoin[T, X](combinedSequences,
-        combinedSequences.records.map(_.length).sum / partitions, rdd.context)
-        .joinCoPartitionedRdds(leftRddToJoin, rightRddToJoin),
+        combinedSequences.records.map(_.length).sum / partitions, rdd.context,
+        joinedPartitionMap.get)
+        .partitionAndJoin(leftRddToJoin, rightRddToJoin),
       combinedSequences,
       kv => {
         getReferenceRegions(kv._1) ++ genomicRdd.getReferenceRegions(kv._2)
@@ -754,8 +766,9 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
 
     GenericGenomicRDD[(Option[T], X)](
       RightOuterShuffleRegionJoin[T, X](combinedSequences,
-        combinedSequences.records.map(_.length).sum / partitions, rdd.context)
-        .joinCoPartitionedRdds(leftRddToJoin, rightRddToJoin),
+        combinedSequences.records.map(_.length).sum / partitions, rdd.context,
+        joinedPartitionMap.get)
+        .partitionAndJoin(leftRddToJoin, rightRddToJoin),
       combinedSequences,
       kv => {
         Seq(kv._1.map(v => getReferenceRegions(v))).flatten.flatten ++
@@ -792,8 +805,9 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
 
     GenericGenomicRDD[(T, Option[X])](
       LeftOuterShuffleRegionJoin[T, X](combinedSequences,
-        combinedSequences.records.map(_.length).sum / partitions, rdd.context)
-        .joinCoPartitionedRdds(leftRddToJoin, rightRddToJoin),
+        combinedSequences.records.map(_.length).sum / partitions, rdd.context,
+        joinedPartitionMap.get)
+        .partitionAndJoin(leftRddToJoin, rightRddToJoin),
       combinedSequences,
       kv => {
         Seq(kv._2.map(v => genomicRdd.getReferenceRegions(v))).flatten.flatten ++
@@ -829,8 +843,9 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
 
     GenericGenomicRDD[(Option[T], Option[X])](
       FullOuterShuffleRegionJoin[T, X](combinedSequences,
-        combinedSequences.records.map(_.length).sum / partitions, rdd.context)
-        .joinCoPartitionedRdds(leftRddToJoin, rightRddToJoin),
+        combinedSequences.records.map(_.length).sum / partitions, rdd.context,
+        joinedPartitionMap.get)
+        .partitionAndJoin(leftRddToJoin, rightRddToJoin),
       combinedSequences,
       kv => {
         Seq(kv._2.map(v => genomicRdd.getReferenceRegions(v)),
@@ -867,8 +882,9 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
 
     GenericGenomicRDD[(T, Iterable[X])](
       InnerShuffleRegionJoinAndGroupByLeft[T, X](combinedSequences,
-        combinedSequences.records.map(_.length).sum / partitions, rdd.context)
-        .joinCoPartitionedRdds(leftRddToJoin, rightRddToJoin),
+        combinedSequences.records.map(_.length).sum / partitions, rdd.context,
+        joinedPartitionMap.get)
+        .partitionAndJoin(leftRddToJoin, rightRddToJoin),
       combinedSequences,
       kv => {
         (kv._2.flatMap(v => genomicRdd.getReferenceRegions(v)) ++
@@ -908,8 +924,9 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
 
     GenericGenomicRDD[(Option[T], Iterable[X])](
       RightOuterShuffleRegionJoinAndGroupByLeft[T, X](combinedSequences,
-        combinedSequences.records.map(_.length).sum / partitions, rdd.context)
-        .joinCoPartitionedRdds(leftRddToJoin, rightRddToJoin),
+        combinedSequences.records.map(_.length).sum / partitions, rdd.context,
+        joinedPartitionMap.get)
+        .partitionAndJoin(leftRddToJoin, rightRddToJoin),
       combinedSequences,
       kv => {
         (kv._2.flatMap(v => genomicRdd.getReferenceRegions(v)) ++

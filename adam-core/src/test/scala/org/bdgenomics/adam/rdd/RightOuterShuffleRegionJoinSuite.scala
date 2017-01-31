@@ -25,7 +25,7 @@ import org.bdgenomics.adam.models.{
 }
 import org.bdgenomics.formats.avro.AlignmentRecord
 
-class RightOuterShuffleRegionJoinSuite extends OuterRegionJoinSuite {
+class RightOuterShuffleRegionJoinSuite(partitionMap: Seq[Option[(ReferenceRegion, ReferenceRegion)]]) extends OuterRegionJoinSuite {
 
   val partitionSize = 3
   var seqDict: SequenceDictionary = _
@@ -38,7 +38,7 @@ class RightOuterShuffleRegionJoinSuite extends OuterRegionJoinSuite {
 
   def runJoin(leftRdd: RDD[(ReferenceRegion, AlignmentRecord)],
               rightRdd: RDD[(ReferenceRegion, AlignmentRecord)]): RDD[(Option[AlignmentRecord], AlignmentRecord)] = {
-    RightOuterShuffleRegionJoin[AlignmentRecord, AlignmentRecord](seqDict, partitionSize, sc).partitionAndJoin(
+    RightOuterShuffleRegionJoin[AlignmentRecord, AlignmentRecord](seqDict, partitionSize, sc, partitionMap).partitionAndJoin(
       leftRdd,
       rightRdd)
   }
