@@ -1011,7 +1011,7 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
       } else {
         // we aren't working with sorted data here, so maintaining order
         // isn't important. we also avoid presorting the data because
-        // we end up shuffling the data around less. We simply perform a
+        // we end up shuffling the data around less. We perform a
         // partition then sort by ReferenceRegion
         flattenRddByRegions()
           .mapPartitions(iter => {
@@ -1102,19 +1102,6 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
     replaceRdd(partitionedRDD.values,
       Some(partitionedRDD.mapPartitions(iter =>
         getRegionBoundsFromPartition(iter), preservesPartitioning = true).collect))
-  }
-
-  private[rdd] class ReferenceRegionRangePartitioner[V](partitions: Int) extends Partitioner {
-
-    override def numPartitions: Int = partitions
-
-    def getPartition(key: Any): Int = {
-      key match {
-        case (_: Int, f2: Int)             => f2
-        case (_: ReferenceRegion, f2: Int) => f2
-        case _                             => throw new Exception("Unable to partition without destination assignment")
-      }
-    }
   }
 }
 
@@ -1236,8 +1223,8 @@ abstract class AvroGenomicRDD[T <% IndexedRecord: Manifest, U <: AvroGenomicRDD[
     with GenomicRDD[T, U] {
 
   /**
-   * Save the partition map to the disk. This is done
-   * by simply adding the partition map to the schema.
+   * Save the partition map to the disk. This is done by adding the partition
+   * map to the schema.
    *
    * @param schema The schema that will be written to disk. Usually the
    *               Sequence Dictionary schema (Contig.SCHEMA$)

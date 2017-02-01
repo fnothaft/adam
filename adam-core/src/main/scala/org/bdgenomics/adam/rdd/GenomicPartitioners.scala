@@ -220,3 +220,16 @@ object GenomicRegionPartitioner {
     GenomicRegionPartitioner(lengths.values.sum / numParts, lengths)
   }
 }
+
+class ReferenceRegionRangePartitioner[V](partitions: Int) extends Partitioner {
+
+  override def numPartitions: Int = partitions
+
+  def getPartition(key: Any): Int = {
+    key match {
+      case (_: Int, f2: Int)             => f2
+      case (_: ReferenceRegion, f2: Int) => f2
+      case _                             => throw new Exception("Unable to partition without destination assignment")
+    }
+  }
+}
