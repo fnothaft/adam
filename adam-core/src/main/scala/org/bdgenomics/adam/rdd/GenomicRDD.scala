@@ -158,7 +158,7 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
         // partition number
         iter.map(_.swap).map(f => ((f._2._1, (f._1 / average).toInt), f._2._2))
       })
-      .repartitionAndSortWithinPartitions(new GenomicPositionRangePartitioner(partitions))
+      .repartitionAndSortWithinPartitions(new ReferenceRegionRangePartitioner(partitions))
 
     val finalPartitionMap = finalPartitionedRDD.mapPartitions(iter =>
       getRegionBoundsFromPartition(iter.map(f => (f._1._1, f._2)))).collect
@@ -344,7 +344,7 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
 
       // repartition yonder our data
       // TODO: this should repartition and sort within the partition
-      binKeyedRdd.repartitionAndSortWithinPartitions(ManualRegionPartitioner(bins.numBins))
+      binKeyedRdd.repartitionAndSortWithinPartitions(new ReferenceRegionRangePartitioner(bins.numBins))
         .values
     } else {
       rdd
@@ -1005,7 +1005,7 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
             iter.map(f => ((f.head.get._2._1, f.head.get._1), f.map(g => g.get._2)))
           })
           .repartitionAndSortWithinPartitions(
-            new GenomicPositionRangePartitioner(numPartitions))
+            new ReferenceRegionRangePartitioner(numPartitions))
           // return to an RDD[(ReferenceRegion, T)]
           .flatMap(f => f._2)
       } else {
@@ -1046,7 +1046,7 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
           .flatMap(f => f.filter(_.isDefined).map(g => g.get))
           .map(f => ((f._2._1, f._1), f._2))
           .repartitionAndSortWithinPartitions(
-            new GenomicPositionRangePartitioner(numPartitions))
+            new ReferenceRegionRangePartitioner(numPartitions))
           .map(_._2)
       }
     // here we get the new partition map
@@ -1100,18 +1100,19 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
     val partitionedRDD = flattenRddByRegions()
       .sortBy(f => f._1, ascending = true, partitions)
     replaceRdd(partitionedRDD.values,
-      Some(partitionedRDD.mapPartitions(iter => getRegionBoundsFromPartition(iter), preservesPartitioning = true).collect))
+      Some(partitionedRDD.mapPartitions(iter =>
+        getRegionBoundsFromPartition(iter), preservesPartitioning = true).collect))
   }
 
-  private[rdd] class GenomicPositionRangePartitioner[V](partitions: Int) extends Partitioner {
+  private[rdd] class ReferenceRegionRangePartitioner[V](partitions: Int) extends Partitioner {
 
     override def numPartitions: Int = partitions
 
     def getPartition(key: Any): Int = {
       key match {
-        case (f1: Int, f2: Int)             => f2
-        case (f1: ReferenceRegion, f2: Int) => f2
-        case _                              => throw new Exception("Reference Region Key require to partition on Genomic Position")
+        case (_: Int, f2: Int)             => f2
+        case (_: ReferenceRegion, f2: Int) => f2
+        case _                             => throw new Exception("Unable to partition without destination assignment")
       }
     }
   }

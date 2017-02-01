@@ -224,49 +224,6 @@ case class RightOuterShuffleRegionJoinAndGroupByLeft[T: ClassTag, U: ClassTag](s
   }
 }
 
-/**
- * A Partitioner that simply passes through the precomputed partition number for the RegionJoin.
- *
- * This is a "hack" partitioner enables the replication of objects into different genome bins.
- * The key should correspond to a pair (region: ReferenceRegion, bin: Int).
- * The Spark partition number corresponds to the genome bin number, and was precomputed
- * with a flatmap to allow for replication into multiple bins.
- *
- * @param partitions should correspond to the number of bins in the corresponding GenomeBins
- */
-private[rdd] case class ManualRegionPartitioner(partitions: Int) extends Partitioner {
-  override def numPartitions: Int = partitions
-
-  override def getPartition(key: Any): Int = key match {
-    case (_: ReferenceRegion, p: Int) => p
-    case _                            => throw new IllegalStateException("Unexpected key in ManualRegionPartitioner")
-  }
-}
-
-private class AppendableIterator[T] extends Iterator[T] {
-  var iterators: ListBuffer[Iterator[T]] = ListBuffer.empty
-
-  def append(iter: Iterator[T]) {
-    if (iter.hasNext) {
-      iterators += iter
-    }
-  }
-
-  def hasNext: Boolean = {
-    iterators.nonEmpty
-  }
-
-  def next: T = {
-    val nextVal = iterators.head.next
-
-    if (!iterators.head.hasNext) {
-      iterators = iterators.tail
-    }
-
-    nextVal
-  }
-}
-
 private trait SortedIntervalPartitionJoin[T, U, RT, RU]
     extends Iterator[(RT, RU)]
     with Serializable {
@@ -276,70 +233,27 @@ private trait SortedIntervalPartitionJoin[T, U, RT, RU]
   val left: BufferedIterator[(ReferenceRegion, T)]
   val right: BufferedIterator[(ReferenceRegion, U)]
 
-  private var prevLeftRegion: ReferenceRegion = _
-
-  //  // stores the current set of joined pairs
-  protected var hits: AppendableIterator[(RT, RU)] = new AppendableIterator
-
   protected def advanceCache(until: ReferenceRegion)
 
   protected def pruneCache(to: ReferenceRegion)
 
-  protected val immutableHits: Iterator[(RT, RU)] = immutableGetHits()
+  protected def finalizeHits(): Iterator[(RT, RU)]
 
-  private def immutableGetHits(): Iterator[(RT, RU)] = {
+  protected val hits: Iterator[(RT, RU)] = getHits() ++ finalizeHits()
+
+  private def getHits(): Iterator[(RT, RU)] = {
     left.flatMap(f => {
       val nextLeftRegion = f._1
       advanceCache(nextLeftRegion)
-      // ...and whether I need to prune the cache
-      if (prevLeftRegion == null ||
-        prevLeftRegion.compareTo(nextLeftRegion) < 0) {
-        pruneCache(nextLeftRegion)
-      }
-
-      val hitsForThis = processHits(f._2, f._1)
-      prevLeftRegion = nextLeftRegion
-      hitsForThis
-    })
-  }
-
-  private def getHits(): Unit = {
-    assert(!hits.hasNext)
-    // if there is nothing more in left, then I'm done
-    while (left.hasNext) {
-      // there is more in left...
-      val nl = left.next
-      val (nextLeftRegion, nextLeft) = nl
-      advanceCache(nextLeftRegion)
       pruneCache(nextLeftRegion)
-      // at this point, we effectively do a cross-product and filter; this could probably
-      // be improved by making cache a fancier data structure than just a list
-      // we filter for things that overlap, where at least one side of the join has a start position
-      // in this partition
-      val newHits = processHits(nextLeft, nextLeftRegion)
-      hits.append(newHits)
-
-      assert(prevLeftRegion == null ||
-        prevLeftRegion.compareTo(nextLeftRegion) <= 0,
-        "Left iterator in join violates sorted order invariant.")
-      prevLeftRegion = nextLeftRegion
-    }
+      processHits(f._2, f._1)
+    })
   }
 
   protected def processHits(currentLeft: T,
                             currentLeftRegion: ReferenceRegion): Iterator[(RT, RU)]
 
   final def hasNext: Boolean = {
-    // if the list of current hits is empty, try to refill it by moving forward
-    if (hits.isEmpty) {
-      getHits()
-    }
-    // if that fails, try advancing and pruning the cache
-    if (hits.isEmpty) {
-      advanceCache(regionUpperBound)
-      pruneCache(regionUpperBound)
-    }
-    // if hits is still empty, I must really be at the end
     hits.hasNext
   }
 
@@ -353,7 +267,7 @@ private trait VictimlessSortedIntervalPartitionJoin[T, U, RU]
     with Serializable {
 
   // stores the rightIter values that might overlap the current value from the leftIter
-  private var cache: ListBuffer[(ReferenceRegion, U)] = ListBuffer.empty
+  private val cache: ListBuffer[(ReferenceRegion, U)] = ListBuffer.empty
 
   protected def postProcessHits(iter: Iterator[(T, U)],
                                 currentLeft: T): Iterator[(T, RU)]
@@ -366,7 +280,7 @@ private trait VictimlessSortedIntervalPartitionJoin[T, U, RU]
   }
 
   protected def pruneCache(to: ReferenceRegion) {
-    cache = cache.dropWhile(f => f._1.compareTo(to) < 0 && !f._1.covers(to))
+    cache --= cache.takeWhile(f => f._1.compareTo(to) < 0 && !f._1.covers(to))
   }
 
   protected def processHits(currentLeft: T,
@@ -379,6 +293,8 @@ private trait VictimlessSortedIntervalPartitionJoin[T, U, RU]
       .map(y => (currentLeft, y._2))
       .toIterator, currentLeft)
   }
+
+  override protected def finalizeHits(): Iterator[(T, RU)] = Iterator.empty
 }
 
 private case class InnerSortedIntervalPartitionJoin[T: ClassTag, U: ClassTag](
@@ -435,8 +351,9 @@ private trait SortedIntervalPartitionJoinWithVictims[T, U, RT, RU]
     with Serializable {
 
   // stores the rightIter values that might overlap the current value from the leftIter
-  private var cache: ListBuffer[(ReferenceRegion, U)] = ListBuffer.empty
-  private var victimCache: ListBuffer[(ReferenceRegion, U)] = ListBuffer.empty
+  private val cache: ListBuffer[(ReferenceRegion, U)] = ListBuffer.empty
+  private val victimCache: ListBuffer[(ReferenceRegion, U)] = ListBuffer.empty
+  private val pruned: ListBuffer[(RT, RU)] = ListBuffer.empty
 
   protected def postProcessHits(iter: Iterator[U],
                                 currentLeft: T): Iterator[(RT, RU)]
@@ -461,17 +378,22 @@ private trait SortedIntervalPartitionJoinWithVictims[T, U, RT, RU]
 
   protected def pruneCache(to: ReferenceRegion) {
 
-    cache = cache.dropWhile(f => f._1.compareTo(to) < 0 && !f._1.covers(to))
-    cache = cache ++ victimCache.takeWhile(f => f._1.compareTo(to) > 0 || f._1.covers(to))
-    victimCache = victimCache.dropWhile(f => f._1.compareTo(to) > 0 || f._1.covers(to))
+    cache --= cache.takeWhile(f => f._1.compareTo(to) < 0 && !f._1.covers(to))
+    cache ++= victimCache.takeWhile(f => f._1.compareTo(to) > 0 || f._1.covers(to))
+    victimCache --= victimCache.takeWhile(f => f._1.compareTo(to) > 0 || f._1.covers(to))
 
-    val pped = victimCache.takeWhile(f => f._1.compareTo(to) <= 0).map(u => postProcessPruned(u._2))
-    hits.append(pped.toIterator)
+    pruned ++= victimCache.takeWhile(f => f._1.compareTo(to) <= 0).map(u => postProcessPruned(u._2))
 
-    victimCache = victimCache.dropWhile(f => f._1.compareTo(to) <= 0)
+    victimCache --= victimCache.takeWhile(f => f._1.compareTo(to) <= 0)
   }
 
   protected def postProcessPruned(pruned: U): (RT, RU)
+
+  override protected def finalizeHits(): Iterator[(RT, RU)] = {
+    advanceCache(regionUpperBound)
+    pruneCache(regionUpperBound)
+    pruned.iterator
+  }
 }
 
 private case class FullOuterSortedIntervalPartitionJoin[T: ClassTag, U: ClassTag](
