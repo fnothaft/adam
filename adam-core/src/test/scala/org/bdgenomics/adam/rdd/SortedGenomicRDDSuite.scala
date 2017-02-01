@@ -125,19 +125,15 @@ class SortedGenomicRDDSuite extends SparkFunSuite {
     assert(h.count == i.count)
   }
 
-  //  sparkTest("testing that we can persist the sorted knowledge") {
-  //    val x = sc.loadBam(getClass.getResource("/bqsr1.sam").getFile)
-  //    val z = x.repartitionAndSort(16)
-  //    val fileLocation = tmpLocation()
-  //    val saveArgs = new JavaSaveArgs(fileLocation, asSingleFile = true)
-  //    z.save(saveArgs, true)
-  //
-  //    val t = sc.loadParquetAlignments(fileLocation)
-  //    assert(t.sorted)
-  //    assert(t.rdd.partitions.length == z.rdd.partitions.length)
-  //
-  //    val j = t.shuffleRegionJoin(x, Some(1))
-  //    val k = x.shuffleRegionJoin(t, Some(1))
-  //    assert(j.rdd.collect.length == k.rdd.collect.length)
-  //  }
+  sparkTest("testing that we can persist the sorted knowledge") {
+    val x = sc.loadBam(getClass.getResource("/bqsr1.sam").getFile)
+    val z = x.repartitionAndSort(16)
+    val fileLocation = tmpLocation()
+    val saveArgs = new JavaSaveArgs(fileLocation, asSingleFile = true)
+    z.save(saveArgs, true)
+
+    val t = sc.loadParquetAlignments(fileLocation)
+    assert(t.sorted)
+    assert(t.rdd.partitions.length == z.rdd.partitions.length)
+  }
 }
