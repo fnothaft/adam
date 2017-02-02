@@ -47,8 +47,10 @@ sealed abstract class ShuffleRegionJoin[T: ClassTag, U: ClassTag, RT, RU]
    * @return An RDD of pairs (x, y), where x is from leftRDD, y is from rightRDD, and the region
    *         corresponding to x overlaps the region corresponding to y.
    */
-  def partitionAndJoin(leftRDD: RDD[(ReferenceRegion, T)],
-                       rightRDD: RDD[(ReferenceRegion, U)]): RDD[(RT, RU)] = {
+  def partitionAndJoin(
+    leftRDD: RDD[(ReferenceRegion, T)],
+    rightRDD: RDD[(ReferenceRegion, U)]): RDD[(RT, RU)] = {
+    
     leftRDD.mapPartitionsWithIndex((idx, iter) => {
       if (iter.isEmpty) {
         Iterator((None, iter))
