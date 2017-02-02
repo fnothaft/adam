@@ -55,7 +55,7 @@ class InnerShuffleRegionJoinSuite extends ADAMFunSuite {
     val recordsRdd = sc.parallelize(Seq(record1, record2), 1).keyBy(ReferenceRegion.unstranded(_))
 
     assert(
-      InnerShuffleRegionJoin[AlignmentRecord, AlignmentRecord](seqDict, partitionSize, sc, Seq(Some(ReferenceRegion.unstranded(record1), ReferenceRegion.unstranded(baseRecord))))
+      InnerShuffleRegionJoin[AlignmentRecord, AlignmentRecord](seqDict, Seq(Some(ReferenceRegion.unstranded(record1), ReferenceRegion.unstranded(baseRecord))))
         .partitionAndJoin(
           baseRdd,
           recordsRdd
@@ -67,7 +67,7 @@ class InnerShuffleRegionJoinSuite extends ADAMFunSuite {
     )
 
     assert(
-      InnerShuffleRegionJoin[AlignmentRecord, AlignmentRecord](seqDict, partitionSize, sc, Seq(Some(ReferenceRegion.unstranded(record1), ReferenceRegion.unstranded(baseRecord))))
+      InnerShuffleRegionJoin[AlignmentRecord, AlignmentRecord](seqDict, Seq(Some(ReferenceRegion.unstranded(record1), ReferenceRegion.unstranded(baseRecord))))
         .partitionAndJoin(
           baseRdd,
           recordsRdd
@@ -114,8 +114,7 @@ class InnerShuffleRegionJoinSuite extends ADAMFunSuite {
     val recordsRdd = sc.parallelize(Seq(record1, record2, record3), 1).keyBy(ReferenceRegion.unstranded(_))
 
     assert(
-      InnerShuffleRegionJoin[AlignmentRecord, AlignmentRecord](seqDict, partitionSize, sc,
-        Seq(Some(ReferenceRegion.unstranded(record1), ReferenceRegion.unstranded(baseRecord2))))
+      InnerShuffleRegionJoin[AlignmentRecord, AlignmentRecord](seqDict, Seq(Some(ReferenceRegion.unstranded(record1), ReferenceRegion.unstranded(baseRecord2))))
         .partitionAndJoin(
           baseRdd,
           recordsRdd
@@ -129,8 +128,7 @@ class InnerShuffleRegionJoinSuite extends ADAMFunSuite {
     println(baseRdd.map(_._1).collect.mkString(","))
     println(recordsRdd.map(_._1).collect.mkString(","))
     assert({
-      InnerShuffleRegionJoin[AlignmentRecord, AlignmentRecord](seqDict, partitionSize, sc,
-        Seq(Some(ReferenceRegion.unstranded(record1), ReferenceRegion.unstranded(baseRecord2))))
+      InnerShuffleRegionJoin[AlignmentRecord, AlignmentRecord](seqDict, Seq(Some(ReferenceRegion.unstranded(record1), ReferenceRegion.unstranded(baseRecord2))))
         .partitionAndJoin(
           baseRdd,
           recordsRdd

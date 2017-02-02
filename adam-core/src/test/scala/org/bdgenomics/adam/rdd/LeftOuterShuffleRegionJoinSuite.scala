@@ -39,7 +39,7 @@ class LeftOuterShuffleRegionJoinSuite(partitionMap: Seq[Option[(ReferenceRegion,
 
   def runJoin(leftRdd: RDD[(ReferenceRegion, AlignmentRecord)],
               rightRdd: RDD[(ReferenceRegion, AlignmentRecord)]): RDD[(Option[AlignmentRecord], AlignmentRecord)] = {
-    LeftOuterShuffleRegionJoin[AlignmentRecord, AlignmentRecord](seqDict, partitionSize, sc, partitionMap)
+    LeftOuterShuffleRegionJoin[AlignmentRecord, AlignmentRecord](seqDict, partitionMap)
       .partitionAndJoin(rightRdd, leftRdd).map(_.swap)
   }
 }

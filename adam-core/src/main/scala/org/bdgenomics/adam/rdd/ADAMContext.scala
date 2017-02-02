@@ -755,7 +755,7 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
    */
   private[rdd] def extractPartitionMap(filename: String): Option[Seq[Option[(ReferenceRegion, ReferenceRegion)]]] = {
     // the sorted metadata is always stored with the sequence dictionary metadata
-    val path = new Path(filename + "/_seqdict.avro")
+    val path = new Path(filename + "/_partitionMap.avro")
     val fs = path.getFileSystem(sc.hadoopConfiguration)
 
     try {
