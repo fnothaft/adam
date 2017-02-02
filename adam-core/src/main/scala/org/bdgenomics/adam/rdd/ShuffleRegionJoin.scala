@@ -50,7 +50,7 @@ sealed abstract class ShuffleRegionJoin[T: ClassTag, U: ClassTag, RT, RU]
   def partitionAndJoin(
     leftRDD: RDD[(ReferenceRegion, T)],
     rightRDD: RDD[(ReferenceRegion, U)]): RDD[(RT, RU)] = {
-    
+
     leftRDD.mapPartitionsWithIndex((idx, iter) => {
       if (iter.isEmpty) {
         Iterator((None, iter))
@@ -67,8 +67,9 @@ sealed abstract class ShuffleRegionJoin[T: ClassTag, U: ClassTag, RT, RU]
 
   // this function carries out the sort-merge join inside each Spark partition.
   // It assumes the iterators are sorted.
-  def sweep(leftIterWithPartitionBounds: Iterator[(Option[(ReferenceRegion, ReferenceRegion)], Iterator[(ReferenceRegion, T)])],
-            rightIter: Iterator[(ReferenceRegion, U)]): Iterator[(RT, RU)] = {
+  def sweep(
+    leftIterWithPartitionBounds: Iterator[(Option[(ReferenceRegion, ReferenceRegion)], Iterator[(ReferenceRegion, T)])],
+    rightIter: Iterator[(ReferenceRegion, U)]): Iterator[(RT, RU)] = {
     val (partitionBounds, leftIter) = leftIterWithPartitionBounds.next
     if (leftIter.isEmpty || rightIter.isEmpty || partitionBounds.isEmpty) {
       emptyFn(leftIter, rightIter)

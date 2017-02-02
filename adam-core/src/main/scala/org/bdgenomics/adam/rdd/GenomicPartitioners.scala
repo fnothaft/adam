@@ -221,7 +221,7 @@ object GenomicRegionPartitioner {
   }
 }
 
-class ReferenceRegionRangePartitioner[V](partitions: Int) extends Partitioner {
+private[rdd] class ReferenceRegionRangePartitioner[V](partitions: Int) extends Partitioner {
 
   override def numPartitions: Int = partitions
 
