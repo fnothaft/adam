@@ -22,9 +22,14 @@ import org.bdgenomics.adam.algorithms.consensus.{
   Consensus,
   ConsensusGenerator
 }
-import org.bdgenomics.adam.models.ReferencePosition
+import org.bdgenomics.adam.models.{
+  RecordGroupDictionary,
+  ReferencePosition,
+  SequenceDictionary,
+  SequenceRecord
+}
 import org.bdgenomics.adam.rdd.ADAMContext._
-import org.bdgenomics.adam.rdd.read.AlignmentRecordRDD
+import org.bdgenomics.adam.rdd.read.{ AlignedReadRDD, AlignmentRecordRDD }
 import org.bdgenomics.adam.rdd.variant.VariantRDD
 import org.bdgenomics.adam.rich.RichAlignmentRecord
 import org.bdgenomics.adam.util.ADAMFunSuite
@@ -53,34 +58,6 @@ class RealignIndelsSuite extends ADAMFunSuite {
     sc.loadAlignments(path).rdd
   }
 
-  sparkTest("checking mapping to targets for artificial reads") {
-    val targets = RealignmentTargetFinder(artificialReads.map(RichAlignmentRecord(_)))
-    assert(targets.size === 1)
-    val rr = artificialReads.map(RichAlignmentRecord(_))
-    val readsMappedToTarget = RealignIndels.mapTargets(rr, targets).map(kv => {
-      val (t, r) = kv
-
-      (t, r.map(r => r.record))
-    }).collect()
-
-    assert(readsMappedToTarget.size === 2)
-
-    readsMappedToTarget.forall {
-      case (target: Option[IndelRealignmentTarget], reads: Seq[AlignmentRecord]) => reads.forall {
-        read =>
-          {
-            if (read.getStart <= 25) {
-              val result = target.get.readRange.start <= read.getStart.toLong
-              result && (target.get.readRange.end >= read.getEnd)
-            } else {
-              target.isEmpty
-            }
-          }
-      }
-      case _ => false
-    }
-  }
-
   sparkTest("checking alternative consensus for artificial reads") {
     var consensus = List[Consensus]()
 
@@ -103,38 +80,6 @@ class RealignIndelsSuite extends ADAMFunSuite {
     assert(consensus(1).index.end === 65)
     assert(consensus(1).consensus === "")
     // TODO: add check with insertions, how about SNPs
-  }
-
-  sparkTest("checking extraction of reference from reads") {
-    def checkReference(readReference: (String, Long, Long)) {
-      // the first three lines of artificial.fasta
-      val refStr = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGGGGGGGGGGAAAAAAAAAAGGGGGGGGGGAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-      val startIndex = readReference._2.toInt
-      val stopIndex = readReference._3.toInt
-      assert(readReference._1.length === stopIndex - startIndex)
-      assert(readReference._1 === refStr.substring(startIndex, stopIndex))
-    }
-
-    val targets = RealignmentTargetFinder(artificialReads.map(RichAlignmentRecord(_)))
-    val rr = artificialReads.map(RichAlignmentRecord(_))
-    val readsMappedToTarget: Array[(IndelRealignmentTarget, Iterable[AlignmentRecord])] = RealignIndels.mapTargets(rr, targets)
-      .filter(_._1.isDefined)
-      .map(kv => {
-        val (t, r) = kv
-
-        (t.get, r.map(r => r.record))
-      }).collect()
-
-    val readReference = readsMappedToTarget.map {
-      case (target, reads) =>
-        if (!target.isEmpty) {
-          val referenceFromReads: (String, Long, Long) = RealignIndels.getReferenceFromReads(reads.map(r => new RichAlignmentRecord(r)).toSeq)
-          assert(referenceFromReads._2 == -1 || referenceFromReads._1.length > 0)
-          checkReference(referenceFromReads)
-        }
-      case _ => throw new AssertionError("Mapping should contain target and reads")
-    }
-    assert(readReference != null)
   }
 
   sparkTest("checking realigned reads for artificial input") {
@@ -322,7 +267,9 @@ class RealignIndelsSuite extends ADAMFunSuite {
       .build()))
 
     // this should be a NOP
-    assert(RealignIndels(reads).count === 4)
+    assert(RealignIndels(AlignedReadRDD(reads,
+      SequenceDictionary(SequenceRecord("chr1", 1000L)),
+      RecordGroupDictionary.empty).toRichAlignmentRecordRdd).rdd.count === 4)
   }
 
   sparkTest("test OP and OC tags") {

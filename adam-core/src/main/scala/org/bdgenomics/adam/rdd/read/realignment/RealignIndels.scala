@@ -23,6 +23,7 @@ import org.apache.spark.rdd.MetricsContext._
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.algorithms.consensus.{ Consensus, ConsensusGenerator }
 import org.bdgenomics.adam.models.{ MdTag, ReferencePosition, ReferenceRegion }
+import org.bdgenomics.adam.rdd.read.RichAlignmentRecordRDD
 import org.bdgenomics.adam.rich.RichAlignmentRecord
 import org.bdgenomics.adam.rich.RichAlignmentRecord._
 import org.bdgenomics.adam.instrumentation.Timers._
@@ -42,13 +43,13 @@ private[read] object RealignIndels extends Serializable with Logging {
    * @return RDD of realigned reads.
    */
   def apply(
-    rdd: RDD[AlignmentRecord],
+    rdd: RichAlignmentRecordRDD,
     consensusModel: ConsensusGenerator = ConsensusGenerator.fromReads,
     dataIsSorted: Boolean = false,
     maxIndelSize: Int = 500,
     maxConsensusNumber: Int = 30,
     lodThreshold: Double = 5.0,
-    maxTargetSize: Int = 3000): RDD[AlignmentRecord] = {
+    maxTargetSize: Int = 3000): RichAlignmentRecordRDD = {
     new RealignIndels(
       consensusModel,
       dataIsSorted,
@@ -57,130 +58,6 @@ private[read] object RealignIndels extends Serializable with Logging {
       lodThreshold,
       maxTargetSize
     ).realignIndels(rdd)
-  }
-
-  /**
-   * Method to map a record to an indel realignment target. Returns the index of the target to align to if the read has a
-   * target and should be realigned, else returns the "empty" target (denoted by a negative index).
-   *
-   * @note Generally, this function shouldn't be called directly---for most cases, prefer mapTargets.
-   * @param read Read to check.
-   * @param targets Sorted set of realignment targets.
-   * @return If overlapping target is found, returns that target. Else, returns the "empty" target.
-   *
-   * @see mapTargets
-   */
-  @tailrec final def mapToTarget(
-    read: RichAlignmentRecord,
-    targets: TreeSet[(IndelRealignmentTarget, Int)]): Int = {
-    // Perform tail call recursive binary search
-    if (targets.size == 1) {
-      if (TargetOrdering.contains(targets.head._1, read)) {
-        // if there is overlap, return the overlapping target
-        targets.head._2
-      } else {
-        // else, return an empty target (negative index)
-        // to prevent key skew, split up by max indel alignment length
-        (-1 - (read.record.getStart / 3000L)).toInt
-      }
-    } else {
-      // split the set and recurse
-      val (head, tail) = targets.splitAt(targets.size / 2)
-      val reducedSet = if (TargetOrdering.lt(tail.head._1, read)) {
-        head
-      } else {
-        tail
-      }
-      mapToTarget(read, reducedSet)
-    }
-  }
-
-  /**
-   * This method wraps mapToTarget(RichADAMRecord, TreeSet[Tuple2[IndelRealignmentTarget, Int]]) for
-   * serialization purposes.
-   *
-   * @param read Read to check.
-   * @param targets Wrapped zipped indel realignment target.
-   * @return Target if an overlapping target is found, else the empty target.
-   *
-   * @see mapTargets
-   */
-  def mapToTarget(
-    read: RichAlignmentRecord,
-    targets: ZippedTargetSet): Int = {
-    mapToTarget(read, targets.set)
-  }
-
-  /**
-   * Method to map a target index to an indel realignment target.
-   *
-   * @note Generally, this function shouldn't be called directly---for most cases, prefer mapTargets.
-   * @note This function should not be called in a context where target set serialization is needed.
-   * Instead, call mapToTarget(Int, ZippedTargetSet), which wraps this function.
-   *
-   * @param targetIndex Index of target.
-   * @param targets Set of realignment targets.
-   * @return Indel realignment target.
-   *
-   * @see mapTargets
-   */
-  def mapToTargetUnpacked(
-    targetIndex: Int,
-    targets: TreeSet[(IndelRealignmentTarget, Int)]): Option[IndelRealignmentTarget] = {
-    if (targetIndex < 0) {
-      None
-    } else {
-      Some(targets.filter(p => p._2 == targetIndex).head._1)
-    }
-  }
-
-  /**
-   * Wrapper for mapToTarget(Int, TreeSet[Tuple2[IndelRealignmentTarget, Int]]) for contexts where
-   * serialization is needed.
-   *
-   * @param targetIndex Index of target.
-   * @param targets Set of realignment targets.
-   * @return Indel realignment target.
-   *
-   * @see mapTargets
-   */
-  def mapToTarget(targetIndex: Int, targets: ZippedTargetSet): Option[IndelRealignmentTarget] = {
-    mapToTargetUnpacked(targetIndex, targets.set)
-  }
-
-  /**
-   * Maps reads to targets. Wraps both mapToTarget functions together and handles target index creation and broadcast.
-   *
-   * @note This function may return multiple sets of reads mapped to empty targets. This is intentional. For typical workloads, there
-   * will be many more reads that map to the empty target (reads that do not need to be realigned) than reads that need to be realigned.
-   * Thus, we must spread the reads that do not need to be realigned across multiple empty targets to reduce imbalance.
-   *
-   * @param rich_rdd RDD containing RichADAMRecords which are to be mapped to a realignment target.
-   * @param targets Set of targets that are to be mapped against.
-   *
-   * @return A key-value pair RDD with realignment targets matched with sets of reads.
-   *
-   * @see mapToTarget
-   */
-  def mapTargets(rich_rdd: RDD[RichAlignmentRecord], targets: TreeSet[IndelRealignmentTarget]): RDD[(Option[IndelRealignmentTarget], Iterable[RichAlignmentRecord])] = MapTargets.time {
-    val tmpZippedTargets = targets.zip(0 until targets.count(t => true))
-    var tmpZippedTargets2 = new TreeSet[(IndelRealignmentTarget, Int)]()(ZippedTargetOrdering)
-    tmpZippedTargets.foreach(t => tmpZippedTargets2 = tmpZippedTargets2 + t)
-
-    val zippedTargets = new ZippedTargetSet(tmpZippedTargets2)
-
-    // group reads by target
-    val broadcastTargets = rich_rdd.context.broadcast(zippedTargets)
-    val readsMappedToTarget = rich_rdd.groupBy(mapToTarget(_, broadcastTargets.value))
-      .map(kv => {
-        val (k, v) = kv
-
-        val target = mapToTarget(k, broadcastTargets.value)
-
-        (target, v)
-      })
-
-    readsMappedToTarget
   }
 
   /**
@@ -463,42 +340,32 @@ private[read] class RealignIndels(
    * @param rdd Reads to realign.
    * @return Realigned read.
    */
-  def realignIndels(rdd: RDD[AlignmentRecord]): RDD[AlignmentRecord] = {
-    val sortedRdd = if (dataIsSorted) {
-      rdd.filter(r => r.getReadMapped)
-    } else {
-      val sr = rdd.filter(r => r.getReadMapped)
-        .keyBy(ReferencePosition(_))
-        .sortByKey()
-      sr.map(kv => kv._2)
-    }
+  def realignIndels(rdd: RichAlignmentRecordRDD): RichAlignmentRecordRDD = {
 
-    // we only want to convert once so let's get it over with
-    val richRdd = sortedRdd.map(new RichAlignmentRecord(_))
-    richRdd.cache()
+    // sort the input rdd
+    val sortedRdd = if (!rdd.sorted) {
+      rdd.repartitionAndSort()
+    } else {
+      rdd
+    }
 
     // find realignment targets
     log.info("Generating realignment targets...")
-    val targets: TreeSet[IndelRealignmentTarget] = RealignmentTargetFinder(
-      richRdd,
+    val targets = IndelRealignmentTargetRDD(
+      rdd,
       maxIndelSize,
       maxTargetSize
     )
 
     // we should only attempt realignment if the target set isn't empty
     if (targets.isEmpty) {
-      val readRdd = richRdd.map(r => r.record)
-      richRdd.unpersist()
-      readRdd
+      rdd
     } else {
-      // map reads to targets
-      log.info("Grouping reads by target...")
-      val readsMappedToTarget = RealignIndels.mapTargets(richRdd, targets)
-      richRdd.unpersist()
+      val readsMappedToTarget = targets.rightOuterShuffleRegionJoinAndGroupByLeft(rdd)
+        .rdd
 
       // realign target groups
-      log.info("Sorting reads by reference in ADAM RDD")
-      readsMappedToTarget.flatMap(realignTargetGroup).map(r => r.record)
+      rdd.copy(rdd = readsMappedToTarget.flatMap(realignTargetGroup))
     }
   }
 }

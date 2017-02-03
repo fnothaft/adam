@@ -274,6 +274,7 @@ class ADAMKryoRegistrator extends KryoRegistrator {
     kryo.register(classOf[scala.Array[org.bdgenomics.adam.models.ReferenceRegion]])
     kryo.register(classOf[scala.Array[org.bdgenomics.adam.models.SequenceRecord]])
     kryo.register(classOf[scala.Array[org.bdgenomics.adam.models.VariantContext]])
+    kryo.register(classOf[scala.Array[org.bdgenomics.adam.rdd.read.realignment.IndelRealignmentTarget]])
     kryo.register(classOf[scala.Array[org.bdgenomics.adam.rich.RichAlignmentRecord]])
     kryo.register(classOf[scala.Array[scala.collection.Seq[_]]])
     kryo.register(classOf[scala.Array[Int]])

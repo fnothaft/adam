@@ -49,6 +49,7 @@ import org.bdgenomics.adam.rdd.feature.CoverageRDD
 import org.bdgenomics.adam.rdd.read.realignment.RealignIndels
 import org.bdgenomics.adam.rdd.read.recalibration.BaseQualityRecalibration
 import org.bdgenomics.adam.rdd.fragment.FragmentRDD
+import org.bdgenomics.adam.rich.RichAlignmentRecord
 import org.bdgenomics.adam.serialization.AvroSerializer
 import org.bdgenomics.adam.util.ReferenceFile
 import org.bdgenomics.formats.avro._
@@ -643,7 +644,12 @@ sealed trait AlignmentRecordRDD extends AvroReadGroupGenomicRDD[AlignmentRecord,
     maxConsensusNumber: Int = 30,
     lodThreshold: Double = 5.0,
     maxTargetSize: Int = 3000): AlignmentRecordRDD = RealignIndelsInDriver.time {
-    replaceRdd(RealignIndels(rdd, consensusModel, sorted, maxIndelSize, maxConsensusNumber, lodThreshold))
+    RealignIndels(toRichAlignmentRecordRdd,
+      consensusModel,
+      sorted,
+      maxIndelSize,
+      maxConsensusNumber,
+      lodThreshold).toAlignmentRecordRdd
   }
 
   /**
@@ -928,6 +934,13 @@ sealed trait AlignmentRecordRDD extends AvroReadGroupGenomicRDD[AlignmentRecord,
 
     // return
     replaceRdd(finalRdd)
+  }
+
+  def toRichAlignmentRecordRdd: RichAlignmentRecordRDD = {
+    RichAlignmentRecordRDD(rdd.map(RichAlignmentRecord(_)),
+      sequences,
+      recordGroups,
+      partitionMap)
   }
 }
 
