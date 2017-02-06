@@ -211,7 +211,7 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
       // partition. There should be very few of these
       // we use this because we have to keep track of which ReferenceRegion
       // belongs at the current location of T.
-      val duplicates = new ListBuffer[(Seq[ReferenceRegion], T)]()
+      val duplicates = collection.mutable.Map[T, Iterator[ReferenceRegion]]()
       // filter out ReferenceRegions that are not on this partition
       iter.map(f => {
         val allRegions = getReferenceRegions(f)
@@ -229,22 +229,20 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
             // if there are multiple, we have to do a little extra work to make
             // sure that we have the correct ReferenceRegion
           } else {
-            val index = duplicates.indexOf(f)
-            // if we've already added this record to the duplicates list
-            if (index >= 0) {
-              // get the correct ReferenceRegion from the sorted list of ReferenceRegions
-              val correctReferenceRegion = (duplicates(index)._1.head, duplicates(index)._2)
-              // if there are more after this
-              if (duplicates(index)._1.length != 1) {
-                // drop the first value from the list of ReferenceRegions
-                duplicates.patch(index, Seq((duplicates(index)._1.drop(1), duplicates(index)._2)), 1)
+            // check first to see if our map has the value we need
+            duplicates.get(f._2) match {
+              case Some(g) => {
+                // if it does we get the next referenceRegion in the iterator
+                val referenceRegions = g
+                ((referenceRegions.next, f._2))
               }
-              correctReferenceRegion
-            } else {
-              val inferredValue = (f._1.head, f._2)
-              // add to the list of duplicates
-              duplicates += ((f._1.drop(1), f._2))
-              inferredValue
+              case None => {
+                // if it does not, we add the referenceRegions to our map
+                // and get the next one
+                val referenceRegions = f._1.toIterator
+                duplicates += f._2 -> referenceRegions
+                ((referenceRegions.next, f._2))
+              }
             }
           }
         })
@@ -467,8 +465,9 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
     }
   }
 
-  protected def replaceRdd(newRdd: RDD[T],
-                           newPartitionMapRdd: Option[Seq[Option[(ReferenceRegion, ReferenceRegion)]]] = None): U
+  protected def replaceRdd(
+    newRdd: RDD[T],
+    newPartitionMap: Option[Seq[Option[(ReferenceRegion, ReferenceRegion)]]] = None): U
 
   protected def getReferenceRegions(elem: T): Seq[ReferenceRegion]
 

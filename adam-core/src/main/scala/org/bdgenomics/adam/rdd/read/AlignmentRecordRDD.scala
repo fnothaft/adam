@@ -931,10 +931,11 @@ sealed trait AlignmentRecordRDD extends AvroReadGroupGenomicRDD[AlignmentRecord,
   }
 }
 
-case class AlignedReadRDD(rdd: RDD[AlignmentRecord],
-                          sequences: SequenceDictionary,
-                          recordGroups: RecordGroupDictionary,
-                          partitionMap: Option[Seq[Option[(ReferenceRegion, ReferenceRegion)]]] = None) extends AlignmentRecordRDD {
+case class AlignedReadRDD(
+    rdd: RDD[AlignmentRecord],
+    sequences: SequenceDictionary,
+    recordGroups: RecordGroupDictionary,
+    partitionMap: Option[Seq[Option[(ReferenceRegion, ReferenceRegion)]]] = None) extends AlignmentRecordRDD {
 
   override val sorted = partitionMap.isDefined
 
@@ -945,8 +946,10 @@ case class AlignedReadRDD(rdd: RDD[AlignmentRecord],
       recordGroups)
   }
 
-  protected def replaceRdd(newRdd: RDD[AlignmentRecord],
-                           newPartitionMap: Option[Seq[Option[(ReferenceRegion, ReferenceRegion)]]] = None): AlignedReadRDD = {
+  protected def replaceRdd(
+    newRdd: RDD[AlignmentRecord],
+    newPartitionMap: Option[Seq[Option[(ReferenceRegion, ReferenceRegion)]]] = None): AlignedReadRDD = {
+
     copy(rdd = newRdd, partitionMap = newPartitionMap)
   }
 }
@@ -964,9 +967,10 @@ object UnalignedReadRDD {
   }
 }
 
-case class UnalignedReadRDD(rdd: RDD[AlignmentRecord],
-                            recordGroups: RecordGroupDictionary,
-                            partitionMap: Option[Seq[Option[(ReferenceRegion, ReferenceRegion)]]] = None) extends AlignmentRecordRDD
+case class UnalignedReadRDD(
+  rdd: RDD[AlignmentRecord],
+  recordGroups: RecordGroupDictionary,
+  partitionMap: Option[Seq[Option[(ReferenceRegion, ReferenceRegion)]]] = None) extends AlignmentRecordRDD
     with Unaligned {
 
   override val sorted = partitionMap.isDefined
