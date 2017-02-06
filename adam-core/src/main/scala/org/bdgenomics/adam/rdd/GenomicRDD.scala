@@ -23,7 +23,7 @@ import org.apache.avro.Schema
 import org.apache.avro.generic.IndexedRecord
 import org.apache.hadoop.fs.Path
 import org.apache.parquet.hadoop.metadata.CompressionCodecName
-import org.apache.spark.{ Partitioner, SparkFiles }
+import org.apache.spark.SparkFiles
 import org.apache.spark.api.java.JavaRDD
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.{
@@ -141,8 +141,13 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
    */
   private def evenlyRepartition(partitions: Int)(implicit tTag: ClassTag[T]): GenomicRDD[T, U] = {
     require(sorted, "Cannot evenly repartition an unsorted RDD")
+    val count = rdd.count
+    // we don't want a bunch of empty partitions, so we will just use count in
+    // the case the user wants more partitions than rdd records.
+    val finalPartitionNumber = Math.min(count, partitions)
     // the average number of records on each node will help us evenly repartition
-    val average: Double = rdd.count.toDouble / partitions
+    val average: Double = count.toDouble / finalPartitionNumber
+
     // we already have a sorted rdd, so let's just move the data
     // but we want to move it in blocks to maintain order
     // zipWithIndex seems to be the cheapest way to guarantee this
@@ -158,14 +163,30 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
         // partition number
         iter.map(_.swap).map(f => ((f._2._1, (f._1 / average).toInt), f._2._2))
       }, preservesPartitioning = true)
-      .repartitionAndSortWithinPartitions(new ReferenceRegionRangePartitioner(partitions))
+      .repartitionAndSortWithinPartitions(new ReferenceRegionRangePartitioner(finalPartitionNumber.toInt))
 
     finalPartitionedRDD.persist()
 
-    val finalPartitionMap = finalPartitionedRDD.mapPartitions(iter =>
+    val tempPartitionMap = finalPartitionedRDD.mapPartitions(iter =>
       getRegionBoundsFromPartition(iter.map(f => (f._1._1, f._2))), preservesPartitioning = true).collect
 
-    replaceRdd(finalPartitionedRDD.values, Some(finalPartitionMap))
+    // we want to try to avoid any None values in our final partition map
+    val newPartitionMap = tempPartitionMap.zipWithIndex.map(f => {
+      if (f._1.isEmpty && f._2 != 0) {
+        // in order to prevent None's, we just use the previous element's
+        // upper bound to build this partition bound.
+        Some({
+          val previousBound = tempPartitionMap(f._2 - 1).get._2
+          (ReferenceRegion(previousBound.referenceName, previousBound.start + 1, previousBound.end + 1),
+            ReferenceRegion(previousBound.referenceName, previousBound.start + 2, previousBound.end + 2))
+
+        })
+      } else {
+        f._1
+      }
+    })
+
+    replaceRdd(finalPartitionedRDD.values, Some(newPartitionMap))
   }
 
   /**
@@ -190,7 +211,7 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
       // partition. There should be very few of these
       // we use this because we have to keep track of which ReferenceRegion
       // belongs at the current location of T.
-      val duplicates = new ListBuffer[(Seq[ReferenceRegion], T)]()
+      val duplicates = collection.mutable.Map[T, Iterator[ReferenceRegion]]()
       // filter out ReferenceRegions that are not on this partition
       iter.map(f => {
         val allRegions = getReferenceRegions(f)
@@ -208,22 +229,20 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
             // if there are multiple, we have to do a little extra work to make
             // sure that we have the correct ReferenceRegion
           } else {
-            val index = duplicates.indexOf(f)
-            // if we've already added this record to the duplicates list
-            if (index >= 0) {
-              // get the correct ReferenceRegion from the sorted list of ReferenceRegions
-              val correctReferenceRegion = (duplicates(index)._1.head, duplicates(index)._2)
-              // if there are more after this
-              if (duplicates(index)._1.length != 1) {
-                // drop the first value from the list of ReferenceRegions
-                duplicates.patch(index, Seq((duplicates(index)._1.drop(1), duplicates(index)._2)), 1)
+            // check first to see if our map has the value we need
+            duplicates.get(f._2) match {
+              case Some(g) => {
+                // if it does we get the next referenceRegion in the iterator
+                val referenceRegions = g
+                ((referenceRegions.next, f._2))
               }
-              correctReferenceRegion
-            } else {
-              val inferredValue = (f._1.head, f._2)
-              // add to the list of duplicates
-              duplicates += ((f._1.drop(1), f._2))
-              inferredValue
+              case None => {
+                // if it does not, we add the referenceRegions to our map
+                // and get the next one
+                val referenceRegions = f._1.toIterator
+                duplicates += f._2 -> referenceRegions
+                ((referenceRegions.next, f._2))
+              }
             }
           }
         })
@@ -446,8 +465,9 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
     }
   }
 
-  protected def replaceRdd(newRdd: RDD[T],
-                           newPartitionMapRdd: Option[Seq[Option[(ReferenceRegion, ReferenceRegion)]]] = None): U
+  protected def replaceRdd(
+    newRdd: RDD[T],
+    newPartitionMap: Option[Seq[Option[(ReferenceRegion, ReferenceRegion)]]] = None): U
 
   protected def getReferenceRegions(elem: T): Seq[ReferenceRegion]
 
@@ -1079,7 +1099,18 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
     // they may not necessarily be the bounds of the right RDD
     val newPartitionMap = finalPartitionedRDD.mapPartitions(iter => {
       getRegionBoundsFromPartition(iter)
-    }, preservesPartitioning = true).collect
+    }, preservesPartitioning = true)
+      // we want to try really hard to prevent None's in the partition map
+      // so we use the left RDD's partition bounds on a partition if there
+      // is no right data there
+      .zipWithIndex.map(f => {
+        if (f._1.isEmpty) {
+          // use the bounds from the left partition map
+          destinationPartitionMap(f._2.toInt)
+        } else {
+          f._1
+        }
+      }).collect
 
     replaceRdd(finalPartitionedRDD.values, Some(newPartitionMap))
   }
@@ -1120,9 +1151,26 @@ trait GenomicRDD[T, U <: GenomicRDD[T, U]] {
     // here we let spark do the heavy lifting
     val partitionedRDD = flattenRddByRegions()
       .sortBy(f => f._1, ascending = true, partitions)
-    replaceRdd(partitionedRDD.values,
-      Some(partitionedRDD.mapPartitions(iter =>
-        getRegionBoundsFromPartition(iter), preservesPartitioning = true).collect))
+    val tempPartitionMap = partitionedRDD.mapPartitions(iter =>
+      getRegionBoundsFromPartition(iter), preservesPartitioning = true).collect
+
+    // we want to try to avoid any None values in our final partition map
+    val newPartitionMap = tempPartitionMap.zipWithIndex.map(f => {
+      if (f._1.isEmpty && f._2 != 0) {
+        // in order to prevent None's, we just use the previous element's
+        // upper bound to build this partition bound.
+        Some({
+          val previousBound = tempPartitionMap(f._2 - 1).get._2
+          (ReferenceRegion(previousBound.referenceName, previousBound.start + 1, previousBound.end + 1),
+            ReferenceRegion(previousBound.referenceName, previousBound.start + 2, previousBound.end + 2))
+
+        })
+      } else {
+        f._1
+      }
+    })
+
+    replaceRdd(partitionedRDD.values, Some(newPartitionMap))
   }
 }
 

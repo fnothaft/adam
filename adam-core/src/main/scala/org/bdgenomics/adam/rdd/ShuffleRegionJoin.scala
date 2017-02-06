@@ -17,7 +17,6 @@
  */
 package org.bdgenomics.adam.rdd
 
-import org.apache.spark.{ Partitioner, SparkContext }
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.{ SequenceDictionary, ReferenceRegion }
 import scala.collection.mutable.ListBuffer
