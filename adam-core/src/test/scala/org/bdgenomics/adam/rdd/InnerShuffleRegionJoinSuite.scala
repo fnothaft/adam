@@ -17,7 +17,6 @@
  */
 package org.bdgenomics.adam.rdd
 
-import org.apache.spark.SparkContext._
 import org.bdgenomics.adam.models.{ ReferenceRegion, SequenceDictionary, SequenceRecord }
 import org.bdgenomics.adam.util.ADAMFunSuite
 import org.bdgenomics.formats.avro.{ AlignmentRecord, Contig }

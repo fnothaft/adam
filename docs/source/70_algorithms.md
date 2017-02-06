@@ -37,6 +37,16 @@ We have validated the concordance of our BQSR implementation against the GATK. A
 of the 180B bases ($<0.0001\%$) in the high-coverage NA12878 genome dataset differ. After investigating
 this discrepancy, we have determined that this is due to an error in the GATK, where paired-end reads are
 mishandled if the two reads in the pair overlap.
+* *ShuffleRegionJoin Load Balancing:* Because of the non-uniform distribution of regions in mapped reads, joining
+two genomic datasets can be difficult or impossible when neither dataset fits completely on a single node. To
+reduce the impact of data skew on the runtime of joins, we implemented a load balancing engine in Adam’s
+ShuffleRegionJoin core. This load balancing is a preprocessing step to the ShuffleRegionJoin and improves performance
+by 10-100x. The first phase of the load balancer is to sort and repartition the left dataset evenly across all partitions,
+regardless of the mapped region. This offers significantly better distribution of the data than the standard binning approach.
+After rebalancing the data, we copartition the right dataset with the left based on the region bounds of each partition.
+Once the data has been copartitioned, it is sorted locally and the join is performed.
+
+
 
 [^1]: In a chimeric read pair, the two reads in the read pairs align to different chromosomes; see Li et al [@li10].
 [^2]: This is typically caused by the presence of insertion/deletion (INDEL) variants; see DePristo et al [@depristo11].
@@ -242,3 +252,20 @@ Per read bucket, we then identify the 5' mapping positions of the primarily alig
 We mark as duplicates all read pairs that have the same pair alignment locations, and all unpaired reads that
 map to the same sites. Only the highest scoring read/read pair is kept, where the score is the sum of all quality
 scores in the read that are greater than 15.
+
+### ShuffleRegionJoin Load Balancing
+
+ShuffleRegionJoins perform a sort-merge join on distributed genomic data. The current standard for distributing
+genomic data is to use a binning approach where ranges of genomic data are assigned to a particular partition.
+This approach has a significant limitation that we aimed to solve: no matter how fine-grained the bins created,
+they can never resolve extremely skewed data. ShuffleRegionJoin also requires that the data be sorted, so we
+maintain the knowledge of sort through the join so we can reuse this knowledge downstream.
+
+The first step in ShuffleRegionJoin is to sort and balance the data. This is done with a sampling method and the
+data is sorted if it was not previously. When we shuffle the data, we also store the region ranges for all the
+data on this partition. Storing these partition bounds allows us to copartition the right dataset by assigning
+all records to a partition if the record falls within the partition bounds. After the right data is colocated
+with the correct records in the left dataset, we perform the join locally on each partition.
+
+Maintaining the sorted knowledge and partition bounds are extremely useful for downstream applications that can
+take advantage of sorted data.
