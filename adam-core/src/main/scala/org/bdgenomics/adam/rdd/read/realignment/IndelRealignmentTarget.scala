@@ -65,7 +65,7 @@ private[realignment] object TargetOrdering extends Ordering[IndelRealignmentTarg
   }
 
   /**
-   * Compares a read to an indel realignment target to see if it starts before the start of the indel realignment target.
+   * Compares a read to an indel realignment target to see if the target is before the read.
    *
    * @param target Realignment target to compare.
    * @param read Read to compare.

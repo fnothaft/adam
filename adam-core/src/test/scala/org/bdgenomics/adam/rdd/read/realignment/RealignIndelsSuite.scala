@@ -22,13 +22,14 @@ import org.bdgenomics.adam.algorithms.consensus.{
   Consensus,
   ConsensusGenerator
 }
-import org.bdgenomics.adam.models.ReferencePosition
+import org.bdgenomics.adam.models.{ ReferencePosition, ReferenceRegion }
 import org.bdgenomics.adam.rdd.ADAMContext._
 import org.bdgenomics.adam.rdd.read.AlignmentRecordRDD
 import org.bdgenomics.adam.rdd.variant.VariantRDD
 import org.bdgenomics.adam.rich.RichAlignmentRecord
 import org.bdgenomics.adam.util.ADAMFunSuite
 import org.bdgenomics.formats.avro.{ AlignmentRecord, Contig, Variant }
+import scala.collection.immutable.TreeSet
 
 class RealignIndelsSuite extends ADAMFunSuite {
 
@@ -51,6 +52,40 @@ class RealignIndelsSuite extends ADAMFunSuite {
   def gatkArtificialRealignedReads: RDD[AlignmentRecord] = {
     val path = testFile("artificial.realigned.sam")
     sc.loadAlignments(path).rdd
+  }
+
+  def makeRead(start: Long, end: Long): RichAlignmentRecord = {
+    RichAlignmentRecord(AlignmentRecord.newBuilder()
+      .setContigName("ctg")
+      .setStart(start)
+      .setEnd(end)
+      .setReadMapped(true)
+      .build())
+  }
+
+  test("map reads to targets") {
+    val ts = Array(
+      new IndelRealignmentTarget(None, ReferenceRegion("ctg", 1L, 4L)),
+      new IndelRealignmentTarget(None, ReferenceRegion("ctg", 10L, 44L)),
+      new IndelRealignmentTarget(None, ReferenceRegion("ctg", 100L, 400L)))
+      .zipWithIndex
+    val targets = TreeSet(ts: _*)(ZippedTargetOrdering)
+
+    assert(RealignIndels.mapToTarget(makeRead(0L, 1L), targets) < 0)
+    assert(RealignIndels.mapToTarget(makeRead(0L, 2L), targets) === 0)
+    assert(RealignIndels.mapToTarget(makeRead(1L, 2L), targets) === 0)
+    assert(RealignIndels.mapToTarget(makeRead(3L, 6L), targets) === 0)
+    assert(RealignIndels.mapToTarget(makeRead(6L, 8L), targets) < 0)
+    assert(RealignIndels.mapToTarget(makeRead(8L, 12L), targets) === 1)
+    assert(RealignIndels.mapToTarget(makeRead(10L, 12L), targets) === 1)
+    assert(RealignIndels.mapToTarget(makeRead(14L, 36L), targets) === 1)
+    assert(RealignIndels.mapToTarget(makeRead(35L, 50L), targets) === 1)
+    assert(RealignIndels.mapToTarget(makeRead(45L, 50L), targets) < 0)
+    assert(RealignIndels.mapToTarget(makeRead(90L, 100L), targets) < 0)
+    assert(RealignIndels.mapToTarget(makeRead(90L, 101L), targets) === 2)
+    assert(RealignIndels.mapToTarget(makeRead(200L, 300L), targets) === 2)
+    assert(RealignIndels.mapToTarget(makeRead(200L, 600L), targets) === 2)
+    assert(RealignIndels.mapToTarget(makeRead(700L, 1000L), targets) < 0)
   }
 
   sparkTest("checking mapping to targets for artificial reads") {

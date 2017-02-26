@@ -74,24 +74,27 @@ private[read] object RealignIndels extends Serializable with Logging {
     read: RichAlignmentRecord,
     targets: TreeSet[(IndelRealignmentTarget, Int)]): Int = {
     // Perform tail call recursive binary search
-    if (targets.size == 1) {
-      if (TargetOrdering.contains(targets.head._1, read)) {
-        // if there is overlap, return the overlapping target
-        targets.head._2
-      } else {
-        // else, return an empty target (negative index)
-        // to prevent key skew, split up by max indel alignment length
-        (-1 - (read.record.getStart / 3000L)).toInt
-      }
+    if (TargetOrdering.contains(targets.head._1, read)) {
+      // if there is overlap, return the overlapping target
+      targets.head._2
+    } else if (targets.size <= 1) {
+      // else, return an empty target (negative index)
+      // to prevent key skew, split up by max indel alignment length
+      (-1 - (read.record.getStart / 3000L)).toInt
     } else {
       // split the set and recurse
       val (head, tail) = targets.splitAt(targets.size / 2)
-      val reducedSet = if (TargetOrdering.lt(tail.head._1, read)) {
-        head
+
+      if (TargetOrdering.contains(tail.head._1, read)) {
+        tail.head._2
       } else {
-        tail
+        val reducedSet = if (TargetOrdering.lt(tail.head._1, read)) {
+          tail
+        } else {
+          head
+        }
+        mapToTarget(read, reducedSet, test)
       }
-      mapToTarget(read, reducedSet)
     }
   }
 
