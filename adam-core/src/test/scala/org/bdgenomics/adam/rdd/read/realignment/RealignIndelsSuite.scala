@@ -64,32 +64,30 @@ class RealignIndelsSuite extends ADAMFunSuite {
   }
 
   test("map reads to targets") {
-    val ts = Array(
+    val targets = Array(
       new IndelRealignmentTarget(None, ReferenceRegion("ctg", 1L, 4L)),
       new IndelRealignmentTarget(None, ReferenceRegion("ctg", 10L, 44L)),
       new IndelRealignmentTarget(None, ReferenceRegion("ctg", 100L, 400L)))
-      .zipWithIndex
-    val targets = TreeSet(ts: _*)(ZippedTargetOrdering)
 
-    assert(RealignIndels.mapToTarget(makeRead(0L, 1L), targets) < 0)
-    assert(RealignIndels.mapToTarget(makeRead(0L, 2L), targets) === 0)
-    assert(RealignIndels.mapToTarget(makeRead(1L, 2L), targets) === 0)
-    assert(RealignIndels.mapToTarget(makeRead(3L, 6L), targets) === 0)
-    assert(RealignIndels.mapToTarget(makeRead(6L, 8L), targets) < 0)
-    assert(RealignIndels.mapToTarget(makeRead(8L, 12L), targets) === 1)
-    assert(RealignIndels.mapToTarget(makeRead(10L, 12L), targets) === 1)
-    assert(RealignIndels.mapToTarget(makeRead(14L, 36L), targets) === 1)
-    assert(RealignIndels.mapToTarget(makeRead(35L, 50L), targets) === 1)
-    assert(RealignIndels.mapToTarget(makeRead(45L, 50L), targets) < 0)
-    assert(RealignIndels.mapToTarget(makeRead(90L, 100L), targets) < 0)
-    assert(RealignIndels.mapToTarget(makeRead(90L, 101L), targets) === 2)
-    assert(RealignIndels.mapToTarget(makeRead(200L, 300L), targets) === 2)
-    assert(RealignIndels.mapToTarget(makeRead(200L, 600L), targets) === 2)
-    assert(RealignIndels.mapToTarget(makeRead(700L, 1000L), targets) < 0)
+    assert(RealignIndels.mapToTarget(makeRead(0L, 1L), targets, 0, 3) < 0)
+    assert(RealignIndels.mapToTarget(makeRead(0L, 2L), targets, 0, 3) === 0)
+    assert(RealignIndels.mapToTarget(makeRead(1L, 2L), targets, 0, 3) === 0)
+    assert(RealignIndels.mapToTarget(makeRead(3L, 6L), targets, 0, 3) === 0)
+    assert(RealignIndels.mapToTarget(makeRead(6L, 8L), targets, 0, 3) < 0)
+    assert(RealignIndels.mapToTarget(makeRead(8L, 12L), targets, 0, 3) === 1)
+    assert(RealignIndels.mapToTarget(makeRead(10L, 12L), targets, 0, 3) === 1)
+    assert(RealignIndels.mapToTarget(makeRead(14L, 36L), targets, 0, 3) === 1)
+    assert(RealignIndels.mapToTarget(makeRead(35L, 50L), targets, 0, 3) === 1)
+    assert(RealignIndels.mapToTarget(makeRead(45L, 50L), targets, 0, 3) < 0)
+    assert(RealignIndels.mapToTarget(makeRead(90L, 100L), targets, 0, 3) < 0)
+    assert(RealignIndels.mapToTarget(makeRead(90L, 101L), targets, 0, 3) === 2)
+    assert(RealignIndels.mapToTarget(makeRead(200L, 300L), targets, 0, 3) === 2)
+    assert(RealignIndels.mapToTarget(makeRead(200L, 600L), targets, 0, 3) === 2)
+    assert(RealignIndels.mapToTarget(makeRead(700L, 1000L), targets, 0, 3) < 0)
   }
 
   sparkTest("checking mapping to targets for artificial reads") {
-    val targets = RealignmentTargetFinder(artificialReads.map(RichAlignmentRecord(_)))
+    val targets = RealignmentTargetFinder(artificialReads.map(RichAlignmentRecord(_))).toArray
     assert(targets.size === 1)
     val rr = artificialReads.map(RichAlignmentRecord(_))
     val readsMappedToTarget = RealignIndels.mapTargets(rr, targets).map(kv => {
@@ -98,22 +96,22 @@ class RealignIndelsSuite extends ADAMFunSuite {
       (t, r.map(r => r.record))
     }).collect()
 
-    assert(readsMappedToTarget.size === 2)
+    assert(readsMappedToTarget.count(_._1.isDefined) === 1)
 
-    readsMappedToTarget.forall {
-      case (target: Option[IndelRealignmentTarget], reads: Seq[AlignmentRecord]) => reads.forall {
+    assert(readsMappedToTarget.forall {
+      case (target: Option[(Int, IndelRealignmentTarget)], reads: Seq[AlignmentRecord]) => reads.forall {
         read =>
           {
             if (read.getStart <= 25) {
-              val result = target.get.readRange.start <= read.getStart.toLong
-              result && (target.get.readRange.end >= read.getEnd)
+              val result = target.get._2.readRange.start <= read.getStart.toLong
+              result && (target.get._2.readRange.end >= read.getEnd)
             } else {
               target.isEmpty
             }
           }
       }
       case _ => false
-    }
+    })
   }
 
   sparkTest("checking alternative consensus for artificial reads") {
@@ -150,9 +148,9 @@ class RealignIndelsSuite extends ADAMFunSuite {
       assert(readReference._1 === refStr.substring(startIndex, stopIndex))
     }
 
-    val targets = RealignmentTargetFinder(artificialReads.map(RichAlignmentRecord(_)))
+    val targets = RealignmentTargetFinder(artificialReads.map(RichAlignmentRecord(_))).toArray
     val rr = artificialReads.map(RichAlignmentRecord(_))
-    val readsMappedToTarget: Array[(IndelRealignmentTarget, Iterable[AlignmentRecord])] = RealignIndels.mapTargets(rr, targets)
+    val readsMappedToTarget: Array[((Int, IndelRealignmentTarget), Iterable[AlignmentRecord])] = RealignIndels.mapTargets(rr, targets)
       .filter(_._1.isDefined)
       .map(kv => {
         val (t, r) = kv
@@ -161,7 +159,7 @@ class RealignIndelsSuite extends ADAMFunSuite {
       }).collect()
 
     val readReference = readsMappedToTarget.map {
-      case (target, reads) =>
+      case ((_, target), reads) =>
         if (!target.isEmpty) {
           val referenceFromReads: (String, Long, Long) = RealignIndels.getReferenceFromReads(reads.map(r => new RichAlignmentRecord(r)).toSeq)
           assert(referenceFromReads._2 == -1 || referenceFromReads._1.length > 0)
@@ -328,7 +326,7 @@ class RealignIndelsSuite extends ADAMFunSuite {
     val ri = new RealignIndels()
 
     // this should be a NOP
-    assert(ri.realignTargetGroup((None.asInstanceOf[Option[IndelRealignmentTarget]],
+    assert(ri.realignTargetGroup((None.asInstanceOf[Option[(Int, IndelRealignmentTarget)]],
       reads)).size === 2)
   }
 

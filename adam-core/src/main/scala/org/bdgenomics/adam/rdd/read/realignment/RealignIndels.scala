@@ -65,90 +65,38 @@ private[read] object RealignIndels extends Serializable with Logging {
    *
    * @note Generally, this function shouldn't be called directly---for most cases, prefer mapTargets.
    * @param read Read to check.
-   * @param targets Sorted set of realignment targets.
+   * @param targets Sorted array of realignment targets.
    * @return If overlapping target is found, returns that target. Else, returns the "empty" target.
    *
    * @see mapTargets
    */
   @tailrec final def mapToTarget(
     read: RichAlignmentRecord,
-    targets: TreeSet[(IndelRealignmentTarget, Int)]): Int = {
+    targets: Array[IndelRealignmentTarget],
+    headIdx: Int,
+    tailIdx: Int): Int = {
     // Perform tail call recursive binary search
-    if (TargetOrdering.contains(targets.head._1, read)) {
+    if (TargetOrdering.contains(targets(headIdx), read)) {
       // if there is overlap, return the overlapping target
-      targets.head._2
-    } else if (targets.size <= 1) {
+      headIdx
+    } else if (tailIdx - headIdx <= 1) {
       // else, return an empty target (negative index)
-      // to prevent key skew, split up by max indel alignment length
-      (-1 - (read.record.getStart / 3000L)).toInt
+      -read.record.hashCode.abs
     } else {
       // split the set and recurse
-      val (head, tail) = targets.splitAt(targets.size / 2)
+      val splitIdx = headIdx + ((tailIdx - headIdx) / 2)
 
-      if (TargetOrdering.contains(tail.head._1, read)) {
-        tail.head._2
+      if (TargetOrdering.contains(targets(splitIdx), read)) {
+        splitIdx
       } else {
-        val reducedSet = if (TargetOrdering.lt(tail.head._1, read)) {
-          tail
+        val (newHeadIdx, newTailIdx) = if (TargetOrdering.lt(targets(splitIdx), read)) {
+          (splitIdx, tailIdx)
         } else {
-          head
+          (headIdx, splitIdx)
         }
-        mapToTarget(read, reducedSet)
+        mapToTarget(read, targets, newHeadIdx, newTailIdx)
       }
     }
-  }
-
-  /**
-   * This method wraps mapToTarget(RichADAMRecord, TreeSet[Tuple2[IndelRealignmentTarget, Int]]) for
-   * serialization purposes.
-   *
-   * @param read Read to check.
-   * @param targets Wrapped zipped indel realignment target.
-   * @return Target if an overlapping target is found, else the empty target.
-   *
-   * @see mapTargets
-   */
-  def mapToTarget(
-    read: RichAlignmentRecord,
-    targets: ZippedTargetSet): Int = {
-    mapToTarget(read, targets.set)
-  }
-
-  /**
-   * Method to map a target index to an indel realignment target.
-   *
-   * @note Generally, this function shouldn't be called directly---for most cases, prefer mapTargets.
-   * @note This function should not be called in a context where target set serialization is needed.
-   * Instead, call mapToTarget(Int, ZippedTargetSet), which wraps this function.
-   *
-   * @param targetIndex Index of target.
-   * @param targets Set of realignment targets.
-   * @return Indel realignment target.
-   *
-   * @see mapTargets
-   */
-  def mapToTargetUnpacked(
-    targetIndex: Int,
-    targets: TreeSet[(IndelRealignmentTarget, Int)]): Option[IndelRealignmentTarget] = {
-    if (targetIndex < 0) {
-      None
-    } else {
-      Some(targets.filter(p => p._2 == targetIndex).head._1)
-    }
-  }
-
-  /**
-   * Wrapper for mapToTarget(Int, TreeSet[Tuple2[IndelRealignmentTarget, Int]]) for contexts where
-   * serialization is needed.
-   *
-   * @param targetIndex Index of target.
-   * @param targets Set of realignment targets.
-   * @return Indel realignment target.
-   *
-   * @see mapTargets
-   */
-  def mapToTarget(targetIndex: Int, targets: ZippedTargetSet): Option[IndelRealignmentTarget] = {
-    mapToTargetUnpacked(targetIndex, targets.set)
   }
 
   /**
@@ -165,22 +113,23 @@ private[read] object RealignIndels extends Serializable with Logging {
    *
    * @see mapToTarget
    */
-  def mapTargets(rich_rdd: RDD[RichAlignmentRecord], targets: TreeSet[IndelRealignmentTarget]): RDD[(Option[IndelRealignmentTarget], Iterable[RichAlignmentRecord])] = MapTargets.time {
-    val tmpZippedTargets = targets.zip(0 until targets.count(t => true))
-    var tmpZippedTargets2 = new TreeSet[(IndelRealignmentTarget, Int)]()(ZippedTargetOrdering)
-    tmpZippedTargets.foreach(t => tmpZippedTargets2 = tmpZippedTargets2 + t)
-
-    val zippedTargets = new ZippedTargetSet(tmpZippedTargets2)
+  def mapTargets(rich_rdd: RDD[RichAlignmentRecord], targets: Array[IndelRealignmentTarget]): RDD[(Option[(Int, IndelRealignmentTarget)], Iterable[RichAlignmentRecord])] = MapTargets.time {
 
     // group reads by target
-    val broadcastTargets = rich_rdd.context.broadcast(zippedTargets)
-    val readsMappedToTarget = rich_rdd.groupBy(mapToTarget(_, broadcastTargets.value))
+    val broadcastTargets = rich_rdd.context.broadcast(targets)
+    val targetSize = targets.length
+    log.info("Mapping reads to %d targets.".format(targetSize))
+    val readsMappedToTarget = rich_rdd.groupBy((r: RichAlignmentRecord) => {
+      mapToTarget(r, broadcastTargets.value, 0, targetSize)
+    }, ModPartitioner(rich_rdd.partitions.length))
       .map(kv => {
         val (k, v) = kv
 
-        val target = mapToTarget(k, broadcastTargets.value)
-
-        (target, v)
+        if (k < 0) {
+          (None, v)
+        } else {
+          (Some((k, broadcastTargets.value(k))), v)
+        }
       })
 
     readsMappedToTarget
@@ -244,7 +193,7 @@ private[read] class RealignIndels(
    * @return A sequence of reads which have either been realigned if there is a sufficiently good alternative
    * consensus, or not realigned if there is not a sufficiently good consensus.
    */
-  def realignTargetGroup(targetGroup: (Option[IndelRealignmentTarget], Iterable[RichAlignmentRecord]),
+  def realignTargetGroup(targetGroup: (Option[(Int, IndelRealignmentTarget)], Iterable[RichAlignmentRecord]),
                          partitionIdx: Int = 0): Iterable[RichAlignmentRecord] = RealignTargetGroup.time {
     val (target, reads) = targetGroup
 
@@ -253,6 +202,7 @@ private[read] class RealignIndels(
       reads
     } else {
       try {
+        val (targetIdx, _) = target.get
         val startTime = System.nanoTime()
         // bootstrap realigned read set with the reads that need to be realigned
         val realignedReads = reads.filter(r => r.mdTag.exists(!_.hasMismatches))
@@ -288,10 +238,10 @@ private[read] class RealignIndels(
           val totalMismatchSumPreCleaning = mismatchQualities.sum
 
           /* list to log the outcome of all consensus trials. stores:
-         *  - mismatch quality of reads against new consensus sequence
-         *  - the consensus sequence itself
-         *  - a map containing each realigned read and it's offset into the new sequence
-         */
+           *  - mismatch quality of reads against new consensus sequence
+           *  - the consensus sequence itself
+           *  - a map containing each realigned read and it's offset into the new sequence
+           */
           val consensusOutcomes = new Array[(Int, Consensus, Map[RichAlignmentRecord, Int])](consensus.size)
 
           // loop over all consensuses and evaluate
@@ -416,7 +366,8 @@ private[read] class RealignIndels(
         }
         // return all reads that we cleaned and all reads that were initially realigned
         val endTime = System.nanoTime()
-        log.info("TARGET|\t%d\t%d\t%s\t%d\t%d\t%d\t%d\t%d".format(partitionIdx,
+        log.info("TARGET|\t%d\t%d\t%d\t%s\t%d\t%d\t%d\t%d\t%d".format(partitionIdx,
+          targetIdx,
           endTime - startTime,
           refRegion.referenceName,
           refRegion.start,
@@ -545,11 +496,11 @@ private[read] class RealignIndels(
 
     // find realignment targets
     log.info("Generating realignment targets...")
-    val targets: TreeSet[IndelRealignmentTarget] = RealignmentTargetFinder(
+    val targets: Array[IndelRealignmentTarget] = RealignmentTargetFinder(
       richRdd,
       maxIndelSize,
       maxTargetSize
-    )
+    ).toArray
 
     // we should only attempt realignment if the target set isn't empty
     if (targets.isEmpty) {
