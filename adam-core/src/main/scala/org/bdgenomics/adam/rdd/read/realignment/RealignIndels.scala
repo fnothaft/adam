@@ -93,7 +93,7 @@ private[read] object RealignIndels extends Serializable with Logging {
         } else {
           head
         }
-        mapToTarget(read, reducedSet, test)
+        mapToTarget(read, reducedSet)
       }
     }
   }
@@ -240,179 +240,197 @@ private[read] class RealignIndels(
    * generates read consensuses and realigns reads if a consensus leads to a sufficient improvement.
    *
    * @param targetGroup A tuple consisting of an indel realignment target and a seq of reads
+   * @param partitionIdx The ID of the partition this is on. Only used for logging.
    * @return A sequence of reads which have either been realigned if there is a sufficiently good alternative
    * consensus, or not realigned if there is not a sufficiently good consensus.
    */
-  def realignTargetGroup(targetGroup: (Option[IndelRealignmentTarget], Iterable[RichAlignmentRecord])): Iterable[RichAlignmentRecord] = RealignTargetGroup.time {
+  def realignTargetGroup(targetGroup: (Option[IndelRealignmentTarget], Iterable[RichAlignmentRecord]),
+                         partitionIdx: Int = 0): Iterable[RichAlignmentRecord] = RealignTargetGroup.time {
     val (target, reads) = targetGroup
 
     if (target.isEmpty) {
       // if the indel realignment target is empty, do not realign
       reads
     } else {
-      // bootstrap realigned read set with the reads that need to be realigned
-      var realignedReads = reads.filter(r => r.mdTag.exists(!_.hasMismatches))
+      try {
+        val startTime = System.nanoTime()
+        // bootstrap realigned read set with the reads that need to be realigned
+        val realignedReads = reads.filter(r => r.mdTag.exists(!_.hasMismatches))
 
-      // get reference from reads
-      val (reference, refStart, refEnd) = getReferenceFromReads(reads.map(r => new RichAlignmentRecord(r)))
-      val refRegion = ReferenceRegion(reads.head.record.getContigName, refStart, refEnd)
+        // get reference from reads
+        val (reference, refStart, refEnd) = getReferenceFromReads(reads.map(r => new RichAlignmentRecord(r)))
+        val refRegion = ReferenceRegion(reads.head.record.getContigName, refStart, refEnd)
 
-      // preprocess reads and get consensus
-      val readsToClean = consensusModel.preprocessReadsForRealignment(
-        reads.filter(r => r.mdTag.forall(_.hasMismatches)),
-        reference,
-        refRegion
-      )
-      var consensus = consensusModel.findConsensus(readsToClean)
-        .toSeq
-        .distinct
+        // preprocess reads and get consensus
+        val readsToClean = consensusModel.preprocessReadsForRealignment(
+          reads.filter(r => r.mdTag.forall(_.hasMismatches)),
+          reference,
+          refRegion
+        ).zipWithIndex
+        val observedConsensus = consensusModel.findConsensus(readsToClean.map(_._1))
+          .toSeq
+          .distinct
 
-      // reduce count of consensus sequences
-      if (consensus.size > maxConsensusNumber) {
-        val r = new Random()
-        consensus = r.shuffle(consensus).take(maxConsensusNumber)
-      }
+        // reduce count of consensus sequences
+        val consensus = if (observedConsensus.size > maxConsensusNumber) {
+          val r = new Random()
+          r.shuffle(observedConsensus).take(maxConsensusNumber)
+        } else {
+          observedConsensus
+        }
 
-      if (readsToClean.size > 0 && consensus.size > 0) {
+        val finalReads = if (readsToClean.size > 0 && consensus.size > 0) {
 
-        // do not check realigned reads - they must match
-        val totalMismatchSumPreCleaning = readsToClean.map(sumMismatchQuality(_)).sum
+          // do not check realigned reads - they must match
+          val mismatchQualities = ComputingOriginalScores.time {
+            readsToClean.map(r => sumMismatchQuality(r._1)).toArray
+          }
+          val totalMismatchSumPreCleaning = mismatchQualities.sum
 
-        /* list to log the outcome of all consensus trials. stores:
+          /* list to log the outcome of all consensus trials. stores:
          *  - mismatch quality of reads against new consensus sequence
          *  - the consensus sequence itself
          *  - a map containing each realigned read and it's offset into the new sequence
          */
-        var consensusOutcomes = List[(Int, Consensus, mutable.Map[RichAlignmentRecord, Int])]()
+          val consensusOutcomes = new Array[(Int, Consensus, Map[RichAlignmentRecord, Int])](consensus.size)
 
-        // loop over all consensuses and evaluate
-        consensus.foreach(c => {
+          // loop over all consensuses and evaluate
+          consensus.zipWithIndex.foreach(p => SweepReadsOverConsensus.time {
+            val (c, cIdx) = p
 
-          // generate a reference sequence from the consensus
-          val consensusSequence = c.insertIntoReference(reference, refRegion)
+            // generate a reference sequence from the consensus
+            val consensusSequence = c.insertIntoReference(reference, refRegion)
 
-          // evaluate all reads against the new consensus
-          val sweptValues = readsToClean.map(r => {
-            val (qual, pos) = sweepReadOverReferenceForQuality(r.getSequence, consensusSequence, r.qualityScores)
-            val originalQual = sumMismatchQuality(r)
+            // evaluate all reads against the new consensus
+            val sweptValues = readsToClean.map(p => {
+              val (r, rIdx) = p
+              val originalQual = mismatchQualities(rIdx)
+              val qualAndPos = sweepReadOverReferenceForQuality(r.getSequence, consensusSequence, r.qualityScores, originalQual)
 
-            // if the read's mismatch quality improves over the original alignment, save
-            // its alignment in the consensus sequence, else store -1
-            if (qual <= originalQual) {
-              (r, (qual, pos))
-            } else {
-              (r, (originalQual, -1))
+              (r, qualAndPos)
+            })
+
+            // sum all mismatch qualities to get the total mismatch quality for this alignment
+            val totalQuality = sweptValues.map(_._2._1).sum
+
+            // package data
+            val readMappings = sweptValues.map(kv => (kv._1, kv._2._2)).toMap
+
+            // add to outcome list
+            consensusOutcomes(cIdx) = (totalQuality, c, readMappings)
+          })
+
+          // perform reduction to pick the consensus with the lowest aggregated mismatch score
+          val bestConsensusTuple = consensusOutcomes.minBy(_._1)
+
+          val (bestConsensusMismatchSum, bestConsensus, bestMappings) = bestConsensusTuple
+
+          // check for a sufficient improvement in mismatch quality versus threshold
+          log.info("On " + refRegion + ", before realignment, sum was " + totalMismatchSumPreCleaning +
+            ", best realignment has " + bestConsensusMismatchSum)
+          val lodImprovement = (totalMismatchSumPreCleaning - bestConsensusMismatchSum).toDouble / 10.0
+          if (lodImprovement > lodThreshold) {
+            FinalizingRealignments.time {
+              var realignedReadCount = 0
+
+              // if we see a sufficient improvement, realign the reads
+              val cleanedReads: Iterable[RichAlignmentRecord] = readsToClean.map(p => {
+                val (r, _) = p
+
+                try {
+                  val builder: AlignmentRecord.Builder = AlignmentRecord.newBuilder(r)
+                  val remapping = bestMappings(r)
+
+                  // if read alignment is improved by aligning against new consensus, realign
+                  if (remapping != -1) {
+
+                    realignedReadCount += 1
+
+                    // bump up mapping quality by 10
+                    builder.setMapq(r.getMapq + 10)
+
+                    // set new start to consider offset
+                    builder.setStart(refStart + remapping)
+
+                    // recompute cigar
+                    val newCigar: Cigar = {
+                      // if element overlaps with consensus indel, modify cigar with indel
+                      val (idElement, endLength, endPenalty) = if (bestConsensus.index.start == bestConsensus.index.end - 1) {
+                        (new CigarElement(bestConsensus.consensus.length, CigarOperator.I),
+                          r.getSequence.length - bestConsensus.consensus.length - (bestConsensus.index.start - (refStart + remapping)),
+                          -bestConsensus.consensus.length)
+                      } else {
+                        (new CigarElement((bestConsensus.index.end - 1 - bestConsensus.index.start).toInt, CigarOperator.D),
+                          r.getSequence.length - (bestConsensus.index.start - (refStart + remapping)),
+                          bestConsensus.consensus.length)
+                      }
+
+                      // compensate the end
+                      builder.setEnd(refStart + remapping + r.getSequence.length + endPenalty)
+
+                      val startLength = bestConsensus.index.start - (refStart + remapping)
+                      val adjustedIdElement = if (endLength < 0) {
+                        new CigarElement(idElement.getLength + endLength.toInt, idElement.getOperator)
+                      } else if (startLength < 0) {
+                        new CigarElement(idElement.getLength + startLength.toInt, idElement.getOperator)
+                      } else {
+                        idElement
+                      }
+                      val cigarElements = List[CigarElement](
+                        new CigarElement((bestConsensus.index.start - (refStart + remapping)).toInt, CigarOperator.M),
+                        adjustedIdElement,
+                        new CigarElement(endLength.toInt, CigarOperator.M)
+                      )
+
+                      new Cigar(cigarElements)
+                    }
+
+                    // update mdtag and cigar
+                    builder.setMismatchingPositions(MdTag.moveAlignment(r, newCigar, reference.drop(remapping), refStart + remapping).toString())
+                    builder.setOldPosition(r.getStart())
+                    builder.setOldCigar(r.getCigar())
+                    builder.setCigar(newCigar.toString)
+                    new RichAlignmentRecord(builder.build())
+                  } else
+                    new RichAlignmentRecord(builder.build())
+                } catch {
+                  case t: Throwable => {
+                    log.warn("Realigning read %s failed with %s.".format(r, t))
+                    r
+                  }
+                }
+              })
+
+              log.info("On " + refRegion + ", realigned " + realignedReadCount + " reads to " +
+                bestConsensus + " due to LOD improvement of " + lodImprovement)
+
+              cleanedReads ++ realignedReads
             }
-          })
-
-          // sum all mismatch qualities to get the total mismatch quality for this alignment
-          val totalQuality = sweptValues.map(_._2._1).sum
-
-          // package data
-          var readMappings = mutable.Map[RichAlignmentRecord, Int]()
-          sweptValues.map(kv => (kv._1, kv._2._2)).foreach(m => {
-            readMappings += (m._1 -> m._2)
-          })
-
-          // add to outcome list
-          consensusOutcomes = (totalQuality, c, readMappings) :: consensusOutcomes
-        })
-
-        // perform reduction to pick the consensus with the lowest aggregated mismatch score
-        val bestConsensusTuple = consensusOutcomes.minBy(_._1)
-
-        val (bestConsensusMismatchSum, bestConsensus, bestMappings) = bestConsensusTuple
-
-        // check for a sufficient improvement in mismatch quality versus threshold
-        log.info("On " + refRegion + ", before realignment, sum was " + totalMismatchSumPreCleaning +
-          ", best realignment has " + bestConsensusMismatchSum)
-        val lodImprovement = (totalMismatchSumPreCleaning - bestConsensusMismatchSum).toDouble / 10.0
-        if (lodImprovement > lodThreshold) {
-          var realignedReadCount = 0
-
-          // if we see a sufficient improvement, realign the reads
-          val cleanedReads: Iterable[RichAlignmentRecord] = readsToClean.map(r => {
-
-            val builder: AlignmentRecord.Builder = AlignmentRecord.newBuilder(r)
-            val remapping = bestMappings(r)
-
-            // if read alignment is improved by aligning against new consensus, realign
-            if (remapping != -1) {
-
-              realignedReadCount += 1
-
-              // bump up mapping quality by 10
-              builder.setMapq(r.getMapq + 10)
-
-              // set new start to consider offset
-              builder.setStart(refStart + remapping)
-
-              // recompute cigar
-              val newCigar: Cigar = {
-                // if element overlaps with consensus indel, modify cigar with indel
-                val (idElement, endLength, endPenalty) = if (bestConsensus.index.start == bestConsensus.index.end - 1) {
-                  (new CigarElement(bestConsensus.consensus.length, CigarOperator.I),
-                    r.getSequence.length - bestConsensus.consensus.length - (bestConsensus.index.start - (refStart + remapping)),
-                    -bestConsensus.consensus.length)
-                } else {
-                  (new CigarElement((bestConsensus.index.end - 1 - bestConsensus.index.start).toInt, CigarOperator.D),
-                    r.getSequence.length - (bestConsensus.index.start - (refStart + remapping)),
-                    bestConsensus.consensus.length)
-                }
-
-                // compensate the end
-                builder.setEnd(refStart + remapping + r.getSequence.length + endPenalty)
-
-                val startLength = bestConsensus.index.start - (refStart + remapping)
-                val adjustedIdElement = if (endLength < 0) {
-                  new CigarElement(idElement.getLength + endLength.toInt, idElement.getOperator)
-                } else if (startLength < 0) {
-                  new CigarElement(idElement.getLength + startLength.toInt, idElement.getOperator)
-                } else {
-                  idElement
-                }
-
-                val cigarElements = List[CigarElement](
-                  new CigarElement(startLength.toInt, CigarOperator.M),
-                  adjustedIdElement,
-                  new CigarElement(endLength.toInt, CigarOperator.M)
-                ).filter(_.getLength > 0)
-
-                new Cigar(cigarElements)
-              }
-
-              // update mdtag and cigar
-              try {
-                builder.setMismatchingPositions(MdTag.moveAlignment(r, newCigar, reference.drop(remapping), refStart + remapping).toString())
-                builder.setOldPosition(r.getStart())
-                builder.setOldCigar(r.getCigar())
-                builder.setCigar(newCigar.toString)
-                new RichAlignmentRecord(builder.build())
-              } catch {
-                case t: Throwable => {
-                  log.warn("Caught %s when trying to move alignment to %s for %s.".format(
-                    t, newCigar, r))
-                  new RichAlignmentRecord(r)
-                }
-              }
-            } else {
-              new RichAlignmentRecord(builder.build())
-            }
-          })
-
-          log.info("On " + refRegion + ", realigned " + realignedReadCount + " reads to " +
-            bestConsensus + " due to LOD improvement of " + lodImprovement)
-
-          realignedReads = cleanedReads ++ realignedReads
+          } else {
+            log.info("On " + refRegion + ", skipping realignment due to insufficient LOD improvement (" +
+              lodImprovement + "for consensus " + bestConsensus)
+            readsToClean.map(_._1) ++ realignedReads
+          }
         } else {
-          log.info("On " + refRegion + ", skipping realignment due to insufficient LOD improvement (" +
-            lodImprovement + "for consensus " + bestConsensus)
-          realignedReads = readsToClean ++ realignedReads
+          realignedReads
+        }
+        // return all reads that we cleaned and all reads that were initially realigned
+        val endTime = System.nanoTime()
+        log.info("TARGET|\t%d\t%d\t%s\t%d\t%d\t%d\t%d\t%d".format(partitionIdx,
+          endTime - startTime,
+          refRegion.referenceName,
+          refRegion.start,
+          refRegion.end,
+          reads.size,
+          observedConsensus.size,
+          consensus.size))
+        finalReads
+      } catch {
+        case t: Throwable => {
+          log.warn("Realigning target %s failed with %s.".format(target, t))
+          reads
         }
       }
-
-      // return all reads that we cleaned and all reads that were initially realigned
-      realignedReads
     }
   }
 
@@ -424,20 +442,30 @@ private[read] class RealignIndels(
    * @param read Read to test.
    * @param reference Reference sequence to sweep across.
    * @param qualities Integer sequence of phred scaled base quality scores.
+   * @param originalQuality
    * @return Tuple of (mismatch quality score, alignment offset).
    */
-  def sweepReadOverReferenceForQuality(read: String, reference: String, qualities: Seq[Int]): (Int, Int) = SweepReadOverReferenceForQuality.time {
+  def sweepReadOverReferenceForQuality(read: String, reference: String, qualities: Seq[Int], originalQuality: Int): (Int, Int) = SweepReadOverReferenceForQuality.time {
 
-    var qualityScores = List[(Int, Int)]()
-
-    // calculate mismatch quality score for all admissable alignment offsets
-    for (i <- 0 to (reference.length - read.length)) {
-      val qualityScore = sumMismatchQualityIgnoreCigar(read, reference.substring(i, i + read.length), qualities)
-      qualityScores = (qualityScore, i) :: qualityScores
+    @tailrec def sweep(i: Int,
+                       upTo: Int,
+                       minScore: Int,
+                       minPos: Int): (Int, Int) = {
+      if (i >= upTo) {
+        (minScore, minPos)
+      } else {
+        val qualityScore = sumMismatchQualityIgnoreCigar(read, reference, qualities, minScore, i)
+        val (newMinScore, newMinPos) = if (qualityScore <= minScore) {
+          (qualityScore, i)
+        } else {
+          (minScore, minPos)
+        }
+        sweep(i + 1, upTo, newMinScore, newMinPos)
+      }
     }
 
-    // perform reduction to get best quality offset
-    qualityScores.minBy(_._1)
+    // calculate mismatch quality score for all admissable alignment offsets
+    sweep(0, reference.length - read.length, originalQuality, -1)
   }
 
   /**
@@ -448,19 +476,33 @@ private[read] class RealignIndels(
    * @param read Read to evaluate.
    * @param reference Reference sequence to look for mismatches against.
    * @param qualities Sequence of base quality scores.
+   * @param scoreThreshold Stops summing if score is greater than this value.
+   * @param refOffset Offset into the reference sequence.
    * @return Mismatch quality sum.
    */
-  def sumMismatchQualityIgnoreCigar(read: String, reference: String, qualities: Seq[Int]): Int = {
-    val mismatchQualities = read.zip(reference)
-      .zip(qualities)
-      .filter(r => r._1._1 != r._1._2)
-      .map(_._2)
+  def sumMismatchQualityIgnoreCigar(read: String,
+                                    reference: String,
+                                    qualities: Seq[Int],
+                                    scoreThreshold: Int,
+                                    refOffset: Int): Int = {
 
-    if (mismatchQualities.length > 0) {
-      mismatchQualities.sum
-    } else {
-      0
+    @tailrec def loopAndSum(idx: Int = 0,
+                            runningSum: Int = 0): Int = {
+      if (idx >= read.length || (idx + refOffset) >= reference.length) {
+        runningSum
+      } else if (runningSum > scoreThreshold) {
+        Int.MaxValue
+      } else {
+        val newRunningSum = if (read(idx) == reference(idx + refOffset)) {
+          runningSum
+        } else {
+          runningSum + qualities(idx)
+        }
+        loopAndSum(idx + 1, newRunningSum)
+      }
     }
+
+    loopAndSum()
   }
 
   /**
@@ -474,7 +516,9 @@ private[read] class RealignIndels(
     sumMismatchQualityIgnoreCigar(
       read.getSequence,
       read.mdTag.get.getReference(read),
-      read.qualityScores
+      read.qualityScores,
+      Int.MaxValue,
+      0
     )
   }
 
@@ -520,7 +564,9 @@ private[read] class RealignIndels(
 
       // realign target groups
       log.info("Sorting reads by reference in ADAM RDD")
-      readsMappedToTarget.flatMap(realignTargetGroup).map(r => r.record)
+      readsMappedToTarget.mapPartitionsWithIndex((idx, iter) => {
+        iter.flatMap(realignTargetGroup(_, idx))
+      }).map(r => r.record)
     }
   }
 }

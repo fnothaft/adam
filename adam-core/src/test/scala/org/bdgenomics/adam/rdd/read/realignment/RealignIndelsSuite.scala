@@ -259,21 +259,39 @@ class RealignIndelsSuite extends ADAMFunSuite {
       pair => pair._1.getMapq == pair._2.getMapq))
   }
 
-  sparkTest("test mismatch quality scoring") {
+  test("test mismatch quality scoring") {
     val ri = new RealignIndels()
     val read = "AAAAAAAA"
     val ref = "AAGGGGAA"
     val qScores = Seq(40, 40, 40, 40, 40, 40, 40, 40)
 
-    assert(ri.sumMismatchQualityIgnoreCigar(read, ref, qScores) === 160)
+    assert(ri.sumMismatchQualityIgnoreCigar(read, ref, qScores, Int.MaxValue, 0) === 160)
   }
 
-  sparkTest("test mismatch quality scoring for no mismatches") {
+  test("test mismatch quality scoring for no mismatches") {
     val ri = new RealignIndels()
     val read = "AAAAAAAA"
     val qScores = Seq(40, 40, 40, 40, 40, 40, 40, 40)
 
-    assert(ri.sumMismatchQualityIgnoreCigar(read, read, qScores) === 0)
+    assert(ri.sumMismatchQualityIgnoreCigar(read, read, qScores, Int.MaxValue, 0) === 0)
+  }
+
+  test("test mismatch quality scoring for offset") {
+    val ri = new RealignIndels()
+    val read = "AAAAAAAA"
+    val ref = "G%s".format(read)
+    val qScores = Seq(40, 40, 40, 40, 40, 40, 40, 40)
+
+    assert(ri.sumMismatchQualityIgnoreCigar(read, ref, qScores, Int.MaxValue, 1) === 0)
+  }
+
+  test("test mismatch quality scoring with early exit") {
+    val ri = new RealignIndels()
+    val read = "AAAAAAAA"
+    val ref = "AAGGGGAA"
+    val qScores = Seq(40, 40, 40, 40, 40, 40, 40, 40)
+
+    assert(ri.sumMismatchQualityIgnoreCigar(read, ref, qScores, 120, 0) === Int.MaxValue)
   }
 
   sparkTest("test mismatch quality scoring after unpacking read") {
@@ -310,8 +328,8 @@ class RealignIndelsSuite extends ADAMFunSuite {
     val ri = new RealignIndels()
 
     // this should be a NOP
-    assert(ri.realignTargetGroup(None.asInstanceOf[Option[IndelRealignmentTarget]],
-      reads).size === 2)
+    assert(ri.realignTargetGroup((None.asInstanceOf[Option[IndelRealignmentTarget]],
+      reads)).size === 2)
   }
 
   sparkTest("we shouldn't try to realign reads with no indel evidence") {
