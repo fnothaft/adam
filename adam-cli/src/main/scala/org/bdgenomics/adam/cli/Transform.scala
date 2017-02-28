@@ -77,6 +77,8 @@ class TransformArgs extends Args4jBase with ADAMSaveAnyArgs with ParquetArgs {
   var lodThreshold = 5.0
   @Args4jOption(required = false, name = "-max_target_size", usage = "The maximum length of a target region to attempt realigning. Default length is 3000.")
   var maxTargetSize = 3000
+  @Args4jOption(required = false, name = "-max_reads_per_target", usage = "The maximum number of reads attached to a target that we will attempt realigning. Default length is 20000.")
+  var maxReadsPerTarget = 20000
   @Args4jOption(required = false, name = "-repartition", usage = "Set the number of partitions to map data to")
   var repartition: Int = -1
   @Args4jOption(required = false, name = "-coalesce", usage = "Set the number of partitions written to the ADAM output directory")
@@ -185,7 +187,8 @@ class Transform(protected val args: TransformArgs) extends BDGSparkCommand[Trans
         args.maxIndelSize,
         args.maxConsensusNumber,
         args.lodThreshold,
-        args.maxTargetSize
+        args.maxTargetSize,
+        args.maxReadsPerTarget
       )
 
       // unpersist our input, if persisting was requested

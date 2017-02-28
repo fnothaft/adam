@@ -42,9 +42,9 @@ class RealignIndelsSuite extends ADAMFunSuite {
     artificialReadsRdd.rdd
   }
 
-  def artificialRealignedReads(cg: ConsensusGenerator = ConsensusGenerator.fromReads): RDD[AlignmentRecord] = {
+  def artificialRealignedReads(cg: ConsensusGenerator = ConsensusGenerator.fromReads, maxCoverage: Int = 3000): RDD[AlignmentRecord] = {
     artificialReadsRdd
-      .realignIndels(consensusModel = cg)
+      .realignIndels(consensusModel = cg, maxReadsPerTarget = maxCoverage)
       .sortReadsByReferencePosition()
       .rdd
   }
@@ -246,6 +246,22 @@ class RealignIndelsSuite extends ADAMFunSuite {
     val artificialRead4 = artificialRealignedReadsCollected.filter(_.getReadName == "read4")
     val gatkRead4 = gatkArtificialRealignedReadsCollected.filter(_.getReadName == "read4")
     val result = artificialRead4.zip(gatkRead4)
+
+    assert(result.forall(
+      pair => pair._1.getReadName == pair._2.getReadName))
+    assert(result.forall(
+      pair => pair._1.getStart == pair._2.getStart))
+    assert(result.forall(
+      pair => pair._1.getCigar == pair._2.getCigar))
+    assert(result.forall(
+      pair => pair._1.getMapq == pair._2.getMapq))
+  }
+
+  sparkTest("skip realigning reads if target is highly covered") {
+    val artificialRealignedReadsCollected = artificialRealignedReads(maxCoverage = 0)
+      .collect()
+    val reads = artificialReads
+    val result = artificialRealignedReadsCollected.zip(reads.collect())
 
     assert(result.forall(
       pair => pair._1.getReadName == pair._2.getReadName))

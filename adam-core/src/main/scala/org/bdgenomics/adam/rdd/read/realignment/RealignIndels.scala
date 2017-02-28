@@ -48,14 +48,16 @@ private[read] object RealignIndels extends Serializable with Logging {
     maxIndelSize: Int = 500,
     maxConsensusNumber: Int = 30,
     lodThreshold: Double = 5.0,
-    maxTargetSize: Int = 3000): RDD[AlignmentRecord] = {
+    maxTargetSize: Int = 3000,
+    maxReadsPerTarget: Int = 20000): RDD[AlignmentRecord] = {
     new RealignIndels(
       consensusModel,
       dataIsSorted,
       maxIndelSize,
       maxConsensusNumber,
       lodThreshold,
-      maxTargetSize
+      maxTargetSize,
+      maxReadsPerTarget
     ).realignIndels(rdd)
   }
 
@@ -182,7 +184,8 @@ private[read] class RealignIndels(
     val maxIndelSize: Int = 500,
     val maxConsensusNumber: Int = 30,
     val lodThreshold: Double = 5.0,
-    val maxTargetSize: Int = 3000) extends Serializable with Logging {
+    val maxTargetSize: Int = 3000,
+    val maxReadsPerTarget: Int = 20000) extends Serializable with Logging {
 
   /**
    * Given a target group with an indel realignment target and a group of reads to realign, this method
@@ -199,6 +202,11 @@ private[read] class RealignIndels(
 
     if (target.isEmpty) {
       // if the indel realignment target is empty, do not realign
+      reads
+    } else if (reads.size > maxReadsPerTarget) {
+      val (targetIdx, _) = target.get
+      log.info("Skipping target %d with %d reads (max: %d)...".format(
+        targetIdx, reads.size, maxReadsPerTarget))
       reads
     } else {
       try {
