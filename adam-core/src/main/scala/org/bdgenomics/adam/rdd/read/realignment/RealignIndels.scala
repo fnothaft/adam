@@ -26,6 +26,7 @@ import org.bdgenomics.adam.models.{ MdTag, ReferencePosition, ReferenceRegion }
 import org.bdgenomics.adam.rich.RichAlignmentRecord
 import org.bdgenomics.adam.rich.RichAlignmentRecord._
 import org.bdgenomics.adam.instrumentation.Timers._
+import org.bdgenomics.adam.util.ReferenceFile
 import org.bdgenomics.formats.avro.AlignmentRecord
 import scala.annotation.tailrec
 import scala.collection.JavaConversions._
@@ -49,7 +50,8 @@ private[read] object RealignIndels extends Serializable with Logging {
     maxConsensusNumber: Int = 30,
     lodThreshold: Double = 5.0,
     maxTargetSize: Int = 3000,
-    maxReadsPerTarget: Int = 20000): RDD[AlignmentRecord] = {
+    maxReadsPerTarget: Int = 20000,
+    optReferenceFile: Option[ReferenceFile] = None): RDD[AlignmentRecord] = {
     new RealignIndels(
       consensusModel,
       dataIsSorted,
@@ -57,7 +59,8 @@ private[read] object RealignIndels extends Serializable with Logging {
       maxConsensusNumber,
       lodThreshold,
       maxTargetSize,
-      maxReadsPerTarget
+      maxReadsPerTarget,
+      optReferenceFile
     ).realignIndels(rdd)
   }
 
@@ -185,7 +188,8 @@ private[read] class RealignIndels(
     val maxConsensusNumber: Int = 30,
     val lodThreshold: Double = 5.0,
     val maxTargetSize: Int = 3000,
-    val maxReadsPerTarget: Int = 20000) extends Serializable with Logging {
+    val maxReadsPerTarget: Int = 20000,
+    val optReferenceFile: Option[ReferenceFile] = None) extends Serializable with Logging {
 
   /**
    * Given a target group with an indel realignment target and a group of reads to realign, this method
@@ -216,8 +220,10 @@ private[read] class RealignIndels(
         val realignedReads = reads.filter(r => r.mdTag.exists(!_.hasMismatches))
 
         // get reference from reads
-        val (reference, refStart, refEnd) = getReferenceFromReads(reads.map(r => new RichAlignmentRecord(r)))
+        val refStart = reads.map(_.getStart).min
+        val refEnd = reads.map(_.getEnd).max
         val refRegion = ReferenceRegion(reads.head.record.getContigName, refStart, refEnd)
+        val reference = optReferenceFile.fold(getReferenceFromReads(reads.map(r => new RichAlignmentRecord(r)))._1)(rf => GetReferenceFromFile.time { rf.extract(refRegion) })
 
         // preprocess reads and get consensus
         val readsToClean = consensusModel.preprocessReadsForRealignment(
@@ -338,7 +344,7 @@ private[read] class RealignIndels(
                         new CigarElement((bestConsensus.index.start - (refStart + remapping)).toInt, CigarOperator.M),
                         adjustedIdElement,
                         new CigarElement(endLength.toInt, CigarOperator.M)
-                      )
+                      ).filter(_.getLength > 0)
 
                       new Cigar(cigarElements)
                     }

@@ -27,7 +27,7 @@ import org.bdgenomics.adam.rdd.ADAMContext._
 import org.bdgenomics.adam.rdd.read.AlignmentRecordRDD
 import org.bdgenomics.adam.rdd.variant.VariantRDD
 import org.bdgenomics.adam.rich.RichAlignmentRecord
-import org.bdgenomics.adam.util.ADAMFunSuite
+import org.bdgenomics.adam.util.{ ADAMFunSuite, ReferenceFile }
 import org.bdgenomics.formats.avro.{ AlignmentRecord, Contig, Variant }
 import scala.collection.immutable.TreeSet
 
@@ -42,9 +42,13 @@ class RealignIndelsSuite extends ADAMFunSuite {
     artificialReadsRdd.rdd
   }
 
-  def artificialRealignedReads(cg: ConsensusGenerator = ConsensusGenerator.fromReads, maxCoverage: Int = 3000): RDD[AlignmentRecord] = {
+  def artificialRealignedReads(cg: ConsensusGenerator = ConsensusGenerator.fromReads,
+                               maxCoverage: Int = 3000,
+                               optRefFile: Option[ReferenceFile] = None): RDD[AlignmentRecord] = {
     artificialReadsRdd
-      .realignIndels(consensusModel = cg, maxReadsPerTarget = maxCoverage)
+      .realignIndels(consensusModel = cg,
+        maxReadsPerTarget = maxCoverage,
+        optReferenceFile = optRefFile)
       .sortReadsByReferencePosition()
       .rdd
   }
@@ -172,6 +176,28 @@ class RealignIndelsSuite extends ADAMFunSuite {
 
   sparkTest("checking realigned reads for artificial input") {
     val artificialRealignedReadsCollected = artificialRealignedReads()
+      .collect()
+    val gatkArtificialRealignedReadsCollected = gatkArtificialRealignedReads
+      .collect()
+
+    assert(artificialRealignedReadsCollected.size === gatkArtificialRealignedReadsCollected.size)
+
+    val artificialRead4 = artificialRealignedReadsCollected.filter(_.getReadName == "read4")
+    val gatkRead4 = gatkArtificialRealignedReadsCollected.filter(_.getReadName == "read4")
+    val result = artificialRead4.zip(gatkRead4)
+
+    assert(result.forall(
+      pair => pair._1.getReadName == pair._2.getReadName))
+    assert(result.forall(
+      pair => pair._1.getStart == pair._2.getStart))
+    assert(result.forall(
+      pair => pair._1.getCigar == pair._2.getCigar))
+    assert(result.forall(
+      pair => pair._1.getMapq == pair._2.getMapq))
+  }
+
+  sparkTest("checking realigned reads for artificial input with reference file") {
+    val artificialRealignedReadsCollected = artificialRealignedReads(optRefFile = Some(sc.loadReferenceFile(testFile("artificial.fa"), 1000)))
       .collect()
     val gatkArtificialRealignedReadsCollected = gatkArtificialRealignedReads
       .collect()

@@ -79,6 +79,8 @@ class TransformArgs extends Args4jBase with ADAMSaveAnyArgs with ParquetArgs {
   var maxTargetSize = 3000
   @Args4jOption(required = false, name = "-max_reads_per_target", usage = "The maximum number of reads attached to a target that we will attempt realigning. Default length is 20000.")
   var maxReadsPerTarget = 20000
+  @Args4jOption(required = false, name = "-reference", usage = "Path to a reference file to use for indel realignment.")
+  var reference: String = null
   @Args4jOption(required = false, name = "-repartition", usage = "Set the number of partitions to map data to")
   var repartition: Int = -1
   @Args4jOption(required = false, name = "-coalesce", usage = "Set the number of partitions written to the ADAM output directory")
@@ -163,7 +165,8 @@ class Transform(protected val args: TransformArgs) extends BDGSparkCommand[Trans
    *   Else, we generate candidate INDELs from the reads and then realign. If
    *   -realign_indels is not set, we return the input RDD.
    */
-  private def maybeRealign(rdd: AlignmentRecordRDD,
+  private def maybeRealign(sc: SparkContext,
+                           rdd: AlignmentRecordRDD,
                            sl: StorageLevel): AlignmentRecordRDD = {
     if (args.locallyRealign) {
 
@@ -180,6 +183,12 @@ class Transform(protected val args: TransformArgs) extends BDGSparkCommand[Trans
           ConsensusGenerator.fromKnownIndels(rdd.rdd.context.loadVariants(file))
         })
 
+      // optionally load a reference
+      val optReferenceFile = Option(args.reference).map(f => {
+        sc.loadReferenceFile(f,
+          fragmentLength = args.mdTagsFragmentSize)
+      })
+
       // run realignment
       val realignmentRdd = rdd.realignIndels(
         consensusGenerator,
@@ -188,7 +197,8 @@ class Transform(protected val args: TransformArgs) extends BDGSparkCommand[Trans
         args.maxConsensusNumber,
         args.lodThreshold,
         args.maxTargetSize,
-        args.maxReadsPerTarget
+        args.maxReadsPerTarget,
+        optReferenceFile = optReferenceFile
       )
 
       // unpersist our input, if persisting was requested
@@ -343,7 +353,7 @@ class Transform(protected val args: TransformArgs) extends BDGSparkCommand[Trans
     val maybeDedupedRdd = maybeDedupe(initialRdd)
 
     // once we've deduped our reads, maybe realign them
-    val maybeRealignedRdd = maybeRealign(maybeDedupedRdd, sl)
+    val maybeRealignedRdd = maybeRealign(sc, maybeDedupedRdd, sl)
 
     // run BQSR
     val maybeRecalibratedRdd = maybeRecalibrate(maybeRealignedRdd, sl)
