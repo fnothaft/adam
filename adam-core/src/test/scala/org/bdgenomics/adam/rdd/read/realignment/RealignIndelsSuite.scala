@@ -17,6 +17,7 @@
  */
 package org.bdgenomics.adam.rdd.read.realignment
 
+import org.apache.spark.SparkContext._
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.algorithms.consensus.{
   Consensus,
@@ -186,14 +187,10 @@ class RealignIndelsSuite extends ADAMFunSuite {
     val gatkRead4 = gatkArtificialRealignedReadsCollected.filter(_.getReadName == "read4")
     val result = artificialRead4.zip(gatkRead4)
 
-    assert(result.forall(
-      pair => pair._1.getReadName == pair._2.getReadName))
-    assert(result.forall(
-      pair => pair._1.getStart == pair._2.getStart))
-    assert(result.forall(
-      pair => pair._1.getCigar == pair._2.getCigar))
-    assert(result.forall(
-      pair => pair._1.getMapq == pair._2.getMapq))
+    result.foreach(pair => assert(pair._1.getReadName === pair._2.getReadName))
+    result.foreach(pair => assert(pair._1.getStart === pair._2.getStart))
+    result.foreach(pair => assert(pair._1.getCigar === pair._2.getCigar))
+    result.foreach(pair => assert(pair._1.getMapq === pair._2.getMapq))
   }
 
   sparkTest("checking realigned reads for artificial input with reference file") {
@@ -208,14 +205,10 @@ class RealignIndelsSuite extends ADAMFunSuite {
     val gatkRead4 = gatkArtificialRealignedReadsCollected.filter(_.getReadName == "read4")
     val result = artificialRead4.zip(gatkRead4)
 
-    assert(result.forall(
-      pair => pair._1.getReadName == pair._2.getReadName))
-    assert(result.forall(
-      pair => pair._1.getStart == pair._2.getStart))
-    assert(result.forall(
-      pair => pair._1.getCigar == pair._2.getCigar))
-    assert(result.forall(
-      pair => pair._1.getMapq == pair._2.getMapq))
+    result.foreach(pair => assert(pair._1.getReadName === pair._2.getReadName))
+    result.foreach(pair => assert(pair._1.getStart === pair._2.getStart))
+    result.foreach(pair => assert(pair._1.getCigar === pair._2.getCigar))
+    result.foreach(pair => assert(pair._1.getMapq === pair._2.getMapq))
   }
 
   sparkTest("checking realigned reads for artificial input using knowns") {
@@ -240,14 +233,10 @@ class RealignIndelsSuite extends ADAMFunSuite {
     val gatkRead4 = gatkArtificialRealignedReadsCollected.filter(_.getReadName == "read4")
     val result = artificialRead4.zip(gatkRead4)
 
-    assert(result.forall(
-      pair => pair._1.getReadName == pair._2.getReadName))
-    assert(result.forall(
-      pair => pair._1.getStart == pair._2.getStart))
-    assert(result.forall(
-      pair => pair._1.getCigar == pair._2.getCigar))
-    assert(result.forall(
-      pair => pair._1.getMapq == pair._2.getMapq))
+    result.foreach(pair => assert(pair._1.getReadName === pair._2.getReadName))
+    result.foreach(pair => assert(pair._1.getStart === pair._2.getStart))
+    result.foreach(pair => assert(pair._1.getCigar === pair._2.getCigar))
+    result.foreach(pair => assert(pair._1.getMapq === pair._2.getMapq))
   }
 
   sparkTest("checking realigned reads for artificial input using knowns and reads") {
@@ -273,14 +262,10 @@ class RealignIndelsSuite extends ADAMFunSuite {
     val gatkRead4 = gatkArtificialRealignedReadsCollected.filter(_.getReadName == "read4")
     val result = artificialRead4.zip(gatkRead4)
 
-    assert(result.forall(
-      pair => pair._1.getReadName == pair._2.getReadName))
-    assert(result.forall(
-      pair => pair._1.getStart == pair._2.getStart))
-    assert(result.forall(
-      pair => pair._1.getCigar == pair._2.getCigar))
-    assert(result.forall(
-      pair => pair._1.getMapq == pair._2.getMapq))
+    result.foreach(pair => assert(pair._1.getReadName === pair._2.getReadName))
+    result.foreach(pair => assert(pair._1.getStart === pair._2.getStart))
+    result.foreach(pair => assert(pair._1.getCigar === pair._2.getCigar))
+    result.foreach(pair => assert(pair._1.getMapq === pair._2.getMapq))
   }
 
   sparkTest("skip realigning reads if target is highly covered") {
@@ -289,14 +274,41 @@ class RealignIndelsSuite extends ADAMFunSuite {
     val reads = artificialReads
     val result = artificialRealignedReadsCollected.zip(reads.collect())
 
-    assert(result.forall(
-      pair => pair._1.getReadName == pair._2.getReadName))
-    assert(result.forall(
-      pair => pair._1.getStart == pair._2.getStart))
-    assert(result.forall(
-      pair => pair._1.getCigar == pair._2.getCigar))
-    assert(result.forall(
-      pair => pair._1.getMapq == pair._2.getMapq))
+    result.foreach(pair => assert(pair._1.getReadName === pair._2.getReadName))
+    result.foreach(pair => assert(pair._1.getStart === pair._2.getStart))
+    result.foreach(pair => assert(pair._1.getCigar === pair._2.getCigar))
+    result.foreach(pair => assert(pair._1.getMapq === pair._2.getMapq))
+  }
+
+  sparkTest("skip realignment if target is an insufficient LOD improvement") {
+    val path = testFile("NA12878.1_922305.G_GC_hom.sam")
+    val reads = sc.loadAlignments(path)
+    val realignedReads = reads.realignIndels()
+    val result = reads.rdd.filter(!_.getSupplementaryAlignment).keyBy(r => (r.getReadName, r.getReadInFragment))
+      .join(realignedReads.rdd.filter(!_.getSupplementaryAlignment).keyBy(r => (r.getReadName, r.getReadInFragment)))
+      .map(_._2)
+      .collect()
+
+    result.foreach(pair => assert(pair._1 === pair._2))
+  }
+
+  sparkTest("realign reads to an insertion") {
+    val path = testFile("NA12878.1_922305.G_GC_hom.sam")
+    val reads = sc.loadAlignments(path)
+    val realignedReads = reads.realignIndels(lodThreshold = 0.0)
+    val result = reads.rdd.filter(!_.getSupplementaryAlignment).keyBy(r => (r.getReadName, r.getReadInFragment))
+      .join(realignedReads.rdd.filter(!_.getSupplementaryAlignment).keyBy(r => (r.getReadName, r.getReadInFragment)))
+      .map(_._2)
+      .collect()
+
+    val movedReads = result.filter(pair => pair._1 != pair._2)
+    assert(movedReads.size === 1)
+    val read = movedReads.map(_._2)
+      .filter(_.getReadName === "H06HDADXX130110:1:1114:19044:27806")
+      .head
+    assert(read.getStart === 922057)
+    assert(read.getCigar === "248M1I1M")
+    assert(read.getMismatchingPositions === "249")
   }
 
   test("test mismatch quality scoring") {
@@ -338,7 +350,7 @@ class RealignIndelsSuite extends ADAMFunSuite {
     val ri = new RealignIndels()
     val read = artificialReads.first()
 
-    assert(ri.sumMismatchQuality(read) === 800)
+    assert(ri.sumMismatchQuality(read) === 400)
   }
 
   test("we shouldn't try to realign a region with no target") {
@@ -428,8 +440,8 @@ class RealignIndelsSuite extends ADAMFunSuite {
 
         Option(op).filter(_ >= 0).foreach(oPos => {
           val s = artificialReads.collect().filter(x => (x.getReadName() == readName))
-          assert(s.filter(x => (x.getStart() == oPos)).length > 0)
-          assert(s.filter(x => (x.getCigar() == oc)).length > 0)
+          assert(s.filter(x => (x.getStart() === oPos)).length > 0)
+          assert(s.filter(x => (x.getCigar() === oc)).length > 0)
         })
       })
   }
