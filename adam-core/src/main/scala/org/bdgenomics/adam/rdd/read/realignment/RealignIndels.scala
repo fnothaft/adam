@@ -217,7 +217,7 @@ private[read] class RealignIndels(
         val (targetIdx, _) = target.get
         val startTime = System.nanoTime()
         // bootstrap realigned read set with the reads that need to be realigned
-        val realignedReads = reads.filter(r => r.mdTag.exists(!_.hasMismatches))
+        val (realignedReads, readsToRealign) = reads.partition(r => r.mdTag.exists(!_.hasMismatches))
 
         // get reference from reads
         val refStart = reads.map(_.getStart).min
@@ -227,11 +227,11 @@ private[read] class RealignIndels(
 
         // preprocess reads and get consensus
         val readsToClean = consensusModel.preprocessReadsForRealignment(
-          reads.filter(r => r.mdTag.forall(_.hasMismatches)),
+          readsToRealign,
           reference,
           refRegion
         ).zipWithIndex
-        val observedConsensus = consensusModel.findConsensus(readsToClean.map(_._1))
+        val observedConsensus = consensusModel.findConsensus(reads)
           .toSeq
           .distinct
 
@@ -309,14 +309,26 @@ private[read] class RealignIndels(
 
                     // if element overlaps with consensus indel, modify cigar with indel
                     val (idElement, endLength, endPenalty) = if (bestConsensus.index.start == bestConsensus.index.end - 1) {
+                      // number of bases after the end:
+                      // sequenceLength - bases before consensus - consensus length
+                      // L_s            - (S_c - (S_r + remap)   - L_c
+                      // L_s = length of sequence
+                      // S_c = start of consensus insertion
+                      // S_r = start of reference interval
+                      // remap = read remapping index
+                      // L_c = length of the insertion
+                      val endBases = r.getSequence.length - ((bestConsensus.index.start - (refStart + remapping) + 1) + bestConsensus.consensus.length)
+
                       (new CigarElement(bestConsensus.consensus.length, CigarOperator.I),
-                        r.getSequence.length - bestConsensus.consensus.length - (bestConsensus.index.start - (refStart + remapping)),
+                        endBases,
                         -bestConsensus.consensus.length)
                     } else {
                       (new CigarElement((bestConsensus.index.end - 1 - bestConsensus.index.start).toInt, CigarOperator.D),
                         r.getSequence.length - (bestConsensus.index.start - (refStart + remapping)),
                         bestConsensus.consensus.length)
                     }
+                    assert(endLength > -bestConsensus.consensus.length,
+                      "Read is remapped but does not overlap the consensus (el = %d).".format(endLength))
                     val alignmentLength = r.getSequence.length + endPenalty
 
                     if (alignmentLength <= 0) {
@@ -332,6 +344,11 @@ private[read] class RealignIndels(
 
                       // set new start to consider offset
                       builder.setStart(refStart + remapping)
+                      if (endLength > 0) {
+                        builder.setEnd(bestConsensus.index.end + endLength)
+                      } else {
+                        builder.setEnd(bestConsensus.index.start + 1)
+                      }
 
                       val startLength = bestConsensus.index.start - (refStart + remapping)
                       val adjustedIdElement = if (endLength < 0) {
@@ -341,11 +358,11 @@ private[read] class RealignIndels(
                       } else {
                         idElement
                       }
-                      val cigarElements = if (bestConsensus.index.start == bestConsensus.index.end - 1) {
+                      val cigarElements = if (bestConsensus.consensus.length > 0) { //bestConsensus.index.start == bestConsensus.index.end - 1) {
                         List[CigarElement](
                           new CigarElement((bestConsensus.index.start - (refStart + remapping) + 1).toInt, CigarOperator.M),
                           adjustedIdElement,
-                          new CigarElement(endLength.toInt - 1, CigarOperator.M)
+                          new CigarElement(endLength.toInt, CigarOperator.M)
                         ).filter(_.getLength > 0)
                       } else {
                         List[CigarElement](

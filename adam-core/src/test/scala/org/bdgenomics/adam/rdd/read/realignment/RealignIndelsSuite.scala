@@ -23,14 +23,19 @@ import org.bdgenomics.adam.algorithms.consensus.{
   Consensus,
   ConsensusGenerator
 }
-import org.bdgenomics.adam.models.{ ReferencePosition, ReferenceRegion }
+import org.bdgenomics.adam.models.{
+  RecordGroupDictionary,
+  ReferencePosition,
+  ReferenceRegion,
+  SequenceDictionary,
+  SequenceRecord
+}
 import org.bdgenomics.adam.rdd.ADAMContext._
 import org.bdgenomics.adam.rdd.read.AlignmentRecordRDD
 import org.bdgenomics.adam.rdd.variant.VariantRDD
 import org.bdgenomics.adam.rich.RichAlignmentRecord
 import org.bdgenomics.adam.util.{ ADAMFunSuite, ReferenceFile }
 import org.bdgenomics.formats.avro.{ AlignmentRecord, Contig, Variant }
-import scala.collection.immutable.TreeSet
 
 class RealignIndelsSuite extends ADAMFunSuite {
 
@@ -444,5 +449,62 @@ class RealignIndelsSuite extends ADAMFunSuite {
           assert(s.filter(x => (x.getCigar() === oc)).length > 0)
         })
       })
+  }
+
+  sparkTest("realign a read with an insertion that goes off the end of the read") {
+    // ref: TTACCA___CCAC
+    // ins:   ACCAGTTC
+    // ext: TTACCA   GT
+    // ovl:  TACCA   GTTC
+    val insRead = AlignmentRecord.newBuilder
+      .setContigName("1")
+      .setStart(10L)
+      .setEnd(15L)
+      .setSequence("ACCAGTTC")
+      .setQual("........")
+      .setCigar("4M3I1M")
+      .setMismatchingPositions("5")
+      .setReadMapped(true)
+      .setMapq(40)
+      .build
+    val extRead = AlignmentRecord.newBuilder
+      .setContigName("1")
+      .setStart(8L)
+      .setEnd(16L)
+      .setSequence("TTACCAGT")
+      .setQual("........")
+      .setCigar("8M")
+      .setMismatchingPositions("6C0C0")
+      .setReadMapped(true)
+      .setMapq(40)
+      .build
+    val ovlRead = AlignmentRecord.newBuilder
+      .setContigName("1")
+      .setStart(9L)
+      .setEnd(18L)
+      .setSequence("TACCAGTTC")
+      .setQual("........")
+      .setCigar("9M")
+      .setMismatchingPositions("5C0C0A1")
+      .setReadMapped(true)
+      .setMapq(41)
+      .build
+    val rdd = AlignmentRecordRDD(sc.parallelize(Seq(insRead, extRead, ovlRead)),
+      new SequenceDictionary(Vector(SequenceRecord("1", 20L))),
+      RecordGroupDictionary.empty)
+    val realignedReads = rdd.realignIndels(lodThreshold = 0.0)
+      .rdd
+      .collect
+    assert(realignedReads.count(_.getMapq <= 50) === 2)
+    val realignedExtRead = realignedReads.filter(_.getMapq == 50).head
+    assert(realignedExtRead.getStart === 8L)
+    assert(realignedExtRead.getEnd === 14L)
+    assert(realignedExtRead.getCigar === "6M2I")
+    assert(realignedExtRead.getMismatchingPositions === "6")
+    val realignedOvlRead = realignedReads.filter(_.getMapq == 51).head
+    assert(realignedOvlRead.getStart === 9L)
+    assert(realignedOvlRead.getEnd === 15L)
+    assert(realignedOvlRead.getCigar === "5M3I1M")
+    assert(realignedOvlRead.getMismatchingPositions === "6")
   }
 }
