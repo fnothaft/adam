@@ -452,10 +452,12 @@ class RealignIndelsSuite extends ADAMFunSuite {
   }
 
   sparkTest("realign a read with an insertion that goes off the end of the read") {
-    // ref: TTACCA___CCAC
+    // ref: TTACCA___CCACA
     // ins:   ACCAGTTC
     // ext: TTACCA   GT
     // ovl:  TACCA   GTTC
+    // ovs:   AGTT   CCAC
+    // st:      TT   CCACA
     val insRead = AlignmentRecord.newBuilder
       .setContigName("1")
       .setStart(10L)
@@ -489,22 +491,56 @@ class RealignIndelsSuite extends ADAMFunSuite {
       .setReadMapped(true)
       .setMapq(41)
       .build
-    val rdd = AlignmentRecordRDD(sc.parallelize(Seq(insRead, extRead, ovlRead)),
+    val ovsRead = AlignmentRecord.newBuilder
+      .setContigName("1")
+      .setStart(10L)
+      .setEnd(18L)
+      .setSequence("AGTTCCAC")
+      .setQual("........")
+      .setCigar("8M")
+      .setMismatchingPositions("1C0C0A4")
+      .setReadMapped(true)
+      .setMapq(42)
+      .build
+    val stRead = AlignmentRecord.newBuilder
+      .setContigName("1")
+      .setStart(12L)
+      .setEnd(19L)
+      .setSequence("TTCCACA")
+      .setQual(".......")
+      .setCigar("7M")
+      .setMismatchingPositions("0C0A5")
+      .setReadMapped(true)
+      .setMapq(43)
+      .build
+    val rdd = AlignmentRecordRDD(sc.parallelize(Seq(insRead, extRead, ovlRead, ovsRead, stRead)),
       new SequenceDictionary(Vector(SequenceRecord("1", 20L))),
       RecordGroupDictionary.empty)
     val realignedReads = rdd.realignIndels(lodThreshold = 0.0)
       .rdd
       .collect
-    assert(realignedReads.count(_.getMapq <= 50) === 2)
+    println("realigned:")
+    println(realignedReads.mkString("\n"))
+    assert(realignedReads.count(_.getMapq >= 50) === 4)
     val realignedExtRead = realignedReads.filter(_.getMapq == 50).head
     assert(realignedExtRead.getStart === 8L)
     assert(realignedExtRead.getEnd === 14L)
-    assert(realignedExtRead.getCigar === "6M2I")
+    assert(realignedExtRead.getCigar === "6M2S")
     assert(realignedExtRead.getMismatchingPositions === "6")
     val realignedOvlRead = realignedReads.filter(_.getMapq == 51).head
     assert(realignedOvlRead.getStart === 9L)
     assert(realignedOvlRead.getEnd === 15L)
     assert(realignedOvlRead.getCigar === "5M3I1M")
     assert(realignedOvlRead.getMismatchingPositions === "6")
+    val realignedOvsRead = realignedReads.filter(_.getMapq == 52).head
+    assert(realignedOvsRead.getStart === 13L)
+    assert(realignedOvsRead.getEnd === 18L)
+    assert(realignedOvsRead.getCigar === "1M3I4M")
+    assert(realignedOvsRead.getMismatchingPositions === "5")
+    val realignedStRead = realignedReads.filter(_.getMapq == 53).head
+    assert(realignedStRead.getStart === 14L)
+    assert(realignedStRead.getEnd === 19L)
+    assert(realignedStRead.getCigar === "2S5M")
+    assert(realignedStRead.getMismatchingPositions === "5")
   }
 }

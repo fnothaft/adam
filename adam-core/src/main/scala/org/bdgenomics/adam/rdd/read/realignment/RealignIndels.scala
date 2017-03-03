@@ -343,22 +343,30 @@ private[read] class RealignIndels(
                       builder.setMapq(r.getMapq + 10)
 
                       // set new start to consider offset
-                      builder.setStart(refStart + remapping)
+                      val startLength = bestConsensus.index.start - (refStart + remapping)
+                      val newStart = if (remapping <= (bestConsensus.index.start - refStart)) {
+                        refStart + remapping
+                      } else {
+                        assert(startLength < 0)
+                        // if read remaps into consensus variant, then it should be
+                        // soft clipped, and should map after the variant
+                        bestConsensus.index.end
+                      }
+                      builder.setStart(newStart)
                       if (endLength > 0) {
                         builder.setEnd(bestConsensus.index.end + endLength)
                       } else {
                         builder.setEnd(bestConsensus.index.start + 1)
                       }
 
-                      val startLength = bestConsensus.index.start - (refStart + remapping)
                       val adjustedIdElement = if (endLength < 0) {
-                        new CigarElement(idElement.getLength + endLength.toInt, idElement.getOperator)
+                        new CigarElement(idElement.getLength + endLength.toInt, CigarOperator.S)
                       } else if (startLength < 0) {
-                        new CigarElement(idElement.getLength + startLength.toInt, idElement.getOperator)
+                        new CigarElement(idElement.getLength + startLength.toInt + 1, CigarOperator.S)
                       } else {
                         idElement
                       }
-                      val cigarElements = if (bestConsensus.consensus.length > 0) { //bestConsensus.index.start == bestConsensus.index.end - 1) {
+                      val cigarElements = if (bestConsensus.consensus.length > 0) {
                         List[CigarElement](
                           new CigarElement((bestConsensus.index.start - (refStart + remapping) + 1).toInt, CigarOperator.M),
                           adjustedIdElement,
@@ -375,7 +383,10 @@ private[read] class RealignIndels(
                       val newCigar = new Cigar(cigarElements)
 
                       // update mdtag and cigar
-                      builder.setMismatchingPositions(MdTag.moveAlignment(r, newCigar, reference.drop(remapping), refStart + remapping).toString())
+                      builder.setMismatchingPositions(MdTag.moveAlignment(r,
+                        newCigar,
+                        reference.drop((newStart - refStart).toInt),
+                        newStart).toString())
                       builder.setOldPosition(r.getStart())
                       builder.setOldCigar(r.getCigar())
                       builder.setCigar(newCigar.toString)
@@ -387,7 +398,7 @@ private[read] class RealignIndels(
                   }
                 } catch {
                   case t: Throwable => {
-                    log.warn("Realigning read %s failed with %s.".format(r, t))
+                    log.warn("Realigning read %s failed with %s:\n%s".format(r, t))
                     r
                   }
                 }
@@ -458,7 +469,7 @@ private[read] class RealignIndels(
     }
 
     // calculate mismatch quality score for all admissable alignment offsets
-    sweep(0, reference.length - read.length, originalQuality, -1)
+    sweep(0, reference.length - read.length + 1, originalQuality, -1)
   }
 
   /**

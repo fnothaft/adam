@@ -208,7 +208,9 @@ object MdTag {
 
           // dirty dancing to recalculate match sets
           for (i <- 0 until cigarElement.getLength) {
-            if (reference(referencePos) == sequence(readPos)) {
+            println(reference + " @ " + referencePos + ", " + sequence + " @ " + readPos)
+            if (reference(referencePos) ==
+              sequence(readPos)) {
               if (!inMatch) {
                 rangeStart = referencePos.toLong
                 inMatch = true
