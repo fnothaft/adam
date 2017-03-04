@@ -541,4 +541,10 @@ class RealignIndelsSuite extends ADAMFunSuite {
     assert(realignedStRead.getCigar === "2S5M")
     assert(realignedStRead.getMismatchingPositions === "5")
   }
+
+  sparkTest("if realigning a target doesn't improve the LOD, don't drop reads") {
+    val reads = sc.loadAlignments(testFile("NA12878.1_854950_855150.sam"))
+    val realignedReads = reads.realignIndels()
+    assert(reads.rdd.count === realignedReads.rdd.count)
+  }
 }

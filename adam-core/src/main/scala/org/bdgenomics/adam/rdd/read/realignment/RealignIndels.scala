@@ -412,10 +412,10 @@ private[read] class RealignIndels(
           } else {
             log.info("On " + refRegion + ", skipping realignment due to insufficient LOD improvement (" +
               lodImprovement + "for consensus " + bestConsensus)
-            readsToClean.map(_._1) ++ realignedReads
+            reads
           }
         } else {
-          realignedReads
+          reads
         }
         // return all reads that we cleaned and all reads that were initially realigned
         val endTime = System.nanoTime()
