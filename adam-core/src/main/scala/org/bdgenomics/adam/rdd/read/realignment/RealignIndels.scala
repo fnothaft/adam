@@ -446,7 +446,7 @@ private[read] class RealignIndels(
    * @param read Read to test.
    * @param reference Reference sequence to sweep across.
    * @param qualities Integer sequence of phred scaled base quality scores.
-   * @param originalQuality
+   * @param originalQuality The original score of the read vs. the reference genome.
    * @return Tuple of (mismatch quality score, alignment offset).
    */
   def sweepReadOverReferenceForQuality(read: String, reference: String, qualities: Seq[Int], originalQuality: Int): (Int, Int) = SweepReadOverReferenceForQuality.time {

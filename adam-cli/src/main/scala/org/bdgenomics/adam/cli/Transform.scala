@@ -77,7 +77,7 @@ class TransformArgs extends Args4jBase with ADAMSaveAnyArgs with ParquetArgs {
   var lodThreshold = 5.0
   @Args4jOption(required = false, name = "-max_target_size", usage = "The maximum length of a target region to attempt realigning. Default length is 3000.")
   var maxTargetSize = 3000
-  @Args4jOption(required = false, name = "-max_reads_per_target", usage = "The maximum number of reads attached to a target that we will attempt realigning. Default length is 20000.")
+  @Args4jOption(required = false, name = "-max_reads_per_target", usage = "The maximum number of reads attached to a target considered for realignment. Default is 20000.")
   var maxReadsPerTarget = 20000
   @Args4jOption(required = false, name = "-reference", usage = "Path to a reference file to use for indel realignment.")
   var reference: String = null

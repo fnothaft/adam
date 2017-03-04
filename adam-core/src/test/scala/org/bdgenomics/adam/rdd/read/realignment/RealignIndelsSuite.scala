@@ -519,8 +519,6 @@ class RealignIndelsSuite extends ADAMFunSuite {
     val realignedReads = rdd.realignIndels(lodThreshold = 0.0)
       .rdd
       .collect
-    println("realigned:")
-    println(realignedReads.mkString("\n"))
     assert(realignedReads.count(_.getMapq >= 50) === 4)
     val realignedExtRead = realignedReads.filter(_.getMapq == 50).head
     assert(realignedExtRead.getStart === 8L)
