@@ -969,12 +969,15 @@ class ADAMContext(@transient val sc: SparkContext) extends Serializable with Log
 
     // load vcf metadata
     val (sd, samples, headers) = loadVcfMetadata(filePath)
+    log.warn("Had %d VCF lines.".format(records.count))
 
     val vcc = new VariantContextConverter(headers, stringency)
-    VariantContextRDD(records.flatMap(p => vcc.convert(p._2.get)),
+    val rdd = VariantContextRDD(records.flatMap(p => vcc.convert(p._2.get)),
       sd,
       samples,
       cleanAndMixInSupportedLines(headers, stringency))
+    log.warn("Generated %s variant contexts.".format(rdd.rdd.count))
+    rdd
   }
 
   /**
