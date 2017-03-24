@@ -18,7 +18,10 @@
 package org.bdgenomics.adam.rdd.read.realignment
 
 import htsjdk.samtools.{ Cigar, CigarElement, CigarOperator }
+import java.net.URI
 import org.bdgenomics.utils.misc.Logging
+import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.fs.{ FileSystem, Path }
 import org.apache.spark.rdd.MetricsContext._
 import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.algorithms.consensus.{ Consensus, ConsensusGenerator }
@@ -51,7 +54,8 @@ private[read] object RealignIndels extends Serializable with Logging {
     maxTargetSize: Int = 3000,
     maxReadsPerTarget: Int = 20000,
     optReferenceFile: Option[ReferenceFile] = None,
-    falloff: Int = 1): RDD[AlignmentRecord] = {
+    falloff: Int = 1,
+    optDumpPath: Option[String] = None): RDD[AlignmentRecord] = {
     new RealignIndels(
       consensusModel,
       dataIsSorted,
@@ -61,7 +65,8 @@ private[read] object RealignIndels extends Serializable with Logging {
       maxTargetSize,
       maxReadsPerTarget,
       optReferenceFile,
-      falloff
+      falloff,
+      optDumpPath
     ).realignIndels(rdd)
   }
 
@@ -130,7 +135,25 @@ private[read] object RealignIndels extends Serializable with Logging {
   def mapTargets(
     rich_rdd: RDD[RichAlignmentRecord],
     targets: Array[IndelRealignmentTarget],
-    maxReadsPerTarget: Int = Int.MaxValue): RDD[(Option[(Int, IndelRealignmentTarget)], Iterable[RichAlignmentRecord])] = MapTargets.time {
+    maxReadsPerTarget: Int = Int.MaxValue,
+    optDumpFile: Option[String] = None): RDD[(Option[(Int, IndelRealignmentTarget)], Iterable[RichAlignmentRecord])] = MapTargets.time {
+
+    optDumpFile.foreach(filePath => {
+      val fs = FileSystem.get(new URI("hdfs://amp-bdg-master.amplab.net:8020"), new Configuration())
+
+      // get a stream to write to a file
+      val os = fs.create(new Path("%s/ir.targets.tsv".format(filePath)))
+
+      os.write("ID\tcontigName\tstart\tend\n".getBytes())
+      (0 until targets.length).foreach(idx => {
+        val tgt = targets(idx)
+        os.write("%d\t%s\t%d\t%d\n".format(idx,
+          tgt.readRange.referenceName,
+          tgt.readRange.start,
+          tgt.readRange.end).getBytes())
+      })
+      os.close()
+    })
 
     // group reads by target
     val broadcastTargets = rich_rdd.context.broadcast(targets)
@@ -216,9 +239,15 @@ private[read] class RealignIndels(
     val maxTargetSize: Int = 3000,
     val maxReadsPerTarget: Int = 20000,
     val optReferenceFile: Option[ReferenceFile] = None,
-    val falloff: Int = 1) extends Serializable with Logging {
+    val falloff: Int = 1,
+    val optDumpPath: Option[String] = None) extends Serializable with Logging {
   require(falloff >= 1, "Falloff (%d) must be >= 1".format(falloff))
 
+  val fs = FileSystem.get(new URI("hdfs://amp-bdg-master.amplab.net:8020"),
+    new Configuration())
+  optDumpPath.foreach(filePath => {
+    fs.mkdirs(new Path(filePath))
+  })
   /**
    * Given a target group with an indel realignment target and a group of reads to realign, this method
    * generates read consensuses and realigns reads if a consensus leads to a sufficient improvement.
@@ -242,11 +271,40 @@ private[read] class RealignIndels(
         // bootstrap realigned read set with the reads that need to be realigned
         val (realignedReads, readsToRealign) = reads.partition(r => r.mdTag.exists(!_.hasMismatches))
 
+        val fs = FileSystem.get(new URI("hdfs://amp-bdg-master.amplab.net:8020"),
+          new Configuration())
+        optDumpPath.foreach(filePath => {
+          val path = new Path("%s/%d.reads.tsv".format(filePath, targetIdx))
+          val os = fs.create(path)
+          var rIdx = -1
+          os.write(reads.map(r => {
+            rIdx += 1
+            "%d\t%s".format(rIdx, (0 until 33).map(idx => {
+              r.get(idx).toString.replace("\t", "\\t")
+            }).mkString("\t"))
+          }).mkString("\n").getBytes)
+          os.flush()
+          os.close()
+        })
+        val optSeqOs = optDumpPath.map(filePath => {
+          fs.create(new Path("%s/%d.seq.tsv".format(filePath, targetIdx)))
+        })
+        val optScoreOs = optDumpPath.map(filePath => {
+          val os = fs.create(new Path("%s/%d.scores.tsv".format(filePath, targetIdx)))
+          os.write("read\tconsensus\tbestScore\tbestPos\n".getBytes())
+          os
+        })
         // get reference from reads
         val refStart = reads.map(_.getStart).min
         val refEnd = reads.map(_.getEnd).max
         val refRegion = ReferenceRegion(reads.head.record.getContigName, refStart, refEnd)
         val reference = optReferenceFile.fold(getReferenceFromReads(reads.map(r => new RichAlignmentRecord(r)))._1)(rf => GetReferenceFromFile.time { rf.extract(refRegion) })
+
+        optSeqOs.foreach(os => {
+          os.write("full region: %s".format(refRegion.toString).getBytes())
+          os.write("id\tsequence\tvidx\tvlen\n".getBytes())
+          os.write("REF\t%s\t-\t-\n".format(reference).getBytes())
+        })
 
         // preprocess reads and get consensus
         val readsToClean = consensusModel.preprocessReadsForRealignment(
@@ -290,12 +348,31 @@ private[read] class RealignIndels(
 
             // generate a reference sequence from the consensus
             val consensusSequence = c.insertIntoReference(reference, refRegion)
+            optSeqOs.foreach(os => {
+              val cLen = if (c.consensus == "") {
+                c.index.start - c.index.end
+              } else {
+                c.consensus.length
+              }
+              os.write("%d\t%s\t%d\t%d\n".format(cIdx,
+                consensusSequence,
+                c.index.start - refRegion.start,
+                cLen).getBytes())
+            })
 
             // evaluate all reads against the new consensus
             val sweptValues = readsToClean.map(p => {
               val (r, rIdx) = p
               val originalQual = mismatchQualities(rIdx)
               val qualAndPos = sweepReadOverReferenceForQuality(r.getSequence, consensusSequence, r.qualityScores, originalQual)
+
+              optScoreOs.foreach(os => {
+                if (cIdx == 0) {
+                  os.write("%d\tREF\t%d\t--\n".format(rIdx, originalQual).getBytes())
+                }
+                val (qual, pos) = qualAndPos
+                os.write("%d\t%d\t%d\t%d\n".format(rIdx, cIdx, qual, pos).getBytes())
+              })
 
               (r, qualAndPos)
             })
@@ -309,6 +386,11 @@ private[read] class RealignIndels(
             // add to outcome list
             consensusOutcomes(cIdx) = (totalQuality, c, readMappings)
           })
+
+          optSeqOs.foreach(_.flush)
+          optSeqOs.foreach(_.close)
+          optScoreOs.foreach(_.flush)
+          optScoreOs.foreach(_.close)
 
           // perform reduction to pick the consensus with the lowest aggregated mismatch score
           val bestConsensusTuple = consensusOutcomes.minBy(_._1)
@@ -610,7 +692,8 @@ private[read] class RealignIndels(
       log.info("Grouping reads by target...")
       val readsMappedToTarget = RealignIndels.mapTargets(richRdd,
         targets,
-        maxReadsPerTarget = maxReadsPerTarget)
+        maxReadsPerTarget = maxReadsPerTarget,
+        optDumpFile = optDumpPath)
       richRdd.unpersist()
 
       // realign target groups
