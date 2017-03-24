@@ -670,14 +670,9 @@ private[read] class RealignIndels(
     } else {
       // map reads to targets
       log.info("Grouping reads by target...")
-<<<<<<< HEAD
       val readsMappedToTarget = RealignIndels.mapTargets(richRdd,
         targets,
-        maxReadsPerTarget = maxReadsPerTarget,
         optDumpFile = optDumpPath)
-=======
-      val readsMappedToTarget = RealignIndels.mapTargets(richRdd, targets)
->>>>>>> parent of 0370389... Delete high coverage targets with reduceByKey.
       richRdd.unpersist()
 
       // realign target groups
