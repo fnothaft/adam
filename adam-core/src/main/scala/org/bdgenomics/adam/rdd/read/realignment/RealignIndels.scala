@@ -815,7 +815,6 @@ private[read] class RealignIndels(
       log.info("Grouping reads by target...")
       val readsMappedToTarget = RealignIndels.mapTargets(richRdd,
         targets,
-        maxReadsPerTarget = maxReadsPerTarget,
         optDumpFile = optDumpPath)
       richRdd.unpersist()
 
