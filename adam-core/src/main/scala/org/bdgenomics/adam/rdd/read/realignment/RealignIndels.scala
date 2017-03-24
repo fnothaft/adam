@@ -51,7 +51,8 @@ private[read] object RealignIndels extends Serializable with Logging {
     lodThreshold: Double = 5.0,
     maxTargetSize: Int = 3000,
     maxReadsPerTarget: Int = 20000,
-    optReferenceFile: Option[ReferenceFile] = None): RDD[AlignmentRecord] = {
+    optReferenceFile: Option[ReferenceFile] = None,
+    falloff: Int = 1): RDD[AlignmentRecord] = {
     new RealignIndels(
       consensusModel,
       dataIsSorted,
@@ -60,7 +61,8 @@ private[read] object RealignIndels extends Serializable with Logging {
       lodThreshold,
       maxTargetSize,
       maxReadsPerTarget,
-      optReferenceFile
+      optReferenceFile,
+      falloff
     ).realignIndels(rdd)
   }
 
@@ -189,7 +191,9 @@ private[read] class RealignIndels(
     val lodThreshold: Double = 5.0,
     val maxTargetSize: Int = 3000,
     val maxReadsPerTarget: Int = 20000,
-    val optReferenceFile: Option[ReferenceFile] = None) extends Serializable with Logging {
+    val optReferenceFile: Option[ReferenceFile] = None,
+    val falloff: Int = 1) extends Serializable with Logging {
+  require(falloff >= 1, "Falloff (%d) must be >= 1".format(falloff))
 
   /**
    * Given a target group with an indel realignment target and a group of reads to realign, this method
@@ -271,8 +275,6 @@ private[read] class RealignIndels(
               val originalQual = mismatchQualities(rIdx)
               val qualAndPos = sweepReadOverReferenceForQuality(r.getSequence, consensusSequence, r.qualityScores, originalQual)
 
-              //println("read %d vs consensus %d had score %s vs ref %d".format(rIdx, cIdx, qualAndPos, originalQual))
-
               (r, qualAndPos)
             })
 
@@ -287,7 +289,6 @@ private[read] class RealignIndels(
           })
 
           // perform reduction to pick the consensus with the lowest aggregated mismatch score
-          //println("scored consensuses:\n%s".format(consensusOutcomes.map(t => (t._1, t._2)).mkString("\n")))
           val bestConsensusTuple = consensusOutcomes.minBy(_._1)
 
           val (bestConsensusMismatchSum, bestConsensus, bestMappings) = bestConsensusTuple
@@ -314,12 +315,10 @@ private[read] class RealignIndels(
                     remapping
                   } else {
                     val originalQual = mismatchQualities(rIdx)
-                    val falloff = 10
                     val (newScore, newRemapping) = sweepReadOverReferenceForQuality(r.getSequence,
                       consensusSequence,
                       r.qualityScores,
                       originalQual * falloff)
-                    //println("after remapping %d's score is %s".format(rIdx, (newScore, newRemapping)))
                     if (newRemapping != -1) {
                       newRemapping
                     } else {

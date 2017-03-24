@@ -75,6 +75,8 @@ class TransformArgs extends Args4jBase with ADAMSaveAnyArgs with ParquetArgs {
   var maxConsensusNumber = 30
   @Args4jOption(required = false, name = "-log_odds_threshold", usage = "The log-odds threshold for accepting a realignment. Default value is 5.0.")
   var lodThreshold = 5.0
+  @Args4jOption(required = false, name = "-falloff", usage = "The decrease in weighted Hamming distance to allow when realigning other reads to a target. Default value is 1. Must be >= 1.")
+  var falloff = 1
   @Args4jOption(required = false, name = "-max_target_size", usage = "The maximum length of a target region to attempt realigning. Default length is 3000.")
   var maxTargetSize = 3000
   @Args4jOption(required = false, name = "-max_reads_per_target", usage = "The maximum number of reads attached to a target considered for realignment. Default is 20000.")
@@ -198,7 +200,8 @@ class Transform(protected val args: TransformArgs) extends BDGSparkCommand[Trans
         args.lodThreshold,
         args.maxTargetSize,
         args.maxReadsPerTarget,
-        optReferenceFile = optReferenceFile
+        optReferenceFile = optReferenceFile,
+        falloff = args.falloff
       )
 
       // unpersist our input, if persisting was requested

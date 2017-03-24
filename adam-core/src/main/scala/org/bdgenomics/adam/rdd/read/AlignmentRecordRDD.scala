@@ -671,8 +671,16 @@ case class AlignmentRecordRDD(
     lodThreshold: Double = 5.0,
     maxTargetSize: Int = 3000,
     maxReadsPerTarget: Int = 20000,
-    optReferenceFile: Option[ReferenceFile] = None): AlignmentRecordRDD = RealignIndelsInDriver.time {
-    replaceRdd(RealignIndels(rdd, consensusModel, isSorted, maxIndelSize, maxConsensusNumber, lodThreshold, maxTargetSize, maxReadsPerTarget))
+    optReferenceFile: Option[ReferenceFile] = None,
+    falloff: Int = 0): AlignmentRecordRDD = RealignIndelsInDriver.time {
+    replaceRdd(RealignIndels(rdd,
+      consensusModel,
+      isSorted,
+      maxIndelSize,
+      maxConsensusNumber,
+      lodThreshold,
+      maxTargetSize,
+      maxReadsPerTarget))
   }
 
   /**
