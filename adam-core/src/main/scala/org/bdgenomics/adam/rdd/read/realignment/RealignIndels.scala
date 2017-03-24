@@ -32,7 +32,6 @@ import scala.annotation.tailrec
 import scala.collection.JavaConversions._
 import scala.collection.immutable.{ NumericRange, TreeSet }
 import scala.collection.mutable
-import scala.util.Random
 
 private[read] object RealignIndels extends Serializable with Logging {
 
@@ -255,14 +254,17 @@ private[read] class RealignIndels(
           reference,
           refRegion
         ).zipWithIndex
-        val observedConsensus = consensusModel.findConsensus(reads)
+        val observedConsensusSeq = consensusModel.findConsensus(reads)
           .toSeq
-          .distinct
+        val observedConsensus = observedConsensusSeq.distinct
 
         // reduce count of consensus sequences
         val consensus = if (observedConsensus.size > maxConsensusNumber) {
-          val r = new Random()
-          r.shuffle(observedConsensus).take(maxConsensusNumber)
+          // sort by the number of times that the consensus was seen
+          // sorts ascending (least frequent comes first), so take from right
+          observedConsensus.sortBy(c => {
+            observedConsensusSeq.count(c == _)
+          }).takeRight(maxConsensusNumber)
         } else {
           observedConsensus
         }
