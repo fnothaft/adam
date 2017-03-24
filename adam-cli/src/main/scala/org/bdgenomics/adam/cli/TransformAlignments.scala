@@ -79,6 +79,8 @@ class TransformAlignmentsArgs extends Args4jBase with ADAMSaveAnyArgs with Parqu
   var lodThreshold = 5.0
   @Args4jOption(required = false, name = "-unclip_reads", usage = "If true, unclips reads during realignment.")
   var unclipReads = false
+  @Args4jOption(required = false, name = "-dump_file", usage = "Debug dump path for indel realignment.")
+  var dumpFile: String = _
   @Args4jOption(required = false, name = "-max_target_size", usage = "The maximum length of a target region to attempt realigning. Default length is 3000.")
   var maxTargetSize = 3000
   @Args4jOption(required = false, name = "-max_reads_per_target", usage = "The maximum number of reads attached to a target considered for realignment. Default is 20000.")
@@ -219,7 +221,8 @@ class TransformAlignments(protected val args: TransformAlignmentsArgs) extends B
         maxTargetSize = args.maxTargetSize,
         maxReadsPerTarget = args.maxReadsPerTarget,
         optReferenceFile = optReferenceFile,
-        unclipReads = args.unclipReads
+        unclipReads = args.unclipReads,
+        optDumpPath = Option(args.dumpFile)
       )
 
       // unpersist our input, if persisting was requested
