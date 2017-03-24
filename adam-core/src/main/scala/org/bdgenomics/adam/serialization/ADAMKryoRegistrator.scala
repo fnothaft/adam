@@ -326,6 +326,7 @@ class ADAMKryoRegistrator extends KryoRegistrator {
     kryo.register(classOf[scala.collection.immutable.Range])
     kryo.register(Class.forName("scala.collection.immutable.Stream$Cons"))
     kryo.register(Class.forName("scala.collection.immutable.Stream$Empty$"))
+    kryo.register(Class.forName("scala.collection.immutable.Set$EmptySet$"))
 
     // scala.collection.mutable
     kryo.register(classOf[scala.collection.mutable.ArrayBuffer[_]])

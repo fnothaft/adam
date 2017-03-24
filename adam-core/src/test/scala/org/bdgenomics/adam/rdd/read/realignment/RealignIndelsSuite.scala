@@ -307,7 +307,7 @@ class RealignIndelsSuite extends ADAMFunSuite {
       .collect()
 
     val movedReads = result.filter(pair => pair._1 != pair._2)
-    assert(movedReads.size === 1)
+    assert(movedReads.size === 18)
     val read = movedReads.map(_._2)
       .filter(_.getReadName === "H06HDADXX130110:1:1114:19044:27806")
       .head
