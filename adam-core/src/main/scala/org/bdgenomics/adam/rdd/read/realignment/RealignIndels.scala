@@ -85,18 +85,11 @@ private[read] object RealignIndels extends Serializable with Logging {
     read: RichAlignmentRecord,
     targets: Array[IndelRealignmentTarget],
     headIdx: Int,
-    tailIdx: Int,
-    targetsToDrop: Set[Int] = Set.empty): Int = {
+    tailIdx: Int): Int = {
     // Perform tail call recursive binary search
     if (TargetOrdering.contains(targets(headIdx), read)) {
-      // if there is overlap, return the overlapping target, unless it has been
-      // flagged to be dropped, in which case, return an empty target (negative
-      // index)
-      if (targetsToDrop(headIdx)) {
-        -read.record.hashCode.abs
-      } else {
-        headIdx
-      }
+      // if there is overlap, return the overlapping target
+      headIdx
     } else if (tailIdx - headIdx <= 1) {
       // else, return an empty target (negative index)
       -read.record.hashCode.abs
@@ -126,7 +119,6 @@ private[read] object RealignIndels extends Serializable with Logging {
    *
    * @param rich_rdd RDD containing RichADAMRecords which are to be mapped to a realignment target.
    * @param targets Set of targets that are to be mapped against.
-   * @param maxReadsPerTarget The maximum number of reads to allow per target.
    *
    * @return A key-value pair RDD with realignment targets matched with sets of reads.
    *
@@ -135,7 +127,6 @@ private[read] object RealignIndels extends Serializable with Logging {
   def mapTargets(
     rich_rdd: RDD[RichAlignmentRecord],
     targets: Array[IndelRealignmentTarget],
-    maxReadsPerTarget: Int = Int.MaxValue,
     optDumpFile: Option[String] = None): RDD[(Option[(Int, IndelRealignmentTarget)], Iterable[RichAlignmentRecord])] = MapTargets.time {
 
     optDumpFile.foreach(filePath => {
@@ -159,22 +150,8 @@ private[read] object RealignIndels extends Serializable with Logging {
     val broadcastTargets = rich_rdd.context.broadcast(targets)
     val targetSize = targets.length
     log.info("Mapping reads to %d targets.".format(targetSize))
-    val targetsToDrop = rich_rdd.flatMap(r => {
-      Some(mapToTarget(r, broadcastTargets.value, 0, targetSize))
-        .filter(_ >= 0)
-        .map(v => (v, 1))
-    }).reduceByKey(_ + _)
-      .filter(p => p._2 >= maxReadsPerTarget)
-      .map(_._1)
-      .collect
-      .toSet
-    val bcastTargetsToDrop = rich_rdd.context.broadcast(targetsToDrop)
     val readsMappedToTarget = rich_rdd.groupBy((r: RichAlignmentRecord) => {
-      mapToTarget(r,
-        broadcastTargets.value,
-        0,
-        targetSize,
-        targetsToDrop = bcastTargetsToDrop.value)
+      mapToTarget(r, broadcastTargets.value, 0, targetSize)
     }, ModPartitioner(rich_rdd.partitions.length))
       .map(kv => {
         val (k, v) = kv
@@ -263,6 +240,11 @@ private[read] class RealignIndels(
 
     if (target.isEmpty) {
       // if the indel realignment target is empty, do not realign
+      reads
+    } else if (reads.size > maxReadsPerTarget) {
+      val (targetIdx, _) = target.get
+      log.info("Skipping target %d with %d reads (max: %d)...".format(
+        targetIdx, reads.size, maxReadsPerTarget))
       reads
     } else {
       try {
@@ -690,10 +672,14 @@ private[read] class RealignIndels(
     } else {
       // map reads to targets
       log.info("Grouping reads by target...")
+<<<<<<< HEAD
       val readsMappedToTarget = RealignIndels.mapTargets(richRdd,
         targets,
         maxReadsPerTarget = maxReadsPerTarget,
         optDumpFile = optDumpPath)
+=======
+      val readsMappedToTarget = RealignIndels.mapTargets(richRdd, targets)
+>>>>>>> parent of 0370389... Delete high coverage targets with reduceByKey.
       richRdd.unpersist()
 
       // realign target groups
