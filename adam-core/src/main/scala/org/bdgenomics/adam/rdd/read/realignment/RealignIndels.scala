@@ -327,7 +327,7 @@ private[read] class RealignIndels(
           os.write(reads.map(r => {
             rIdx += 1
             "%d\t%s".format(rIdx, (0 until 33).map(idx => {
-              r.get(idx).toString.replace("\t", "\\t")
+              Option(r.get(idx)).fold("null")(_.toString).replace("\t", "\\t")
             }).mkString("\t"))
           }).mkString("\n").getBytes)
           os.flush()
