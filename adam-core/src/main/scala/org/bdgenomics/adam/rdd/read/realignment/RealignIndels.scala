@@ -291,7 +291,7 @@ private[read] class RealignIndels(
     }
   }
 
-  val fs = FileSystem.get(new URI("hdfs://amp-bdg-master.amplab.net:8020"),
+  @transient val fs = FileSystem.get(new URI("hdfs://amp-bdg-master.amplab.net:8020"),
     new Configuration())
   optDumpPath.foreach(filePath => {
     fs.mkdirs(new Path(filePath))
