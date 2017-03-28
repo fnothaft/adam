@@ -221,7 +221,7 @@ private[read] class RealignIndels(
     val optDumpPath: Option[String] = None) extends Serializable with Logging {
   require(falloff >= 1, "Falloff (%d) must be >= 1".format(falloff))
 
-  val fs = FileSystem.get(new URI("hdfs://amp-bdg-master.amplab.net:8020"),
+  @transient val fs = FileSystem.get(new URI("hdfs://amp-bdg-master.amplab.net:8020"),
     new Configuration())
   optDumpPath.foreach(filePath => {
     fs.mkdirs(new Path(filePath))
