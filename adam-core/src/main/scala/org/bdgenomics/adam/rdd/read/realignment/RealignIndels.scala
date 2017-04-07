@@ -131,7 +131,7 @@ private[read] object RealignIndels extends Serializable with Logging {
     optDumpFile: Option[String] = None): RDD[(Option[(Int, IndelRealignmentTarget)], Iterable[RichAlignmentRecord])] = MapTargets.time {
 
     optDumpFile.foreach(filePath => {
-      val fs = FileSystem.get(new URI("hdfs://amp-bdg-master.amplab.net:8020"), new Configuration())
+      val fs = FileSystem.getLocal(new Configuration())
 
       // get a stream to write to a file
       val os = fs.create(new Path("%s/ir.targets.tsv".format(filePath)))
@@ -221,8 +221,7 @@ private[read] class RealignIndels(
     val optDumpPath: Option[String] = None) extends Serializable with Logging {
   require(falloff >= 1, "Falloff (%d) must be >= 1".format(falloff))
 
-  @transient val fs = FileSystem.get(new URI("hdfs://amp-bdg-master.amplab.net:8020"),
-    new Configuration())
+  @transient val fs = FileSystem.getLocal(new Configuration())
   optDumpPath.foreach(filePath => {
     fs.mkdirs(new Path(filePath))
   })
@@ -254,8 +253,7 @@ private[read] class RealignIndels(
         // bootstrap realigned read set with the reads that need to be realigned
         val (realignedReads, readsToRealign) = reads.partition(r => r.mdTag.exists(!_.hasMismatches))
 
-        val fs = FileSystem.get(new URI("hdfs://amp-bdg-master.amplab.net:8020"),
-          new Configuration())
+        val fs = FileSystem.getLocal(new Configuration())
         optDumpPath.foreach(filePath => {
           val path = new Path("%s/%d.reads.tsv".format(filePath, targetIdx))
           val os = fs.create(path)
