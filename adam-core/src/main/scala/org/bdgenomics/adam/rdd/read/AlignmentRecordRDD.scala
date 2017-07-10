@@ -190,8 +190,15 @@ case class DatasetBoundAlignmentRecordRDD private[rdd] (
                              compressCodec: CompressionCodecName = CompressionCodecName.GZIP,
                              disableDictionaryEncoding: Boolean = false) {
     log.warn("Saving directly as Parquet from SQL. Options other than compression codec are ignored.")
-    dataset.toDF()
-      .write
+    import org.apache.spark.sql.functions._
+    val posBinSize: Int = 10000
+    val df = dataset.toDF()
+
+    // to be added when bdg-formats avro is updated with posBin field
+    // df.withColumn("posBin", floor(df("start") / posBinSize))
+    df.write
+      //.partitionBy("contigName", "posBin")  // to be added when avro updated with posBin
+      .partitionBy("contigName")
       .format("parquet")
       .option("spark.sql.parquet.compression.codec", compressCodec.toString.toLowerCase())
       .save(filePath)
