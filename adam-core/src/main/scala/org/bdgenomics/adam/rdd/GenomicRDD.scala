@@ -1389,12 +1389,12 @@ trait GenomicDataset[T, U <: Product, V <: GenomicDataset[T, U, V]] extends Geno
  * An abstract class describing a GenomicRDD where:
  *
  * * The data are Avro IndexedRecords.
- * * The data are associated to read groups (i.e., they are reads or fragments).
+ * * The data are associated to record groups (i.e., they are reads or fragments).
  */
-abstract class AvroReadGroupGenomicRDD[T <% IndexedRecord: Manifest, U <: Product, V <: AvroReadGroupGenomicRDD[T, U, V]] extends AvroGenomicRDD[T, U, V] {
+abstract class AvroRecordGroupGenomicRDD[T <% IndexedRecord: Manifest, U <: Product, V <: AvroRecordGroupGenomicRDD[T, U, V]] extends AvroGenomicRDD[T, U, V] {
 
   /**
-   * A dictionary describing the read groups attached to this GenomicRDD.
+   * A dictionary describing the record groups attached to this GenomicRDD.
    */
   val recordGroups: RecordGroupDictionary
 
