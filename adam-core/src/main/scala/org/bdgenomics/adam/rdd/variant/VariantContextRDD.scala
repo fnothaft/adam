@@ -115,6 +115,45 @@ case class VariantContextRDD(rdd: RDD[VariantContext],
                              optPartitionMap: Option[Array[Option[(ReferenceRegion, ReferenceRegion)]]]) extends MultisampleGenomicRDD[VariantContext, VariantContextRDD]
     with Logging {
 
+  def replaceSequences(
+    newSequences: SequenceDictionary): VariantContextRDD = {
+    copy(sequences = newSequences)
+  }
+
+  /**
+   * Replaces the header lines attached to this RDD.
+   *
+   * @param newHeaderLines The new header lines to attach to this RDD.
+   * @return A new RDD with the header lines replaced.
+   */
+  def replaceHeaderLines(newHeaderLines: Seq[VCFHeaderLine]): VariantContextRDD = {
+    copy(headerLines = newHeaderLines)
+  }
+
+  /**
+   * Appends new header lines to the existing lines.
+   *
+   * @param headerLinesToAdd Zero or more header lines to add.
+   * @return A new RDD with the new header lines added.
+   */
+  def addHeaderLines(headerLinesToAdd: Seq[VCFHeaderLine]): VariantContextRDD = {
+    replaceHeaderLines(headerLines ++ headerLinesToAdd)
+  }
+
+  /**
+   * Appends a new header line to the existing lines.
+   *
+   * @param headerLineToAdd A header line to add.
+   * @return A new RDD with the new header line added.
+   */
+  def addHeaderLine(headerLineToAdd: VCFHeaderLine): VariantContextRDD = {
+    addHeaderLines(Seq(headerLineToAdd))
+  }
+
+  def replaceSamples(newSamples: Seq[Sample]): VariantContextRDD = {
+    copy(samples = newSamples)
+  }
+
   protected def buildTree(rdd: RDD[(ReferenceRegion, VariantContext)])(
     implicit tTag: ClassTag[VariantContext]): IntervalArray[ReferenceRegion, VariantContext] = {
     IntervalArray(rdd, VariantContextArray.apply(_, _))

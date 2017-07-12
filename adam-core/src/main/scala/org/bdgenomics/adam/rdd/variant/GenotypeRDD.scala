@@ -123,6 +123,19 @@ case class ParquetUnboundGenotypeRDD private[rdd] (
     import sqlContext.implicits._
     sqlContext.read.parquet(parquetFilename).as[GenotypeProduct]
   }
+
+  def replaceSequences(
+    newSequences: SequenceDictionary): GenotypeRDD = {
+    copy(sequences = newSequences)
+  }
+
+  def replaceHeaderLines(newHeaderLines: Seq[VCFHeaderLine]): GenotypeRDD = {
+    copy(headerLines = newHeaderLines)
+  }
+
+  def replaceSamples(newSamples: Seq[Sample]): GenotypeRDD = {
+    copy(samples = newSamples)
+  }
 }
 
 case class DatasetBoundGenotypeRDD private[rdd] (
@@ -153,6 +166,19 @@ case class DatasetBoundGenotypeRDD private[rdd] (
     tFn: Dataset[GenotypeProduct] => Dataset[GenotypeProduct]): GenotypeRDD = {
     copy(dataset = tFn(dataset))
   }
+
+  def replaceSequences(
+    newSequences: SequenceDictionary): GenotypeRDD = {
+    copy(sequences = newSequences)
+  }
+
+  def replaceHeaderLines(newHeaderLines: Seq[VCFHeaderLine]): GenotypeRDD = {
+    copy(headerLines = newHeaderLines)
+  }
+
+  def replaceSamples(newSamples: Seq[Sample]): GenotypeRDD = {
+    copy(samples = newSamples)
+  }
 }
 
 case class RDDBoundGenotypeRDD private[rdd] (
@@ -169,6 +195,19 @@ case class RDDBoundGenotypeRDD private[rdd] (
     val sqlContext = SQLContext.getOrCreate(rdd.context)
     import sqlContext.implicits._
     sqlContext.createDataset(rdd.map(GenotypeProduct.fromAvro))
+  }
+
+  def replaceSequences(
+    newSequences: SequenceDictionary): GenotypeRDD = {
+    copy(sequences = newSequences)
+  }
+
+  def replaceHeaderLines(newHeaderLines: Seq[VCFHeaderLine]): GenotypeRDD = {
+    copy(headerLines = newHeaderLines)
+  }
+
+  def replaceSamples(newSamples: Seq[Sample]): GenotypeRDD = {
+    copy(samples = newSamples)
   }
 }
 
