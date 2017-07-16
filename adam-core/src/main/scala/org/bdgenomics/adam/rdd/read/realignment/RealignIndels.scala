@@ -151,10 +151,10 @@ private[read] object RealignIndels extends Serializable with Logging {
     optDumpFile: Option[String] = None): RDD[(Option[(Int, IndelRealignmentTarget)], Iterable[RichAlignmentRecord])] = MapTargets.time {
 
     optDumpFile.foreach(filePath => {
-      val fs = FileSystem.getLocal(new Configuration())
+      @transient val fs = FileSystem.getLocal(new Configuration())
 
       // get a stream to write to a file
-      val os = fs.create(new Path("%s/ir.targets.tsv".format(filePath)))
+      @transient val os = fs.create(new Path("%s/ir.targets.tsv".format(filePath)))
 
       os.write("ID\tcontigName\tstart\tend\n".getBytes())
       (0 until targets.length).foreach(idx => {
