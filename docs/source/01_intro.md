@@ -4,11 +4,12 @@ ADAM is a library and command line tool that enables the use of [Apache
 Spark](https://spark.apache.org) to parallelize genomic data analysis across
 cluster/cloud computing environments. ADAM uses a set of schemas to describe
 genomic sequences, reads, variants/genotypes, and features, and can be used
-with data in legacy genomic file formats such as SAM/BAM/CRAM or VCF, as well
-as data stored in the columnar [Apache Parquet](https://parquet.apache.org)
-format. On a single node, ADAM provides competitive performance to optimized
-multi-threaded tools, while enabling scale out to clusters with more than a
-thousand cores. ADAM's APIs can be used from Scala, Java, Python, R, and SQL.
+with data in legacy genomic file formats such as SAM/BAM/CRAM, BED/GFF3/GTF,
+and VCF, as well as data stored in the columnar
+[Apache Parquet](https://parquet.apache.org) format. On a single node, ADAM
+provides competitive performance to optimized multi-threaded tools, while
+enabling scale out to clusters with more than a thousand cores. ADAM's APIs
+can be used from Scala, Java, Python, R, and SQL.
 
 ## The ADAM/Big Data Genomics Ecosystem
 
@@ -28,7 +29,8 @@ built using ADAM's core APIs:
   on top of ADAM for germline and somatic calling
 - [Cannoli](https://github.com/bigdatagenomics/cannoli) uses ADAM's [pipe](#pipes)
   API to parallelize common single-node genomics tools (e.g.,
-  [BWA](https://github.com/lh3/bwa), bowtie,
+  [BWA](https://github.com/lh3/bwa),
+  [bowtie2](http://bowtie-bio.sourceforge.net/bowtie2/index.shtml),
   [FreeBayes](https://github.com/ekg/freebayes))
 - [DECA](https://github.com/bigdatagenomics/deca) is a reimplementation of the
   XHMM copy number variant caller on top of ADAM/Apache Spark
@@ -43,12 +45,20 @@ built using ADAM's core APIs:
 
 ## Connecting with the ADAM team
 
-* Follow our Twitter account at [https://twitter.com/bigdatagenomics/](https://twitter.com/bigdatagenomics/)
-* Chat with ADAM developers at [https://gitter.im/bigdatagenomics/adam](https://gitter.im/bigdatagenomics/adam)
-* Join our mailing list at [http://bdgenomics.org/mail](http://bdgenomics.org/mail)
-* Checkout the current build status at [https://amplab.cs.berkeley.edu/jenkins/](https://amplab.cs.berkeley.edu/jenkins/view/Big%20Data%20Genomics/)
-* Download official releases at [https://github.com/bigdatagenomics/adam/releases](https://github.com/bigdatagenomics/adam/releases)
-* View our software artifacts on Maven Central at [http://search.maven.org/#search%7Cga%7C1%7Corg.bdgenomics](http://search.maven.org/#search%7Cga%7C1%7Corg.bdgenomics)
-* See our snapshots at [https://oss.sonatype.org/index.html#nexus-search;quick~bdgenomics](https://oss.sonatype.org/index.html#nexus-search;quick~bdgenomics)
-* Look at our CHANGES file at [https://github.com/bigdatagenomics/adam/blob/master/CHANGES.md](https://github.com/bigdatagenomics/adam/blob/master/CHANGES.md)
+* Follow our Twitter account at
+  [https://twitter.com/bigdatagenomics/](https://twitter.com/bigdatagenomics/)
+* Chat with ADAM developers at
+  [https://gitter.im/bigdatagenomics/adam](https://gitter.im/bigdatagenomics/adam)
+* Join our mailing list at
+  [http://bdgenomics.org/mail](http://bdgenomics.org/mail)
+* Checkout the current build status at
+  [https://amplab.cs.berkeley.edu/jenkins/](https://amplab.cs.berkeley.edu/jenkins/view/Big%20Data%20Genomics/)
+* Download official releases at
+  [https://github.com/bigdatagenomics/adam/releases](https://github.com/bigdatagenomics/adam/releases)
+* View our software artifacts on Maven Central at
+  [http://search.maven.org/#search%7Cga%7C1%7Corg.bdgenomics](http://search.maven.org/#search%7Cga%7C1%7Corg.bdgenomics)
+* See our snapshots at
+  [https://oss.sonatype.org/index.html#nexus-search;quick~bdgenomics](https://oss.sonatype.org/index.html#nexus-search;quick~bdgenomics)
+* Look at our CHANGES file at
+  [https://github.com/bigdatagenomics/adam/blob/master/CHANGES.md](https://github.com/bigdatagenomics/adam/blob/master/CHANGES.md)
 
