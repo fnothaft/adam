@@ -23,7 +23,7 @@
         <artifactId>exec-maven-plugin</artifactId>
         <executions>
           <execution>
-            <id>dev-r</id>
+            <id>doc-r</id>
             <phase>process-resources</phase>
             <goals>
               <goal>exec</goal>
