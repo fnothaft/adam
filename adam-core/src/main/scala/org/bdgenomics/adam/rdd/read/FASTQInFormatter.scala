@@ -46,8 +46,8 @@ class FASTQInFormatter private (
 
   protected val companion = FASTQInFormatter
   private val converter = new AlignmentRecordConverter
-  private val writeSuffixes = conf.getBoolean(FragmentRDD.WRITE_SUFFIXES, false)
-  private val writeOriginalQualities = conf.getBoolean(FragmentRDD.WRITE_ORIGINAL_QUALITIES, false)
+  private val writeSuffixes = conf.getBoolean(AlignmentRecordRDD.WRITE_SUFFIXES, false)
+  private val writeOriginalQualities = conf.getBoolean(AlignmentRecordRDD.WRITE_ORIGINAL_QUALITIES, false)
 
   /**
    * Writes alignment records to an output stream in FASTQ format.

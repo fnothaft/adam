@@ -863,7 +863,7 @@ class AlignmentRecordRDDSuite extends ADAMFunSuite {
 
   sparkTest("don't lose any reads when piping fastq to sam") {
     // write suffixes at end of reads
-    sc.hadoopConfiguration.setBoolean(FragmentRDD.WRITE_SUFFIXES, true)
+    sc.hadoopConfiguration.setBoolean(AlignmentRecordRDD.WRITE_SUFFIXES, true)
 
     val fragmentsPath = testFile("interleaved_fastq_sample1.ifq")
     val ardd = sc.loadFragments(fragmentsPath).toReads
